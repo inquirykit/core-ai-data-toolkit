@@ -1,0 +1,215 @@
+# Models served by OpenAI-compatible servers, each with backends tried in order.
+#
+# Copy to model_servers.toml (or point MODEL_SERVERS_FILE at another file)
+# and restart. Each [models."<id>"] entry makes <id> a model clients can name
+# in /v1/chat/completions and /inference. Entries can also be added and
+# edited in /admin (Model servers); those are saved to MODEL_SERVERS_SAVED_FILE
+# and replace this file's entry of the same name until reverted.
+#
+# A model has one or more backends. When it loads, every backend is probed
+# and the first that can serve it is used until the model unloads:
+#   provider / url  a server that already runs (Ollama, LM Studio, a GPU box).
+#                   It must answer health_path; when that is a model list
+#                   (/v1/models), it must list upstream_model, or it is used
+#                   only if no other backend can serve the model.
+#   cmd             a server this service starts on the first request and
+#                   stops when the cache evicts it (or after MODEL_IDLE_TIMEOUT).
+#                   Its program must be installed. One that fails to start is
+#                   skipped for a minute and the next backend is tried.
+#   hub             a Hub model run in this process (Transformers): the last
+#                   resort, often too big unquantized.
+# A server elsewhere that stops answering drops the model; the request is
+# retried once on the next backend. Each response names the backend that
+# answered ("backend" in the result, "toolkit.backend" in /v1 replies), and so
+# does each request's trace.
+#
+# Models listed here are always allowed (ALLOWED_MODELS need not list them),
+# and they win over any model file that claims the same ID.
+#
+# [providers.<name>] names a server once for every backend on it:
+#   url, health_path, max_concurrency, request_timeout, on_evict ("unload": ask
+#   Ollama to unload the model when the cache evicts it), description.
+#   A backend with provider = "<name>" takes these unless it sets its own.
+#
+# A model's keys:
+#   task             "text-generation", "vision-language" (images, audio),
+#                    "embedding" (/v1/embeddings), "rerank" (/v1/rerank) or
+#                    "speech-to-text" (/v1/audio/transcriptions). Chat tasks
+#                    get tools and response_format passed through.
+#   backends         the list of backends, in order. Without it, the model's
+#                    own backend keys (cmd or url beside task) are its one backend.
+#   description      one line the model browser in /admin and /playground shows
+#   tags             labels to filter by there, e.g. ["chat", "mlx"]
+#
+# A backend's keys (exactly one of provider, url, cmd, hub):
+#   provider         a [providers] name
+#   url              the base URL of a server that already runs; never started
+#                    or stopped here, and counts as 0 GB unless memory_gb says
+#   cmd              command to start the server; {port} is replaced by a free port.
+#                    A string (split like a shell would) or a list.
+#   hub              a Hub model ID run in this process
+#   upstream_model   the "model" sent to the server (default: the model ID)
+#   memory_gb        what it counts against MAX_MEMORY_GB (default: estimated
+#                    from the weights of upstream_model or hub; 0 for url)
+#   max_concurrency  requests sent at once (default 8; servers batch them)
+#   startup_timeout  seconds a cmd server has to answer health_path (600)
+#   request_timeout  seconds per request (600)
+#   health_path      GET path that answers 200 once the server is ready ("/v1/models")
+#   on_evict         "stop" (default), "sleep" for vLLM sleep mode (cmd, see
+#                    below), or "unload" for Ollama (provider, url)
+#   env              extra environment variables for a cmd server
+#   extra            fields added to each chat request, e.g. a thinking switch;
+#                    the request's own fields win
+#
+# /admin may only keep the cmd and env this file gives a model, unless
+# MODEL_SERVERS_ALLOW_COMMANDS is on: commands run on this host.
+#
+# On a Mac, run the service natively (not in a container): containers on
+# macOS get no Metal GPU, so MLX and MPS only work in host processes.
+
+# --- Ollama or LM Studio first, else a server started here -------------------
+# The 4B model goes to Ollama when it runs and has the model pulled, else to
+# LM Studio, else the service starts MLX itself. From a container, use
+# http://host.docker.internal:11434 (cmd backends cannot run Metal there).
+
+[providers.ollama]
+url = "http://127.0.0.1:11434"
+on_evict = "unload"
+max_concurrency = 4
+
+[providers.lmstudio]
+url = "http://127.0.0.1:1234"
+max_concurrency = 4
+
+# Each [[models."<id>".backends]] table is the next backend, in order.
+[models."qwen3.5-4b"]
+task = "vision-language"
+description = "Qwen3.5 4B: chat, images and documents"
+tags = ["chat", "image"]
+
+[[models."qwen3.5-4b".backends]]
+provider = "ollama"
+upstream_model = "qwen3.5:4b"
+
+[[models."qwen3.5-4b".backends]]
+provider = "lmstudio"
+upstream_model = "qwen/qwen3.5-4b"
+
+[[models."qwen3.5-4b".backends]]
+cmd = "mlx_vlm.server --model mlx-community/Qwen3.5-4B-4bit --host 127.0.0.1 --port {port}"
+upstream_model = "mlx-community/Qwen3.5-4B-4bit"
+memory_gb = 3.5
+
+# --- Apple Silicon: MLX servers (pip install mlx-vlm mlx-lm) ---------------
+# Models of 3B and up fit the default 8 GB budget only quantized, so they are
+# served this way (or by llama-server below) rather than in-process in bf16.
+
+[models."qwen3.5-4b-mlx"]
+task = "vision-language"
+cmd = "mlx_vlm.server --model mlx-community/Qwen3.5-4B-4bit --host 127.0.0.1 --port {port}"
+upstream_model = "mlx-community/Qwen3.5-4B-4bit"
+memory_gb = 3.5
+description = "Qwen3.5 4B, 4-bit MLX: chat, images, documents and video on Apple Silicon"
+tags = ["chat", "image", "mlx"]
+
+[models."qwen3.5-9b"]
+task = "vision-language"
+cmd = "mlx_vlm.server --model mlx-community/Qwen3.5-9B-4bit --host 127.0.0.1 --port {port}"
+upstream_model = "mlx-community/Qwen3.5-9B-4bit"
+memory_gb = 7
+description = "Qwen3.5 9B, 4-bit MLX: the most capable model that fits 16 GB of memory"
+tags = ["chat", "image", "mlx"]
+
+[models."qwen3.5-2b"]
+task = "text-generation"
+cmd = "mlx_lm.server --model mlx-community/Qwen3.5-2B-4bit --host 127.0.0.1 --port {port}"
+upstream_model = "mlx-community/Qwen3.5-2B-4bit"
+memory_gb = 1.8
+description = "Qwen3.5 2B, 4-bit MLX: text chat"
+tags = ["chat", "mlx"]
+
+[models."gemma-4-e4b"]
+task = "vision-language"
+cmd = "mlx_vlm.server --model mlx-community/gemma-4-E4B-it-4bit --host 127.0.0.1 --port {port}"
+upstream_model = "mlx-community/gemma-4-E4B-it-4bit"
+memory_gb = 5.5
+description = "Gemma 4 E4B, 4-bit MLX: chat with images and audio clips (up to 30 s)"
+tags = ["chat", "image", "audio", "mlx"]
+
+# --- CUDA: vLLM (pip install vllm) ------------------------------------------
+# on_evict = "sleep" parks the weights in host RAM instead of stopping the
+# server, so the model wakes in seconds instead of reloading. It needs
+# --enable-sleep-mode and VLLM_SERVER_DEV_MODE=1, whose endpoints must not be
+# reachable by clients: keep --host 127.0.0.1. Pin a vLLM version you tested
+# sleep mode with. --gpu-memory-utilization keeps vLLM to its share of the GPU.
+#
+# [models."Qwen/Qwen2.5-VL-7B-Instruct"]
+# task = "vision-language"
+# cmd = "vllm serve Qwen/Qwen2.5-VL-7B-Instruct --host 127.0.0.1 --port {port} --gpu-memory-utilization 0.45 --max-model-len 8192 --enable-sleep-mode"
+# memory_gb = 20
+# on_evict = "sleep"
+# health_path = "/health"
+# env = { VLLM_SERVER_DEV_MODE = "1" }
+
+# --- llama.cpp (GGUF; Metal or CUDA) ----------------------------------------
+# -hf downloads the repo's default quantization (and its mmproj for images
+# and audio). Gemma 4's GGUFs take audio parts; Qwen3.5's do text only here.
+#
+# [models."gemma-4-e2b"]
+# task = "vision-language"
+# cmd = "llama-server -hf ggml-org/gemma-4-E2B-it-GGUF --host 127.0.0.1 --port {port}"
+# memory_gb = 3.5
+# health_path = "/health"
+# description = "Gemma 4 E2B, Q4 GGUF: chat with images and audio clips (up to 30 s)"
+# tags = ["chat", "image", "audio"]
+#
+# [models."qwen3.5-9b-gguf"]
+# task = "text-generation"
+# cmd = "llama-server -hf unsloth/Qwen3.5-9B-GGUF:Q4_K_M --host 127.0.0.1 --port {port} --chat-template-kwargs '{\"enable_thinking\":false}'"
+# memory_gb = 6.5
+# health_path = "/health"
+# description = "Qwen3.5 9B, Q4 GGUF, thinking off"
+#
+# [models."granite-4.1-3b"]
+# task = "text-generation"
+# cmd = "llama-server -hf ibm-granite/granite-4.1-3b-GGUF:Q4_K_M --host 127.0.0.1 --port {port}"
+# memory_gb = 2.5
+# health_path = "/health"
+# description = "Granite 4.1 3B, Q4 GGUF: quick direct answers, no thinking step"
+#
+# [models."lfm2.5-vl-1.6b"]
+# task = "vision-language"
+# cmd = "llama-server -hf LiquidAI/LFM2.5-VL-1.6B-GGUF:Q4_K_M --host 127.0.0.1 --port {port}"
+# memory_gb = 1.5
+# health_path = "/health"
+# description = "LFM2.5-VL 1.6B, Q4 GGUF: fast image Q&A (LFM Open License)"
+
+# Embeddings from llama-server (GGUF):
+#
+# [models."qwen3-embedding-0.6b"]
+# task = "embedding"
+# cmd = "llama-server -hf Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0 --embedding --pooling last --host 127.0.0.1 --port {port}"
+# memory_gb = 0.7
+# health_path = "/health"
+#
+# [models."embeddinggemma-2"]
+# task = "embedding"
+# cmd = "llama-server -hf ggml-org/embeddinggemma-2-GGUF:Q8_0 --embedding --host 127.0.0.1 --port {port}"
+# memory_gb = 0.5
+# health_path = "/health"
+
+# --- Speech-to-text ------------------------------------------------------------
+# whisper.cpp's server answers OpenAI's path when told to:
+#
+# [models."whisper-small"]
+# task = "speech-to-text"
+# cmd = "whisper-server -m ggml-small.bin --host 127.0.0.1 --port {port} --inference-path /v1/audio/transcriptions"
+# memory_gb = 1
+# health_path = "/"
+
+# --- A server running elsewhere (another GPU box, llama-swap, ...) -----------
+#
+# [models."big-chat"]
+# task = "text-generation"
+# url = "http://gpu-box:8000"
+# upstream_model = "meta-llama/Llama-3.1-70B-Instruct"

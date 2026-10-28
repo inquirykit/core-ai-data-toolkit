@@ -1,0 +1,38 @@
+{
+  "name": "nvd",
+  "kind": "http",
+  "description": "CVSS scores, status and CISA KEV date of a CVE (NVD; a free key raises the rate limit)",
+  "docs": "https://nvd.nist.gov/developers/vulnerabilities",
+  "inputs": [
+    "cve"
+  ],
+  "terms": "attribution",
+  "attribution": "This product uses the NVD API but is not endorsed or certified by the NVD.",
+  "secret": "NVD_API_KEY",
+  "secret_optional": true,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": "5/min",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "cveId": "{value}"
+    },
+    "headers": {
+      "apiKey": "{secret}"
+    },
+    "body": null,
+    "body_format": "json",
+    "url": "https://services.nvd.nist.gov/rest/json/cves/2.0"
+  },
+  "outputs": {
+    "cvss_v31": "vulnerabilities[0].cve.metrics.cvssMetricV31[0].cvssData.baseScore",
+    "severity": "vulnerabilities[0].cve.metrics.cvssMetricV31[0].cvssData.baseSeverity",
+    "cvss_v40": "vulnerabilities[0].cve.metrics.cvssMetricV40[0].cvssData.baseScore",
+    "published": "vulnerabilities[0].cve.published",
+    "status": "vulnerabilities[0].cve.vulnStatus",
+    "kev_added": "vulnerabilities[0].cve.cisaExploitAdd"
+  }
+}

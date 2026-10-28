@@ -1,0 +1,34 @@
+{
+  "name": "ripestat_abuse",
+  "kind": "http",
+  "description": "Abuse contact addresses for an IP address, prefix or AS (RIPEstat, keyless)",
+  "docs": "https://stat.ripe.net/docs/02.data-api/abuse-contact-finder.html",
+  "inputs": [
+    "ipv4",
+    "ipv6",
+    "cidr",
+    "asn"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "resource": "{value}"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://stat.ripe.net/data/abuse-contact-finder/data.json"
+  },
+  "outputs": {
+    "abuse_contacts": "data.abuse_contacts"
+  }
+}

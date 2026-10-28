@@ -1,0 +1,40 @@
+# Patterns match from the build context's root; **/ makes one match at any depth.
+.git
+**/.env
+**/*.env
+**/.env.*
+!env.example
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.venv/
+**/.DS_Store
+
+# Claude Code's local files: its agent worktrees are whole copies of the repo
+.claude/
+
+# Local state, logs and notes that are not part of the service
+data/config/
+data/arcadedb/
+data/enrichers/
+data/evidence/
+data/model_servers.json
+data/monitoring/
+log/
+reports/
+research_notes/
+TODO.md
+# The image reads its model servers from /app/data/config (Dockerfile)
+model_servers.toml
+
+# The images build the frontend themselves
+**/node_modules/
+**/*.tsbuildinfo
+api/static/
+
+# Job environments are built in the image (--build-arg JOB_ENVS); job files and inputs stay out
+envs/
+data/jobs/
+data/datasets/

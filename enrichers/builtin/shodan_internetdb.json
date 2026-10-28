@@ -1,0 +1,33 @@
+{
+  "name": "shodan_internetdb",
+  "kind": "http",
+  "description": "Open ports, hostnames, CPEs and known vulnerabilities of an IP address (Shodan InternetDB, keyless)",
+  "docs": "https://internetdb.shodan.io/",
+  "inputs": [
+    "ipv4"
+  ],
+  "terms": "non_commercial",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://internetdb.shodan.io/{value}"
+  },
+  "outputs": {
+    "ports": "ports",
+    "hostnames": "hostnames",
+    "cpes": "cpes",
+    "vulns": "vulns",
+    "tags": "tags"
+  }
+}

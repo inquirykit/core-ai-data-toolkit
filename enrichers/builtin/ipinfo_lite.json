@@ -1,0 +1,36 @@
+{
+  "name": "ipinfo_lite",
+  "kind": "http",
+  "description": "Country and ASN of an IP address (IPinfo Lite, unlimited with a free token)",
+  "docs": "https://ipinfo.io/developers",
+  "inputs": [
+    "ipv4",
+    "ipv6"
+  ],
+  "terms": "attribution",
+  "attribution": "IP address data powered by IPinfo (ipinfo.io), CC BY-SA 4.0",
+  "secret": "IPINFO_TOKEN",
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "token": "{secret}"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://api.ipinfo.io/lite/{value}"
+  },
+  "outputs": {
+    "asn": "asn",
+    "as_name": "as_name",
+    "as_domain": "as_domain",
+    "country": "country_code",
+    "continent": "continent"
+  }
+}

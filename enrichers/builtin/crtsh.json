@@ -1,0 +1,34 @@
+{
+  "name": "crtsh",
+  "kind": "http",
+  "description": "Names in certificates issued for a domain (crt.sh certificate transparency, keyless, slow)",
+  "docs": "https://crt.sh/",
+  "inputs": [
+    "domain"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": "5/min",
+  "timeout": 45,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "q": "{value}",
+      "output": "json"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://crt.sh/"
+  },
+  "outputs": {
+    "names": "[].name_value",
+    "count": "length(@)",
+    "issuers": "[].issuer_name"
+  }
+}

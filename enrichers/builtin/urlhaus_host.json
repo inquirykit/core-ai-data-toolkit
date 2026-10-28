@@ -1,0 +1,38 @@
+{
+  "name": "urlhaus_host",
+  "kind": "http",
+  "description": "Malware URLs seen on a host (URLhaus by abuse.ch)",
+  "docs": "https://urlhaus-api.abuse.ch/",
+  "inputs": [
+    "domain",
+    "ipv4"
+  ],
+  "terms": "non_commercial",
+  "attribution": null,
+  "secret": "ABUSECH_KEY",
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "POST",
+    "query": {},
+    "headers": {
+      "Auth-Key": "{secret}"
+    },
+    "body": {
+      "host": "{value}"
+    },
+    "body_format": "form",
+    "url": "https://urlhaus-api.abuse.ch/v1/host/"
+  },
+  "outputs": {
+    "query_status": "query_status",
+    "url_count": "url_count",
+    "first_seen": "firstseen",
+    "blacklists": "blacklists",
+    "urls": "urls[].{url: url, status: url_status, threat: threat, added: date_added}"
+  }
+}

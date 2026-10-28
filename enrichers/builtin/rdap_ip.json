@@ -1,0 +1,36 @@
+{
+  "name": "rdap_ip",
+  "kind": "http",
+  "description": "Registration of the network an IP address belongs to (RDAP via rdap.org, keyless)",
+  "docs": "https://about.rdap.org/",
+  "inputs": [
+    "ipv4",
+    "ipv6"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "50/min",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://rdap.org/ip/{value}"
+  },
+  "outputs": {
+    "name": "name",
+    "handle": "handle",
+    "start": "startAddress",
+    "end": "endAddress",
+    "country": "country",
+    "type": "type",
+    "registry": "port43"
+  }
+}

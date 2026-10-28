@@ -1,0 +1,37 @@
+{
+  "name": "cve",
+  "kind": "http",
+  "description": "The CVE record: title, description, CVSS, SSVC and KEV status (CVE Services, keyless)",
+  "docs": "https://cveawg.mitre.org/api-docs/",
+  "inputs": [
+    "cve"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://cveawg.mitre.org/api/cve/{value}"
+  },
+  "outputs": {
+    "title": "containers.cna.title",
+    "description": "containers.cna.descriptions[?lang=='en'].value | [0]",
+    "published": "cveMetadata.datePublished",
+    "state": "cveMetadata.state",
+    "cvss": "[containers.cna.metrics[].cvssV4_0.baseScore, containers.cna.metrics[].cvssV3_1.baseScore, containers.adp[].metrics[].cvssV4_0.baseScore, containers.adp[].metrics[].cvssV3_1.baseScore][] | [0]",
+    "cwe": "containers.cna.problemTypes[].descriptions[].description | [0]",
+    "exploitation": "containers.adp[].metrics[].other.content.options[].Exploitation | [0]",
+    "kev_added": "containers.adp[].metrics[].other.content.dateAdded | [0]",
+    "references": "containers.cna.references[].url"
+  }
+}

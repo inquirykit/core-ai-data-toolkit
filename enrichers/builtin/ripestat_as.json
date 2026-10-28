@@ -1,0 +1,33 @@
+{
+  "name": "ripestat_as",
+  "kind": "http",
+  "description": "Holder and announcement status of an AS number (RIPEstat, keyless)",
+  "docs": "https://stat.ripe.net/docs/02.data-api/as-overview.html",
+  "inputs": [
+    "asn"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "resource": "{value}"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://stat.ripe.net/data/as-overview/data.json"
+  },
+  "outputs": {
+    "holder": "data.holder",
+    "announced": "data.announced",
+    "block": "data.block.desc"
+  }
+}

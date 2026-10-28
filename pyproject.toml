@@ -1,0 +1,67 @@
+# The service's dependencies. `uv sync` installs them (with the dev group) into
+# .venv from uv.lock; `make lock` refreshes the lock and requirements.txt, the
+# pip-installable export the Dockerfile uses. requirements-autogluon.txt stays
+# separate: it is the AutoGluon job environment (jobs/README.md), whose versions
+# conflict with these.
+[project]
+name = "ai-toolkit"
+version = "0.2alpha22"
+description = "A self-hosted service for small AI models and the data work around them"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.143.0",
+    "uvicorn[standard]==0.54.0",
+    "transformers>=4.56.0",
+    "torch>=2.0.0",
+    "psutil==7.2.2",
+    "pydantic==2.14.1",
+    "accelerate==1.15.0",
+    "protobuf>=3.20.0",
+    "python-multipart==0.0.32",
+    "Pillow>=9.0.0",
+    # Audio decoding for speech-to-text (WAV, MP3, FLAC, OGG; no ffmpeg needed)
+    "soundfile>=0.13",
+    "tokenizers>=0.15.0",
+    "sentencepiece>=0.1.99",
+    # FastVLM's Hub code (trust_remote_code) imports timm
+    "timm>=1.0.30",
+    # /collections: embedded ArcadeDB with vector search (bundles its own Java runtime)
+    "arcadedb-embedded==26.10.1",
+    "jsonschema>=4.26.0",
+    # /enrich: calling the enrichers' HTTP APIs, and mapping their JSON replies (JMESPath)
+    "httpx>=0.25",
+    "jmespath>=1.0.1",
+    "cryptography>=50.0.2",
+    "rfc8785>=0.1.4",
+    "rfc3161-client>=1.0.9",
+    "pydantic-evals>=2.61.0",
+    "pydantic-ai-slim[openai,retries]>=2.61.0",
+]
+
+[project.optional-dependencies]
+# The vegaml backend for POST /v1/decisions: uv sync --extra vega
+vega = ["vegaml[vision]>=0.8.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.25",
+    "ruff>=0.17.2",
+    "schemathesis>=4.32.4",
+]
+
+[tool.uv]
+# An application, not an installable package: uv sync installs only the dependencies.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "schemathesis: the API against its OpenAPI schema (tests/test_schemathesis.py); skip with -m 'not schemathesis'",
+]
+
+[tool.ruff.lint]
+# make lint: unused imports and variables, undefined names (pyflakes), bare
+# excepts and mutable default arguments
+select = ["F", "E722", "B006"]

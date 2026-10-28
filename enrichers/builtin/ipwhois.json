@@ -1,0 +1,39 @@
+{
+  "name": "ipwhois",
+  "kind": "http",
+  "description": "Country, city, ASN and ISP of an IP address (ipwho.is, keyless)",
+  "docs": "https://ipwhois.io/documentation",
+  "inputs": [
+    "ipv4",
+    "ipv6"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "1000/day",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://ipwho.is/{value}"
+  },
+  "outputs": {
+    "country": "country_code",
+    "country_name": "country",
+    "region": "region",
+    "city": "city",
+    "latitude": "latitude",
+    "longitude": "longitude",
+    "asn": "connection.asn",
+    "org": "connection.org",
+    "isp": "connection.isp",
+    "timezone": "timezone.id"
+  }
+}

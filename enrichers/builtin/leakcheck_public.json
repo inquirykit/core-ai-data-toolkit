@@ -1,0 +1,33 @@
+{
+  "name": "leakcheck_public",
+  "kind": "http",
+  "description": "Which breaches an email address appears in (LeakCheck public API, keyless)",
+  "docs": "https://wiki.leakcheck.io/en/api/public",
+  "inputs": [
+    "email"
+  ],
+  "terms": "attribution",
+  "attribution": "Powered by LeakCheck (leakcheck.io)",
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "60/min",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "check": "{value}"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://leakcheck.io/api/public"
+  },
+  "outputs": {
+    "found": "found",
+    "sources": "sources[].name",
+    "fields": "fields"
+  }
+}

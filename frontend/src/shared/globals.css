@@ -1,0 +1,343 @@
+/* Shared by every page: /admin, /admin/setup and /playground.
+   Tailwind v4 with the shadcn/ui theme (zinc neutrals, indigo primary), plus the chart and status
+   colors, which charts.tsx also reads as CSS variables. */
+@import "tailwindcss";
+@import "tw-animate-css";
+/* The form widgets of RJSF's shadcn theme (schema-form-view.tsx) carry Tailwind classes of their own. */
+@source "../../node_modules/@rjsf/shadcn/dist";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.511 0.262 276.966);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.585 0.233 277.117);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.511 0.262 276.966);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.585 0.233 277.117);
+
+  /* The product's accent: the logo gradient and text selection. */
+  --brand-1: oklch(0.585 0.233 277.117);
+  --brand-2: oklch(0.627 0.265 303.9);
+
+  /* Charts and status: one series color, then status hues. */
+  --grid: oklch(0.94 0.003 286.32);
+  --axis: oklch(0.871 0.006 286.286);
+  --series-1: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --good-text: #006300;
+  --critical-text: #b42f2f;
+
+  /* The menu (Shell.tsx): a hue per group for its icon tiles, the frosted glass it sits on, and the
+     gradient that drifts behind it (.shell-sky), in quiet tones like the OS X sidebars of about 2015:
+     a cool light grey here, a deep navy in the dark theme. */
+  --nav-monitor: #2a78d6;
+  --nav-models: oklch(0.56 0.24 285);
+  --nav-data: #0f8a7e;
+  --nav-system: oklch(0.552 0.016 285.938);
+  --glass: oklch(0.985 0.002 260 / 0.45);
+  --glass-edge: oklch(1 0 0 / 0.7);
+  --glass-shadow: oklch(0.3 0.02 260 / 0.18);
+  --glass-pill: oklch(1 0 0 / 0.9);
+  --glass-hover: oklch(1 0 0 / 0.5);
+  --sky-base: oklch(0.925 0.004 260);
+  --sky-1: oklch(0.975 0.002 260);
+  --sky-2: oklch(0.885 0.008 255);
+  --sky-3: oklch(0.955 0.004 250);
+  --sky-4: oklch(0.9 0.006 265);
+  --sky-grain: 0.04;
+
+  /* The Data section's two query pages, told apart in its sidebar: SQL and the Graph query. */
+  --query-sql: #2a78d6;
+  --query-graph: #0f8a7e;
+
+  /* Code in the editors (code-editor.tsx): a hue per kind of token. */
+  --code-keyword: oklch(0.511 0.262 276.966);
+  --code-string: #0f7b3f;
+  --code-number: #b45309;
+  --code-property: #1f5fb4;
+  --code-comment: oklch(0.552 0.016 285.938);
+  --code-invalid: #b42f2f;
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.673 0.182 276.935);
+  --primary-foreground: oklch(0.257 0.09 281.288);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.673 0.182 276.935);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.585 0.233 277.117);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.673 0.182 276.935);
+
+  --brand-1: oklch(0.673 0.182 276.935);
+  --brand-2: oklch(0.714 0.203 305.504);
+
+  --grid: oklch(0.27 0.006 286.033);
+  --axis: oklch(0.37 0.013 285.805);
+  --series-1: #3987e5;
+  --good-text: #22c55e;
+  --critical-text: #f87171;
+
+  --nav-monitor: #5b9ee8;
+  --nav-models: oklch(0.7 0.17 285);
+  --nav-data: #2bb5a6;
+  --nav-system: oklch(0.705 0.015 286.067);
+  --glass: oklch(0.2 0.03 260 / 0.45);
+  --glass-edge: oklch(1 0 0 / 0.1);
+  --glass-shadow: oklch(0 0 0 / 0.5);
+  --glass-pill: oklch(1 0 0 / 0.12);
+  --glass-hover: oklch(1 0 0 / 0.06);
+  --sky-base: oklch(0.2 0.045 260);
+  --sky-1: oklch(0.3 0.07 255);
+  --sky-2: oklch(0.24 0.06 270);
+  --sky-3: oklch(0.27 0.06 240);
+  --sky-4: oklch(0.32 0.05 230);
+  --sky-grain: 0.08;
+
+  --query-sql: #5b9cf0;
+  --query-graph: #2dd4bf;
+
+  --code-keyword: oklch(0.743 0.15 276.935);
+  --code-string: #4ade80;
+  --code-number: #fbbf24;
+  --code-property: #7cb4fa;
+  --code-comment: oklch(0.705 0.015 286.067);
+  --code-invalid: #f87171;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand-1: var(--brand-1);
+  --color-brand-2: var(--brand-2);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-series-1: var(--series-1);
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+  --color-good-text: var(--good-text);
+  --color-critical-text: var(--critical-text);
+  --color-query-sql: var(--query-sql);
+  --color-query-graph: var(--query-graph);
+  --color-glass: var(--glass);
+  --color-glass-edge: var(--glass-edge);
+  --color-glass-pill: var(--glass-pill);
+  --color-glass-hover: var(--glass-hover);
+
+  --animate-pulse-ring: pulse-ring 2s ease-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-blink: blink 1s steps(1) infinite;
+  --animate-bounce-dot: bounce-dot 1.2s ease-in-out infinite;
+
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 55%, transparent); }
+    80%, 100% { box-shadow: 0 0 0 6px transparent; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  @keyframes bounce-dot {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+    40% { transform: translateY(-3px); opacity: 1; }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--axis) transparent;
+  }
+  html {
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand-1) 25%, transparent);
+  }
+  /* Inline code in prose: hints, descriptions, notes. */
+  :not(pre) > code {
+    @apply rounded-[5px] border bg-muted px-1 py-px font-mono text-[0.85em];
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  /* The arrow Chrome draws on inputs with a datalist: quieter, like the select chevrons. */
+  input[list]::-webkit-calendar-picker-indicator {
+    opacity: 0.4;
+    cursor: pointer;
+  }
+}
+
+@utility stagger {
+  /* Children rise in one after another, when they mount. */
+  & > * { animation: var(--animate-rise); }
+  & > *:nth-child(2) { animation-delay: 40ms; }
+  & > *:nth-child(3) { animation-delay: 80ms; }
+  & > *:nth-child(4) { animation-delay: 120ms; }
+  & > *:nth-child(5) { animation-delay: 160ms; }
+  & > *:nth-child(n + 6) { animation-delay: 200ms; }
+}
+
+/* Behind the menu and around the page (Shell.tsx): four large soft discs drift slowly, only their transform
+   moving, and a fine grain over them keeps the gradient from banding. */
+.shell-sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--sky-base);
+}
+.shell-sky::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--sky-grain);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.shell-sky > span {
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--c), color-mix(in oklab, var(--c) 45%, transparent) 55%, transparent);
+  will-change: transform;
+  animation: sky-drift-a 24s ease-in-out infinite alternate;
+}
+.shell-sky > span:nth-child(1) { --c: var(--sky-1); left: -22%; top: -30%; }
+.shell-sky > span:nth-child(2) { --c: var(--sky-2); left: -6%; top: 20%; width: 50%; animation-name: sky-drift-b; animation-duration: 30s; }
+.shell-sky > span:nth-child(3) { --c: var(--sky-3); left: -26%; top: 52%; animation-name: sky-drift-c; animation-duration: 27s; }
+.shell-sky > span:nth-child(4) { --c: var(--sky-4); left: 42%; top: -48%; width: 72%; animation-name: sky-drift-b; animation-duration: 34s; animation-direction: alternate-reverse; }
+@keyframes sky-drift-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(20%, 24%) scale(1.15); }
+}
+@keyframes sky-drift-b {
+  from { transform: translate(0, 0) scale(1.05); }
+  to { transform: translate(16%, -18%) scale(0.9); }
+}
+@keyframes sky-drift-c {
+  from { transform: translate(0, 0) scale(0.95); }
+  to { transform: translate(22%, -14%) scale(1.12); }
+}
+
+/* A menu item's icon tile in its group's hue (--hue, from Shell.tsx): tinted, solid on the page shown. */
+.nav-tile {
+  color: var(--hue);
+  background: color-mix(in oklab, var(--hue) 14%, transparent);
+  /* Only the hover grows; the colors switch at once, since halfway through a fade the icon is its tile's color and blinks out. */
+  transition: scale 0.2s;
+}
+[aria-current="page"] > .nav-tile {
+  color: white;
+  background: var(--hue);
+  box-shadow: 0 3px 8px -2px color-mix(in oklab, var(--hue) 60%, transparent);
+}
+/* Live state beside a menu item (admin/MenuStatus.tsx), in its hue: a spinner or sparkline, and a count. */
+.nav-badge {
+  color: var(--hue);
+}
+.nav-count {
+  color: var(--hue);
+  background: color-mix(in oklab, var(--hue) 14%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still, not sped up: the rule below would make an endless drift flicker. (:nth-child(n) outranks the blobs' own rules.) */
+  .shell-sky > span:nth-child(n) { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

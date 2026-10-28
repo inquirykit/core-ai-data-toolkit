@@ -1,0 +1,38 @@
+{
+  "name": "gravatar",
+  "kind": "http",
+  "description": "The public Gravatar profile of an email address (keyless; 100 per hour)",
+  "docs": "https://docs.gravatar.com/api/profiles/rest-api/",
+  "inputs": [
+    "email"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "100/hour",
+  "timeout": 10,
+  "value_filters": [
+    "lower",
+    "sha256"
+  ],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://api.gravatar.com/v3/profiles/{value}"
+  },
+  "outputs": {
+    "display_name": "display_name",
+    "location": "location",
+    "job_title": "job_title",
+    "company": "company",
+    "verified_accounts": "verified_accounts[].service_label",
+    "avatar_url": "avatar_url",
+    "profile_url": "profile_url"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "rdap_domain",
+  "kind": "http",
+  "description": "Registrar, dates, nameservers and status of a domain (RDAP via rdap.org, keyless)",
+  "docs": "https://about.rdap.org/",
+  "inputs": [
+    "domain"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "50/min",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://rdap.org/domain/{value}"
+  },
+  "outputs": {
+    "registrar": "entities[?contains(roles, 'registrar')] | [0].vcardArray[1][?@[0]=='fn'] | [0][3]",
+    "created": "events[?eventAction=='registration'].eventDate | [0]",
+    "expires": "events[?eventAction=='expiration'].eventDate | [0]",
+    "last_changed": "events[?eventAction=='last changed'].eventDate | [0]",
+    "nameservers": "nameservers[].ldhName",
+    "status": "status",
+    "dnssec": "secureDNS.delegationSigned"
+  }
+}

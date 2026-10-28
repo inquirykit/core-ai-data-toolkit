@@ -1,0 +1,32 @@
+{
+  "name": "esplora_bitcoin",
+  "kind": "http",
+  "description": "Balance and transaction count of a Bitcoin address (Blockstream Esplora, keyless)",
+  "docs": "https://github.com/Blockstream/esplora/blob/master/API.md",
+  "inputs": [
+    "crypto_wallet"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "10m",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://blockstream.info/api/address/{value}"
+  },
+  "outputs": {
+    "received_sat": "chain_stats.funded_txo_sum",
+    "spent_sat": "chain_stats.spent_txo_sum",
+    "tx_count": "chain_stats.tx_count",
+    "unconfirmed_tx_count": "mempool_stats.tx_count"
+  }
+}

@@ -1,0 +1,9 @@
+# The "autogluon" job environment (see jobs/README.md), separate from the
+# service's: AutoGluon 1.6 needs Python <3.14, torch <2.14 (<2.11 on macOS),
+# transformers <5.15 and timm <1.0.7, which the service's own models
+# (vegaml, FastVLM) cannot use. Create it with: scripts/setup_job_env.sh autogluon
+#
+# Everything: tabular (all models), multimodal and time series.
+autogluon==1.6.3
+# jobs/ itself needs only pydantic.
+pydantic>=2.7

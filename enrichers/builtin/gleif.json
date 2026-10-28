@@ -1,0 +1,35 @@
+{
+  "name": "gleif",
+  "kind": "http",
+  "description": "Legal entities whose name matches, with their LEI codes (GLEIF, keyless)",
+  "docs": "https://www.gleif.org/en/lei-data/gleif-api",
+  "inputs": [
+    "generic"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "filter[entity.legalName]": "{value}",
+      "page[size]": "5"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://api.gleif.org/api/v1/lei-records"
+  },
+  "outputs": {
+    "leis": "data[].id",
+    "names": "data[].attributes.entity.legalName.name",
+    "countries": "data[].attributes.entity.legalAddress.country",
+    "status": "data[].attributes.entity.status"
+  }
+}

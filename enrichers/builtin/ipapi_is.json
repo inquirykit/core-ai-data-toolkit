@@ -1,0 +1,42 @@
+{
+  "name": "ipapi_is",
+  "kind": "http",
+  "description": "Company, ASN and, with a key, datacenter/VPN/proxy/Tor/abuser flags (ipapi.is)",
+  "docs": "https://ipapi.is/developers.html",
+  "inputs": [
+    "ipv4",
+    "ipv6"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": "IPAPI_IS_KEY",
+  "secret_optional": true,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": "1000/day",
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "q": "{value}",
+      "key": "{secret}"
+    },
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://api.ipapi.is/"
+  },
+  "outputs": {
+    "company": "company.name || company",
+    "asn": "asn.asn || asn",
+    "country": "location.country_code || country",
+    "city": "location.city || city",
+    "is_datacenter": "is_datacenter",
+    "is_vpn": "is_vpn",
+    "is_proxy": "is_proxy",
+    "is_tor": "is_tor",
+    "is_abuser": "is_abuser",
+    "is_bogon": "is_bogon"
+  }
+}

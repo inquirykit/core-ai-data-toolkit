@@ -1,0 +1,41 @@
+.env
+.env.*
+__pycache__/
+*.pyc
+
+# Frontend: dependencies (and the caches tools put in node_modules/ wherever
+# they run), the pages it builds into api/static, and tsc's incremental state
+node_modules/
+api/static/
+*.tsbuildinfo
+
+# Model servers a user lists (docs/GUIDE.md): may hold tokens and internal hosts
+/model_servers.toml
+
+# Job environments (scripts/setup_job_env.sh)
+envs/
+
+# Everything the service writes under data/: ArcadeDB, config, monitoring,
+# jobs and datasets, enrichers and their cache, evidence and the ledger's
+# signing key, model servers edited in /admin, images. Only data/images/.gitkeep
+# is kept, so the image dir exists on a fresh clone.
+data/*
+!data/images/
+data/images/*
+!data/images/.gitkeep
+
+# Claude Code's local files: agent worktrees and personal settings
+.claude/worktrees/
+.claude/settings.local.json
+
+# Local virtualenv (uv sync), caches and logs
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+log/
+.DS_Store
+
+# Research notes and reports: kept locally, not published
+research_notes/
+reports/

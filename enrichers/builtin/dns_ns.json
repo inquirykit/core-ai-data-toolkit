@@ -1,0 +1,35 @@
+{
+  "name": "dns_ns",
+  "kind": "http",
+  "description": "NS records of a domain (Cloudflare DNS over HTTPS, keyless)",
+  "docs": "https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/",
+  "inputs": [
+    "domain"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "1h",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {
+      "name": "{value}",
+      "type": "NS"
+    },
+    "headers": {
+      "Accept": "application/dns-json"
+    },
+    "body": null,
+    "body_format": "json",
+    "url": "https://cloudflare-dns.com/dns-query"
+  },
+  "outputs": {
+    "records": "Answer[?type==`2`].data",
+    "status": "Status"
+  }
+}

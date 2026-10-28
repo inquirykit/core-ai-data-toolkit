@@ -1,0 +1,35 @@
+{
+  "name": "hashlookup",
+  "kind": "http",
+  "description": "Whether a hash is a known-good file, with a trust score (CIRCL hashlookup, keyless)",
+  "docs": "https://hashlookup.circl.lu/",
+  "inputs": [
+    "md5",
+    "sha1",
+    "sha256"
+  ],
+  "terms": "open",
+  "attribution": null,
+  "secret": null,
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "7d",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "GET",
+    "query": {},
+    "headers": {},
+    "body": null,
+    "body_format": "json",
+    "url": "https://hashlookup.circl.lu/lookup/{type}/{value}"
+  },
+  "outputs": {
+    "file_name": "FileName",
+    "size": "FileSize",
+    "source": "source",
+    "trust": "\"hashlookup:trust\"",
+    "parents": "\"hashlookup:parent-total\""
+  }
+}

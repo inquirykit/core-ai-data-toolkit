@@ -1,0 +1,43 @@
+{
+  "name": "threatfox",
+  "kind": "http",
+  "description": "Indicators of compromise matching a value (ThreatFox by abuse.ch)",
+  "docs": "https://threatfox.abuse.ch/api/",
+  "inputs": [
+    "ipv4",
+    "domain",
+    "url",
+    "md5",
+    "sha256"
+  ],
+  "terms": "non_commercial",
+  "attribution": null,
+  "secret": "ABUSECH_KEY",
+  "secret_optional": false,
+  "enabled": true,
+  "ttl": "24h",
+  "rate_limit": null,
+  "timeout": 10,
+  "value_filters": [],
+  "request": {
+    "method": "POST",
+    "query": {},
+    "headers": {
+      "Auth-Key": "{secret}"
+    },
+    "body": {
+      "query": "search_ioc",
+      "search_term": "{value}"
+    },
+    "body_format": "json",
+    "url": "https://threatfox-api.abuse.ch/api/v1/"
+  },
+  "outputs": {
+    "query_status": "query_status",
+    "threat_type": "data[0].threat_type",
+    "malware": "data[0].malware_printable",
+    "confidence": "data[0].confidence_level",
+    "first_seen": "data[0].first_seen",
+    "tags": "data[0].tags"
+  }
+}

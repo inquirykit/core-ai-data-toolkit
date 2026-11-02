@@ -54,6 +54,20 @@ export function fmtAgo(ts: number | null | undefined): string {
   return `${(s / 86400).toFixed(1)} d ago`;
 }
 
+/** An ISO 8601 time as "x ago": the Hub reports when a model changed that way, not in Unix seconds. */
+export const fmtAgoIso = (iso: string | null | undefined): string => (iso ? fmtAgo(Date.parse(iso) / 1000) : "–");
+
+/** An ISO time as the browser's locale shows it, with seconds; the raw text when it does not parse. */
+export function fmtIso(iso: string | null | undefined): string {
+  if (!iso) return "–";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  return new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+}
+
+/** A count with its noun: "1 example", "3 examples". */
+export const plural = (n: number, word: string): string => `${fmtInt(n)} ${word}${n === 1 ? "" : "s"}`;
+
 export function fmtDuration(s: number): string {
   if (s < 3600) return `${Math.round(s / 60)} min`;
   if (s < 86400) return `${(s / 3600).toFixed(1)} h`;

@@ -22,6 +22,8 @@ class FieldInfo(Out):
     required: bool
     indexed: bool
     unique: bool
+    # Its words are searchable with _search (a string field)
+    fulltext: bool
 
 
 class TableInfo(Out):

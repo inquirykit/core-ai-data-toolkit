@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from models import BaseModel, UnsupportedModel, registry
-from models.custom.custom_model import CustomModel
-from models.decision.vega import VegaDecisionModel
-from models.generic.transformers_model import TransformersModel
-from models.generic.vision_model import ImageTextToTextModel
-from models.vision.fastvlm import FastVLMModel
+from models.families.custom.custom_model import CustomModel
+from models.families.decision.vega import VegaDecisionModel
+from models.families.generic.transformers_model import TransformersModel
+from models.families.generic.vision_model import ImageTextToTextModel
+from models.families.vision.fastvlm import FastVLMModel
 from tests.fakes import registered
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,13 +83,54 @@ def test_a_later_file_can_take_over_an_id():
     assert registry.resolve("Qwen/Qwen2.5-0.5B-Instruct", "text-generation") is TransformersModel
 
 
+def test_only_a_class_that_claims_an_id_can_say_the_operator_chose_it():
+    """The allow-list asks the class serving an ID, so the API names no family; a fallback serving any ID cannot vouch."""
+    class Chosen(BaseModel):
+        @classmethod
+        def operator_chose(cls, model_id):
+            return model_id != "mine:not-this-one"
+
+        def load(self):
+            pass
+
+        def predict(self, text):
+            return text
+
+    with registered(Chosen, task="choosing", match="mine:*"):
+        assert registry.operator_chose("mine:trained")
+        assert not registry.operator_chose("mine:not-this-one")
+    with registered(Chosen, task="choosing", fallback=True):
+        assert not registry.operator_chose("someone/else")
+    assert not registry.operator_chose("Qwen/Qwen2.5-0.5B-Instruct")
+
+
+def test_restored_puts_back_what_a_test_registered_swapped_or_dropped():
+    class Mine(BaseModel):
+        def load(self):
+            pass
+
+        def predict(self, text):
+            return text
+
+    before, custom_tasks = registry.describe(), CustomModel.tasks
+    with registry.restored():
+        registry.register(task="mine", ids=["mine-1"])(Mine)
+        registry.swap(TransformersModel, Mine)
+        registry.unregister(CustomModel)
+        assert registry.resolve("org/classifier", "text-classification") is Mine
+        assert "custom" not in registry.known_tasks()
+    assert registry.describe() == before
+    assert CustomModel.tasks == custom_tasks
+    assert registry.resolve("org/classifier", "text-classification") is TransformersModel
+
+
 def test_model_files_are_found_without_being_imported():
     # A fresh interpreter, so nothing has imported the model files yet.
     code = "from models import registry; print(sorted({e['class'].rsplit('.', 1)[1] for e in registry.describe()}))"
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == str(sorted({
         "AutoGluonPredictor", "CustomModel", "FastVLMModel", "EmbeddingModel", "ImageTextToTextModel",
-        "RerankModel", "SpeechToTextModel", "TransformersModel", "VegaDecisionModel",
+        "RerankModel", "SpeechToTextModel", "TransformersModel", "VegaDecisionModel", "ZeroShotModel",
     }))
 
 

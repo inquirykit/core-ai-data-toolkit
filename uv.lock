@@ -27,7 +27,7 @@ wheels = [
 
 [[package]]
 name = "ai-toolkit"
-version = "0.2a22"
+version = "0.2a23"
 source = { virtual = "." }
 dependencies = [
     { name = "accelerate" },

@@ -1,5 +1,5 @@
 """
-Chats over the text-generation contract (models/tasks.py): OpenAI's message
+Chats over the text-generation contract (models/contracts.py): OpenAI's message
 format, how a chat becomes the task's input (its turns, trimmed to
 MAX_INPUT_CHARS, and a plain transcript every causal LM can continue), and
 how the generated text is cut back to the reply, at once or as it streams.
@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from config import Config
+from core.config import Config
 
 PART_TYPES = ("text", "image_url", "input_audio")
 ROLE_LABELS = {"system": "System", "user": "User", "assistant": "Assistant", "tool": "Tool"}

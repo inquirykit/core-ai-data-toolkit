@@ -41,6 +41,15 @@ os.environ["EVIDENCE_TSA_URL"] = ""
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def fresh_fake_models():
+    """FakeModel keeps its instances, log and delays on the class: every test starts without any. Imported here, not
+    at the top, so the settings above are in place before anything reads them."""
+    from tests.fakes import FakeModel
+
+    FakeModel.reset()
+
+
 @pytest.fixture
 def built_pages(tmp_path, monkeypatch):
     """Stand-ins for the pages frontend/ builds, so tests need no Node build."""
@@ -55,7 +64,7 @@ def built_pages(tmp_path, monkeypatch):
 @pytest.fixture
 def arcade(tmp_path):
     """A throwaway ArcadeDB database of its own, for stores built outside the app."""
-    from vectorstore import Database
+    from db import Database
 
     database = Database(str(tmp_path / "arcadedb"))
     database.start_jvm()  # pytest runs tests on the main thread

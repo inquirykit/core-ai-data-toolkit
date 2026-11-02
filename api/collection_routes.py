@@ -1,6 +1,6 @@
 """
 /collections: documents with vector search, in the embedded ArcadeDB database
-(see vectorstore/store.py).
+(see db/collections.py).
 
 A collection belongs to one embedding model. Adding items embeds their text
 with it; searching embeds the query with it and returns the nearest items,
@@ -19,10 +19,10 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, constr
 
-from config import Config
-from vectorstore import Collection, FIELD_TYPES
-from vectorstore.store import BUILT_IN
-from errors import Refused
+from core.config import Config
+from db import Collection, FIELD_TYPES
+from db.collections import BUILT_IN
+from core.errors import Refused
 from models import ModelManager
 from . import deps
 from .openai_routes import EMBEDDING_TASK
@@ -117,6 +117,7 @@ async def create_collection(store: deps.Collections, manager: deps.Manager, body
 
 @router.get("/{name}")
 async def get_collection(store: deps.Collections, name: str):
+    """The collection and how many items it holds."""
     collection = await store.get(name)
     return _describe(collection, await store.count(collection))
 
@@ -146,11 +147,13 @@ async def add_items(store: deps.Collections, manager: deps.Manager, name: str, b
 
 @router.get("/{name}/items/{item_id}")
 async def get_item(store: deps.Collections, name: str, item_id: str):
+    """One item of the collection."""
     return await store.item(await store.get(name), item_id)
 
 
 @router.delete("/{name}/items/{item_id}")
 async def delete_item(store: deps.Collections, name: str, item_id: str):
+    """Delete one item of the collection."""
     await store.delete(await store.get(name), item_id)
     return {"message": f"Item {item_id} deleted"}
 

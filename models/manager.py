@@ -7,11 +7,12 @@ import logging
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
-from errors import Forbidden, NotFound
-from . import memory, registry, tasks
+from core.errors import Forbidden, NotFound
+from tasks import HIGH
+from . import memory, registry, contracts
 from .base import BaseModel, NullMonitor, TryNextBackend, resolve_device
 from .cache import CapacityError, Entry, ModelCache
-from .events import HIGH, Call, RequestContext, RequestEvent, Sink, request_context
+from .events import Call, RequestContext, RequestEvent, Sink, request_context
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def _ms_since(started: float) -> float:
     return (time.perf_counter() - started) * 1000
 
 
-def _parse_inputs(contract: tasks.TaskContract, requests: List[Any], batch: bool) -> List[Any]:
+def _parse_inputs(contract: contracts.TaskContract, requests: List[Any], batch: bool) -> List[Any]:
     """Each request validated into the task's input model; in a batch, an error names the input it is about."""
     if not batch:
         return [contract.parse_input(request) for request in requests]
@@ -173,7 +174,7 @@ class ModelManager:
         """Run inference on a model, loading it first if needed.
 
         ``request`` is the task's input model or a dict it validates; the
-        result is the task's output model (see models/tasks.py).
+        result is the task's output model (see models/contracts.py).
         """
         async def one(model: BaseModel, requests: List[Any]) -> List[Any]:
             return [await model.run(requests[0], on_text)]
@@ -222,7 +223,7 @@ class ModelManager:
         backend = None
         try:
             # Reject a bad request before it loads (or evicts) anything.
-            contract = tasks.get(task)
+            contract = contracts.get(task)
             if contract is not None:
                 requests = _parse_inputs(contract, requests, batch)
             for attempt in (1, 2):
@@ -352,7 +353,8 @@ class ModelManager:
         their cards, then, without ``allowed_models``, loaded models nobody
         lists. ``any_id`` says whether the task takes IDs beyond those (a
         fallback class serves any Hub ID); ``patterns`` are the ID patterns
-        its classes claim. Nothing here downloads or reaches the network.
+        its classes claim. The tasks come in the order they were defined, each
+        with its category and label. Nothing here downloads or reaches the network.
         """
         on_disk = await asyncio.to_thread(memory.cached_weights)
         by_task = self.get_available_models(allowed_models)
@@ -362,19 +364,20 @@ class ModelManager:
                 if info.model_id not in listed:
                     listed.append(info.model_id)
         cards = registry.cards()
-        contracts = tasks.contracts()
+        defined = contracts.defined()
         return [
             {
                 "task": task,
-                "description": contracts[task].description if task in contracts else "",
+                "description": defined[task].description if task in defined else "",
+                **contracts.place(task),
                 "any_id": not allowed_models and registry.accepts_any_id(task),
                 "patterns": [] if allowed_models else registry.patterns(task),
                 "models": [
                     self._catalog_model(model_id, task, cards.get(task, {}).get(model_id), on_disk)
-                    for model_id in ids
+                    for model_id in by_task[task]
                 ],
             }
-            for task, ids in sorted(by_task.items())
+            for task in contracts.ordered(by_task)
         ]
 
     def _catalog_model(

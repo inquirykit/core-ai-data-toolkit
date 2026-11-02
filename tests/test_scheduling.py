@@ -6,7 +6,8 @@ import time
 import pytest
 
 from models.cache import CapacityError
-from models.events import HIGH, LOW, NORMAL, RequestContext, request_context
+from models.events import RequestContext, request_context
+from tasks import HIGH, LOW, NORMAL
 from models.manager import ModelManager
 from tests.fakes import FakeModel, registered
 
@@ -18,8 +19,6 @@ class Slow(FakeModel):
 
 @pytest.fixture(autouse=True)
 def fake_registry():
-    FakeModel.instances.clear()
-    FakeModel.log.clear()
     with registered(Slow, task="t", fallback=True):
         yield
 

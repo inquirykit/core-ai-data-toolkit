@@ -8,13 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useAction } from "../action";
 import { AuthError, type ApiClient } from "../api";
-import { Notice, type NoticeState } from "../components";
+import { Facts, Notice, type Fact, type NoticeState } from "../components";
 import { fmtGB, fmtMs } from "../format";
 import { errorText, useReloadOn } from "../query";
 import { TryPanel } from "../task-io/TryPanel";
 import { CHAT_TASKS, memoryBar, planSummary, type CatalogModel, type LoadPlan } from "./catalog";
 import { message } from "../errors";
-import { kvClass, Section, StateBadge, Tags, type PickedModel } from "./parts";
+import { Section, StateBadge, Tags, type PickedModel } from "./parts";
 
 const DTYPES = ["auto", "float16", "bfloat16", "float32"];
 
@@ -28,6 +28,8 @@ export function ModelDetails(props: {
   picked: PickedModel;
   /** Its catalog entry; missing for an ID typed in by hand */
   model?: CatalogModel;
+  /** The task's label, for the way back to its list */
+  taskLabel: string;
   pick?: { label: string; onPick(model: PickedModel): void };
   onBack(): void;
   onChange(): void;
@@ -90,7 +92,7 @@ export function ModelDetails(props: {
         <div className="min-w-0">
           <Button type="button" variant="ghost" size="sm" className="-ml-2 mb-1 h-7 gap-1 px-2 text-muted-foreground" onClick={props.onBack}>
             <ArrowLeft aria-hidden="true" />
-            {picked.task}
+            {props.taskLabel}
           </Button>
           <h3 className="font-mono text-[15px] font-semibold wrap-anywhere">{picked.id}</h3>
           {model?.description && <p className="mt-1 text-sm text-muted-foreground">{model.description}</p>}
@@ -117,45 +119,7 @@ export function ModelDetails(props: {
         </TabsContent>
         <TabsContent value="overview" className="stagger grid min-h-0 content-start gap-3.5 overflow-y-auto px-5 pt-4 pb-5">
           <Section title="Model">
-            <dl className={kvClass}>
-              <dt>Task</dt>
-              <dd>{picked.task}</dd>
-              <dt>Served by</dt>
-              <dd>
-                {model?.served_by ? (
-                  <>
-                    <span className="font-mono text-[13px]">{model.served_by}</span>
-                    {model.generic && <span className="text-muted-foreground"> · the generic loader for this task</span>}
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">Decided when it loads</span>
-                )}
-              </dd>
-              <dt>Runs</dt>
-              <dd>{server ? "In its own server process (MODEL_SERVERS_FILE)" : "In this process"}</dd>
-              <dt>Weights</dt>
-              <dd>
-                {server
-                  ? "Managed by its server"
-                  : model?.on_disk_gb != null
-                    ? `${fmtGB(model.on_disk_gb)} downloaded`
-                    : "Not downloaded: the first load downloads them"}
-              </dd>
-              {(model?.tags ?? []).length > 0 && (
-                <>
-                  <dt>Tags</dt>
-                  <dd>
-                    <Tags tags={model?.tags} />
-                  </dd>
-                </>
-              )}
-              {!model && (
-                <>
-                  <dt>Listed</dt>
-                  <dd className="text-muted-foreground">No: an ID typed in by hand</dd>
-                </>
-              )}
-            </dl>
+            <Facts rows={modelFacts(picked, model)} />
           </Section>
 
           <Section title="Memory" aside={!server && <span className="text-xs text-muted-foreground">in {dtype}</span>}>
@@ -223,6 +187,30 @@ export function ModelDetails(props: {
   );
 }
 
+/** The Model section's facts: where it runs and what is on disk; its tags when it has some, a note when it is not listed. */
+function modelFacts(picked: PickedModel, model?: CatalogModel): Fact[] {
+  const server = model?.kind === "server";
+  const facts: Fact[] = [
+    ["Task", picked.task],
+    [
+      "Served by",
+      model?.served_by ? (
+        <>
+          <span className="font-mono text-[13px]">{model.served_by}</span>
+          {model.generic && <span className="text-muted-foreground"> · the generic loader for this task</span>}
+        </>
+      ) : (
+        <span className="text-muted-foreground">Decided when it loads</span>
+      ),
+    ],
+    ["Runs", server ? "In its own server process (MODEL_SERVERS_FILE)" : "In this process"],
+    ["Weights", server ? "Managed by its server" : model?.on_disk_gb != null ? `${fmtGB(model.on_disk_gb)} downloaded` : "Not downloaded: the first load downloads them"],
+  ];
+  if ((model?.tags ?? []).length > 0) facts.push(["Tags", <Tags tags={model?.tags} />]);
+  if (!model) facts.push(["Listed", <span className="text-muted-foreground">No: an ID typed in by hand</span>]);
+  return facts;
+}
+
 /** The plan in a sentence, a bar of memory in use plus this model against the budget, and the figures. */
 function MemoryPlan({ plan, error }: { plan: LoadPlan | null; error: string }) {
   const box = "rounded-lg px-3 py-2 text-sm";
@@ -237,7 +225,6 @@ function MemoryPlan({ plan, error }: { plan: LoadPlan | null; error: string }) {
   const summary = planSummary(plan);
   const bar = memoryBar(plan);
   const color = { ok: "var(--series-1)", warn: "var(--warning)", bad: "var(--critical)" }[summary.kind];
-  const key = "mr-2 inline-block h-2.5 w-2.5 rounded-[3px] align-[-1px]";
   return (
     <>
       <p
@@ -264,35 +251,39 @@ function MemoryPlan({ plan, error }: { plan: LoadPlan | null; error: string }) {
           )}
         </div>
       )}
-      <dl className={cn(kvClass, "tabular-nums")}>
-        <dt>
-          {bar && <span className={key} style={{ background: "var(--axis)" }} />}
-          In use
-        </dt>
-        <dd>
-          {fmtGB(plan.memory_used_gb)} · {plan.loaded_models} of {plan.max_models} models
-        </dd>
-        {plan.outcome !== "loaded" && (
-          <>
-            <dt>
-              {bar && <span className={key} style={{ background: color }} />}
-              This model
-            </dt>
-            <dd>{plan.estimate_gb != null ? fmtGB(plan.estimate_gb) : "unknown"}</dd>
-          </>
-        )}
-        <dt>
-          {bar?.budget != null && bar.budget < 1 && <span className={cn(key, "w-0.5 rounded-none bg-foreground")} />}
-          Budget
-        </dt>
-        <dd>{plan.max_memory_gb > 0 ? `${fmtGB(plan.max_memory_gb)} (MAX_MEMORY_GB)` : "none, only the model count"}</dd>
-        {plan.free_memory_gb != null && (
-          <>
-            <dt>Free on device</dt>
-            <dd>{fmtGB(plan.free_memory_gb)}</dd>
-          </>
-        )}
-      </dl>
+      <Facts className="tabular-nums" rows={planFacts(plan, bar, color)} />
     </>
   );
+}
+
+/** The plan's figures, each labelled with the swatch of its part of the bar. */
+function planFacts(plan: LoadPlan, bar: ReturnType<typeof memoryBar>, color: string): Fact[] {
+  const key = "mr-2 inline-block h-2.5 w-2.5 rounded-[3px] align-[-1px]";
+  const facts: Fact[] = [
+    [
+      <>
+        {bar && <span className={key} style={{ background: "var(--axis)" }} />}
+        In use
+      </>,
+      `${fmtGB(plan.memory_used_gb)} · ${plan.loaded_models} of ${plan.max_models} models`,
+    ],
+  ];
+  if (plan.outcome !== "loaded") {
+    facts.push([
+      <>
+        {bar && <span className={key} style={{ background: color }} />}
+        This model
+      </>,
+      plan.estimate_gb != null ? fmtGB(plan.estimate_gb) : "unknown",
+    ]);
+  }
+  facts.push([
+    <>
+      {bar?.budget != null && bar.budget < 1 && <span className={cn(key, "w-0.5 rounded-none bg-foreground")} />}
+      Budget
+    </>,
+    plan.max_memory_gb > 0 ? `${fmtGB(plan.max_memory_gb)} (MAX_MEMORY_GB)` : "none, only the model count",
+  ]);
+  if (plan.free_memory_gb != null) facts.push(["Free on device", fmtGB(plan.free_memory_gb)]);
+  return facts;
 }

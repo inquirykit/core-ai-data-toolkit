@@ -19,15 +19,15 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, model_validator
 
-from config import Config
-from errors import Refused, ServiceError, TooLarge
-from models import tasks
+from core.config import Config
+from core.errors import Refused, ServiceError, TooLarge
+from models import contracts
 from . import deps
 
 router = APIRouter(prefix="/v1", dependencies=deps.CLIENT)
 
 DECISION_TASK = "decision"
-# The formats vegaml reads (models/decision/vega.py).
+# The formats vegaml reads (models/families/decision/vega.py).
 IMAGE_FORMATS = ("png", "jpeg", "webp")
 # Perplexity's yes/no type is "noul"; vegaml calls it "boolean".
 VEGA_TYPES = {"noul": "boolean", "choice": "choice", "score": "score"}
@@ -74,10 +74,10 @@ def _is_content_parts(state: Any) -> bool:
 
 
 def _image_base64(part: Dict[str, Any]) -> str:
-    """The checked base64 of an image part; the decision input (models/tasks.py) decodes it."""
+    """The checked base64 of an image part; the decision input (models/contracts.py) decodes it."""
     url = (part.get("image_url") or {}).get("url") or ""
     try:
-        return tasks.image_data_url(url, IMAGE_FORMATS)
+        return contracts.image_data_url(url, IMAGE_FORMATS)
     except ServiceError:
         raise  # MediaTooLarge: 413
     except ValueError as e:
@@ -127,6 +127,9 @@ def to_perplexity_answer(question: DecisionQuestion, answer: Dict[str, Any]) -> 
 
 @router.post("/decisions")
 async def decisions(manager: deps.Manager, request: DecisionRequest):
+    """Typed decisions in the request and response format of Perplexity's Decisions API, served by vegaml (``uv sync
+    --extra vega``): a state and up to 128 named questions in, each answer with its probabilities out. A state longer
+    than MAX_INPUT_CHARS is 413."""
     state, image = split_state(request.state)
     if image is None:
         text = state if isinstance(state, str) else json.dumps(state, ensure_ascii=False)

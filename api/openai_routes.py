@@ -19,7 +19,7 @@ not the JSON asked for (or does not match the schema) is a 502. A streamed
 reply with tools or a response format arrives in one chunk at the end.
 
 The model gets the chat twice, in the text-generation input
-(models/tasks.py): as a plain transcript in ``text`` (which every
+(models/contracts.py): as a plain transcript in ``text`` (which every
 text-generation model understands) and as ``messages``, which a model can use
 to apply its own chat template (TransformersModel does). Streamed replies
 arrive as the model writes them when its predict() names ``on_text``
@@ -47,13 +47,13 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from config import Config
+from core.config import Config
 from models import registry, toolcalls
 from models.chat import (
     STOP_MARKERS, ChatMessage, ReplyStream, build_prompt, completion_text, cut_at_stop, stop_list, trim_messages,
     vision_messages,
 )
-from errors import Refused, ServiceError, TooLarge
+from core.errors import Refused, ServiceError, TooLarge
 from . import deps, responses
 from .streaming import Chunks, begin_stream, stream_events
 
@@ -326,6 +326,21 @@ def finish_reply(request: ChatCompletionRequest, output: Dict[str, Any], max_len
 
 @router.post("/chat/completions")
 async def chat_completions(manager: deps.Manager, request: ChatCompletionRequest):
+    """Chat over a text-generation model, plain or streamed.
+
+    Models whose tokenizer has a chat template get the chat in that format (with thinking mode off); others get a
+    ``User:``/``Assistant:`` transcript. Chats longer than MAX_INPUT_CHARS lose their oldest turns first, keeping the
+    system prompt. Message content may be a string or a list of parts: text, images and audio for the models that take
+    them. Streamed replies arrive as the model writes them, and generation stops when the reply ends or the client
+    disconnects; a model that fails to load still gets an HTTP error, and a failure mid-reply arrives as an event
+    holding ``error``. The reply (the final chunk, when streamed) carries a non-standard ``toolkit`` field: ``processing_ms``
+    and ``cold_start``. ``tools``, ``tool_choice`` and ``response_format`` (``json_object``, ``json_schema``) work as
+    with OpenAI: a chat template that takes tools renders them, other models get an instruction, and the reply is parsed
+    for calls or JSON; a model server does it itself. A reply without the JSON asked for is a 502, and streamed replies
+    with tools or a response format arrive as one chunk at the end. ``usage`` comes when the model counts tokens
+    (streamed in a closing chunk with ``stream_options.include_usage``), ``finish_reason`` is ``length`` when
+    ``max_tokens`` was used up, ``stop`` strings end the reply, and ``logprobs`` / ``top_logprobs`` give the generated
+    tokens' log probabilities."""
     task = chat_task(request)
     chat_input = generation_input(request, task)
     max_length = chat_input["max_length"]

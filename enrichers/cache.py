@@ -1,10 +1,10 @@
 """
 Cache of enricher results, one row per (enricher, type, value): a /db table
-in the ``enrichers`` namespace (vectorstore/tables.py), which the admin's Data
+in the ``enrichers`` namespace (db/tables.py), which the admin's Data
 section shows read-only. MemoryCache keeps the rows in this process instead,
 for a service without a database (ARCADEDB_PATH empty) and for tests. Their
 methods are async: ResultCache's run on the database's thread pool
-(vectorstore/engine.py).
+(db/engine.py).
 
 A result is served from here until its enricher's TTL has passed, so a value
 looked up twice costs one request against the source's quota. Rows hold the
@@ -18,8 +18,8 @@ import json
 import time
 from typing import Any, Dict, Optional, Tuple
 
-from vectorstore import Database, DocumentStore, on_pool
-from vectorstore.tables import TableSchema, TableStore, schema_of, table_type
+from db import Database, DocumentStore, on_pool
+from db.tables import TableSchema, TableStore, schema_of, table_type
 
 NAMESPACE = "enrichers"
 TABLES: Dict[str, TableSchema] = {
@@ -57,19 +57,16 @@ def _result(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 class ResultCache(DocumentStore):
-    def __init__(self, database: Database, tables: TableStore):
-        super().__init__(database)
-        self._t = tables
-        tables.manage(NAMESPACE, "the enrichers' result cache: it fills itself", TABLES)
+    NAMESPACE = NAMESPACE
+    OWNER = "the enrichers' result cache: it fills itself"
+    TABLES = TABLES
 
-    def _ensure_schema(self, db) -> None:
-        super()._ensure_schema(db)
-        self._t.ensure_managed(NAMESPACE)
+    def __init__(self, database: Database, tables: TableStore):
+        super().__init__(database, tables)
 
     @on_pool
     def get(self, enricher: str, type_: str, value: str) -> Optional[Dict[str, Any]]:
-        rows = self._select(f"SELECT FROM {RESULT} WHERE id = :id", {"id": _id(enricher, type_, value)})
-        return _result(rows[0] if rows else None)
+        return _result(self._one(f"SELECT FROM {RESULT} WHERE id = :id", {"id": _id(enricher, type_, value)}))
 
     @on_pool
     def put(self, enricher: str, type_: str, value: str, result: Dict[str, Any], ttl_s: int) -> None:

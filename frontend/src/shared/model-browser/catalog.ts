@@ -93,7 +93,7 @@ export function planSummary(plan: LoadPlan): { text: string; kind: "ok" | "warn"
 }
 
 /** The bar under a plan: memory in use and this model's share, as fractions of the bar. */
-export interface MemoryBar {
+interface MemoryBar {
   used: number;
   need: number;
   /** Where the MAX_MEMORY_GB budget falls, or null without a budget */

@@ -5,27 +5,25 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import procs
+from core import procs
 from api import app as app_module
-from errors import NotFound
-from jobs.store import JobStore
-from jobs.tasks import TaskRunner
+from core.errors import NotFound
+from tasks.store import TaskStore
+from tasks.runner import TaskRunner
 from models import hub, memory
-from models.generic.transformers_model import TransformersModel
+from models.families.generic.transformers_model import TransformersModel
 from models.hub import Downloads
 from tests.fakes import FakeModel, swapped
-from vectorstore.tables import TableStore
+from tests.waits import until_async
+from db.tables import TableStore
 
 
 async def wait_for(downloads, id, *statuses, timeout=10.0):
     """The download ``id`` once its status is one of ``statuses``."""
-    deadline = time.monotonic() + timeout
-    while True:
-        found = next((d for d in await downloads.list() if d["id"] == id), None)
-        if found is not None and found["status"] in statuses:
-            return found
-        assert time.monotonic() < deadline, f"still {found and found['status']}"
-        await asyncio.sleep(0.02)
+    async def found():
+        download = next((d for d in await downloads.list() if d["id"] == id), None)
+        return download if download is not None and download["status"] in statuses else None
+    return await until_async(found, timeout, f"download {id} never became {' or '.join(statuses)}")
 
 
 def spawning(code):
@@ -51,7 +49,7 @@ def fake_hub(monkeypatch, tmp_path):
 
 def downloads_on(arcade):
     """Downloads, one at a time, in a task runner of their own."""
-    tasks = TaskRunner(JobStore(arcade, TableStore(arcade)))
+    tasks = TaskRunner(TaskStore(arcade, TableStore(arcade)))
     return tasks, Downloads(tasks, max_running=1, poll_s=0.02)
 
 
@@ -100,8 +98,7 @@ def test_downloads_are_cancelled_and_stopped(fake_hub, monkeypatch, arcade):
         running = await downloads.start("org/a")
         queued = await downloads.start("org/b")
         await wait_for(downloads, running["id"], "running")
-        while running["id"] not in downloads._processes:
-            await asyncio.sleep(0.02)
+        await until_async(lambda: running["id"] in downloads._processes, what="its process never started")
         await downloads.cancel(queued["id"])
         assert (await wait_for(downloads, queued["id"], "cancelled"))["finished"] is not None
         await downloads.cancel(running["id"])
@@ -110,8 +107,7 @@ def test_downloads_are_cancelled_and_stopped(fake_hub, monkeypatch, arcade):
 
         third = await downloads.start("org/c")
         await wait_for(downloads, third["id"], "running")
-        while third["id"] not in downloads._processes:
-            await asyncio.sleep(0.02)
+        await until_async(lambda: third["id"] in downloads._processes, what="its process never started")
         process = downloads._processes[third["id"]]
         # The service stopping kills it; the download, its partial files kept, waits to go on when the service is back.
         await tasks.stop()

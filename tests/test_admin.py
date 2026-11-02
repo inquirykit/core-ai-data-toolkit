@@ -5,8 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
-from models.generic.transformers_model import TransformersModel
+from core.config import Config
+from models.families.generic.transformers_model import TransformersModel
 from tests.fakes import FakeModel, swapped
 
 
@@ -171,7 +171,7 @@ def limits(client, tmp_path, monkeypatch):
     """Restore the cache's limits and settings after a test changes them."""
     import os
 
-    import envfile
+    from core import envfile
 
     manager = client.app.state.manager
     saved = (manager.cache.max_models, manager.cache.max_memory_gb, Config.MAX_MODELS, Config.MAX_MEMORY_GB)
@@ -218,7 +218,7 @@ def test_limits_one_at_a_time_and_validated(client, limits):
 
 
 def test_limits_warn_when_the_environment_wins(client, limits, monkeypatch):
-    import config
+    from core import config
 
     monkeypatch.setenv("MAX_MEMORY_GB", "8.0")
     monkeypatch.setattr(config, "_FROM_FILE", set())

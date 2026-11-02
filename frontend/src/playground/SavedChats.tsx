@@ -16,13 +16,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAction } from "../shared/action";
 import { AuthError, type ApiClient } from "../shared/api";
-import { Field, Notice, SelectField, SubmitButton, type NoticeState } from "../shared/components";
-import { fmtAgo } from "../shared/format";
-import { EmptyState } from "../shared/model-browser/parts";
+import { EmptyState, Field, Notice, SelectField, SubmitButton, type NoticeState } from "../shared/components";
+import { fmtAgo, plural } from "../shared/format";
+import { DataGrid, type GridColumn } from "../shared/grid";
 import { errorText } from "../shared/query";
 import { letter } from "./chat";
 import { lastReply, type Conversation, type ConversationSummary, type DatasetSummary, type ExampleBody } from "./saved";
@@ -107,6 +106,100 @@ export function SavedDialog(props: {
       setAdding(await client.get("/playground/conversations/{conversation_id}", { params: { path: { conversation_id: row.id } } }));
     });
 
+  const columns: GridColumn<ConversationSummary>[] = [
+    {
+      key: "title",
+      label: "Title",
+      headClassName: "pl-4",
+      className: "max-w-[20rem] pl-4 font-medium",
+      render: (row) =>
+        renaming?.id === row.id ? (
+          <RenameForm
+            title={renaming.title}
+            busy={busy}
+            onChange={(title) => setRenaming({ id: row.id, title })}
+            onSubmit={() => rename(row.id, renaming.title.trim())}
+            onCancel={() => setRenaming(null)}
+          />
+        ) : (
+          <span className="flex items-center gap-2">
+            <span className="truncate" title={row.title}>
+              {row.title}
+            </span>
+            {row.id === props.loadedId && (
+              <Badge variant="outline" className="rounded-full px-1.5 py-0 font-normal text-muted-foreground">
+                open
+              </Badge>
+            )}
+          </span>
+        ),
+    },
+    {
+      key: "models",
+      label: "Models",
+      render: (row) => (
+        <span className="inline-flex max-w-[16rem] flex-wrap gap-1">
+          {row.models.map((m, i) => (
+            <Badge key={`${m}\n${i}`} variant="secondary" className="max-w-full rounded-full font-normal text-muted-foreground">
+              <span className="truncate">{m}</span>
+            </Badge>
+          ))}
+        </span>
+      ),
+    },
+    { key: "turns", label: "Turns", align: "right", render: (row) => row.turns },
+    { key: "updated", label: "Updated", className: "whitespace-nowrap text-muted-foreground", render: (row) => fmtAgo(row.updated) },
+    {
+      key: "actions",
+      label: <span className="sr-only">Actions</span>,
+      headClassName: "pr-3",
+      className: "pr-3 text-right",
+      render: (row) => (
+        <span className="inline-flex items-center gap-0.5">
+          <Button type="button" variant="outline" size="sm" className="mr-1" disabled={busy} onClick={() => (props.unsaved() ? setConfirmLoad(row) : load(row))}>
+            Load
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            title="Rename"
+            aria-label={`Rename ${row.title}`}
+            disabled={busy}
+            onClick={() => setRenaming({ id: row.id, title: row.title })}
+          >
+            <Pencil aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            title="Add to an eval dataset"
+            aria-label={`Add ${row.title} to a dataset`}
+            disabled={busy}
+            onClick={() => startAdding(row)}
+          >
+            <Database aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-destructive hover:text-destructive"
+            title="Delete"
+            aria-label={`Delete ${row.title}`}
+            disabled={busy}
+            onClick={() => setDeleting(row)}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && props.onClose()}>
       <DialogContent className="sm:max-w-3xl">
@@ -122,108 +215,7 @@ export function SavedDialog(props: {
               <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
             ) : list.length ? (
               <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="pl-4">Title</TableHead>
-                      <TableHead>Models</TableHead>
-                      <TableHead className="text-right">Turns</TableHead>
-                      <TableHead>Updated</TableHead>
-                      <TableHead className="pr-3">
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {list.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="max-w-[20rem] pl-4 font-medium">
-                          {renaming?.id === row.id ? (
-                            <RenameForm
-                              title={renaming.title}
-                              busy={busy}
-                              onChange={(title) => setRenaming({ id: row.id, title })}
-                              onSubmit={() => rename(row.id, renaming.title.trim())}
-                              onCancel={() => setRenaming(null)}
-                            />
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              <span className="truncate" title={row.title}>
-                                {row.title}
-                              </span>
-                              {row.id === props.loadedId && (
-                                <Badge variant="outline" className="rounded-full px-1.5 py-0 font-normal text-muted-foreground">
-                                  open
-                                </Badge>
-                              )}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex max-w-[16rem] flex-wrap gap-1">
-                            {row.models.map((m, i) => (
-                              <Badge key={`${m}\n${i}`} variant="secondary" className="max-w-full rounded-full font-normal text-muted-foreground">
-                                <span className="truncate">{m}</span>
-                              </Badge>
-                            ))}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{row.turns}</TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">{fmtAgo(row.updated)}</TableCell>
-                        <TableCell className="pr-3 text-right">
-                          <span className="inline-flex items-center gap-0.5">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="mr-1"
-                              disabled={busy}
-                              onClick={() => (props.unsaved() ? setConfirmLoad(row) : load(row))}
-                            >
-                              Load
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Rename"
-                              aria-label={`Rename ${row.title}`}
-                              disabled={busy}
-                              onClick={() => setRenaming({ id: row.id, title: row.title })}
-                            >
-                              <Pencil aria-hidden="true" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Add to an eval dataset"
-                              aria-label={`Add ${row.title} to a dataset`}
-                              disabled={busy}
-                              onClick={() => startAdding(row)}
-                            >
-                              <Database aria-hidden="true" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-destructive hover:text-destructive"
-                              title="Delete"
-                              aria-label={`Delete ${row.title}`}
-                              disabled={busy}
-                              onClick={() => setDeleting(row)}
-                            >
-                              <Trash2 aria-hidden="true" />
-                            </Button>
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <DataGrid columns={columns} rows={list} rowKey={(row) => row.id} headerClassName="bg-muted/50" empty="Nothing saved yet" />
               </div>
             ) : (
               !shown.text && (
@@ -389,7 +381,7 @@ function AddExample(props: { quiet: ApiClient; conversation: Conversation; onBac
                 label: (
                   <>
                     <span className="min-w-0 truncate">{d.name}</span>
-                    <span className="text-xs text-muted-foreground">{`${d.examples} example${d.examples === 1 ? "" : "s"}`}</span>
+                    <span className="text-xs text-muted-foreground">{plural(d.examples, "example")}</span>
                   </>
                 ),
               }))}

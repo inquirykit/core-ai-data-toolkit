@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Optional
@@ -15,13 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from .public_routes import router as public_router
-from .routes import router
+from .inference_routes import router as inference_router
 from .openai_routes import router as openai_router
 from .decision_routes import router as decision_router
 from .admin_routes import router as admin_router
 from .setup_routes import router as setup_router
 from .playground_routes import router as playground_router
-from . import playground_routes
+from . import audit
 from .collection_routes import router as collection_router
 from .table_routes import router as table_router
 from .job_routes import router as job_router
@@ -32,23 +33,25 @@ from .metrics_routes import router as metrics_router
 from .hub_routes import router as hub_router
 from .evidence_routes import router as evidence_router
 from .pages import STATIC_DIR
-import procs
-from background import every
-from models import ModelManager, model_server
+from core import procs
+from core.background import every
+from models import ModelManager, servers
 from models.hub import Downloads
 from evals import EvalStore, RunExecutor
-from models.events import HIGH, PRIORITIES, RequestContext, request_context
-from monitoring import LogBuffer, Metrics, MonitoringStore
-from vectorstore import CollectionStore, Database
-from vectorstore.graph import GraphStore
+from models.events import RequestContext, request_context
+from monitoring import AuditLog, LogBuffer, Metrics, MonitoringStore
+from db import CollectionStore, Database
+from db.graph import GraphStore
 from jobs.runner import JobRunner
-from jobs.store import JobStore
-from jobs.tasks import TaskRunner
-from jobs.webhooks import Webhooks
+from tasks import HIGH, PRIORITIES
+from tasks.runner import TaskRunner
+from tasks.store import TaskStore
+from tasks.webhooks import Webhooks
 from enrichers import EnrichService, EnricherStore, MemoryCache, ResultCache
 from evidence import CaptureFiles, EvidenceStore, Signer, Tsa, timestamp_pending
-from config import Config
-from errors import ServiceError, describe
+from playground import PlaygroundStore
+from core.config import Config
+from core.errors import ServiceError, describe
 from .responses.common import ErrorDetail
 from . import deps
 
@@ -58,12 +61,7 @@ logger = logging.getLogger(__name__)
 # propagate to the root, so they are attached too.
 log_buffer = LogBuffer().install(None, "uvicorn", "uvicorn.access")
 # The service's version, as the API schema and each evidence record state it.
-APP_VERSION = "0.2alpha22"
-
-
-def _every_error(cls: type) -> list:
-    """``cls`` and every subclass of it, however deep (the stores' own errors included)."""
-    return [cls, *(sub for direct in cls.__subclasses__() for sub in _every_error(direct))]
+APP_VERSION = "0.2alpha23"
 
 
 def _answer(request: Request, message: str, status: int, headers: Optional[Dict[str, str]] = None) -> JSONResponse:
@@ -78,7 +76,7 @@ def _answer(request: Request, message: str, status: int, headers: Optional[Dict[
 
 
 async def service_error_response(request: Request, exc: ServiceError) -> JSONResponse:
-    """A refusal (errors.py): its own status and headers (a full cache's Retry-After)."""
+    """A refusal (core/errors.py): its own status and headers (a full cache's Retry-After)."""
     if exc.status >= 500:
         logger.warning("%s %s: %s", request.method, request.url.path, exc)
     return _answer(request, str(exc), exc.status, exc.headers)
@@ -95,7 +93,7 @@ async def value_error_response(request: Request, exc: ValueError) -> JSONRespons
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     # One ArcadeDB database holds everything the service stores, and every store below shares it; opened on
-    # first use (see vectorstore/engine.py).
+    # first use (see db/engine.py).
     database = Database(Config.ARCADEDB_PATH, Config.ARCADEDB_HEAP) if Config.ARCADEDB_PATH else None
     if database is not None:
         # Its JVM may only start on the main thread: here, at import (uvicorn's workers, tests and scripts alike).
@@ -110,12 +108,16 @@ def create_app() -> FastAPI:
     )
     # Counts for GET /metrics; hands each record on to the store.
     metrics = Metrics(monitoring)
+    # Who changed what (api/audit.py).
+    audit_log = (
+        AuditLog(database, Config.AUDIT_RETENTION_DAYS)
+        if database is not None and Config.AUDIT_RETENTION_DAYS > 0 else None
+    )
     # /db. The evals, jobs, the enrichers' cache and the evidence ledger keep their tables in it, in namespaces
     # /db shows only to the admin, read-only.
     tables = GraphStore(database) if database is not None else None
-    if tables is not None:
-        # The playground's saved chats and presets; it made its namespace through /db before it was kept.
-        tables.manage(playground_routes.NAMESPACE, playground_routes.OWNER, playground_routes.TABLES, adopt=True)
+    # The playground's saved chats and presets.
+    playground = PlaygroundStore(database, tables) if tables is not None else None
     # Traces, datasets, runs and scores.
     evals = EvalStore(database, tables, Config.TRACE_RETENTION_DAYS, Config.TRACE_MAX_CHARS) if database is not None else None
     model_manager = ModelManager(
@@ -132,9 +134,11 @@ def create_app() -> FastAPI:
         # Each request is counted (and kept for the dashboard), and traced while traces are kept.
         sinks=[metrics.on_request] + ([evals.on_request] if evals is not None and evals.capturing else []),
     )
-    webhooks = Webhooks(Config.WEBHOOK_URLS, Config.WEBHOOK_SECRET)
-    # Background work waits in one task table, each kind with its limit: jobs, eval runs, judging, downloads (jobs/tasks.py).
-    tasks = TaskRunner(JobStore(database, tables), loaded=model_manager.is_loaded) if database is not None else None
+    # Background work waits in one task table, each kind with its limit: jobs, eval runs, judging, downloads, webhook
+    # deliveries (tasks/runner.py).
+    tasks = TaskRunner(TaskStore(database, tables), loaded=model_manager.is_loaded) if database is not None else None
+    # Finished jobs and runs are POSTed to WEBHOOK_URLS, each delivery a task, so a restart does not lose it.
+    webhooks = Webhooks(Config.WEBHOOK_URLS, Config.WEBHOOK_SECRET, tasks=tasks)
     runs = RunExecutor(evals, model_manager, tasks, webhooks) if evals is not None else None
     jobs = None
     if Config.JOBS_DIR and tasks is not None:
@@ -164,8 +168,8 @@ def create_app() -> FastAPI:
             allow_private=Config.ENRICH_ALLOW_PRIVATE,
             max_concurrency=Config.ENRICH_CONCURRENCY,
         )
-        # The enrichers' keys stay with the service, like its own (below).
-        procs.hide(*(entry.spec.secret for entry in enricher_store.all().values() if entry.spec.secret))
+        # The enrichers' keys stay with the service, like its own (below): those named from the dashboard later too.
+        procs.hide_from(enricher_store.secrets)
     # Jobs and model servers run as children of this process: without its keys and secrets.
     procs.hide(*Config.secret_names())
 
@@ -186,7 +190,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # Periodic work, each an every() loop (background.py) cancelled at shutdown.
+        # Periodic work, each an every() loop (core/background.py) cancelled at shutdown.
         loops = []
         if evidence is not None and evidence_tsa.enabled:
             loops.append(every(3600, retry_timestamps, "Retrying evidence time stamps", first=60))
@@ -194,13 +198,13 @@ def create_app() -> FastAPI:
             idle = Config.MODEL_IDLE_TIMEOUT
             loops.append(every(min(30.0, idle), lambda: model_manager.cache.unload_idle(idle), "Unloading idle models",
                                first=min(30.0, idle)))
-        if evals is not None:
-            # Also with capture off (TRACE_RETENTION_DAYS=0): traces kept before are dropped.
-            loops.append(every(3600, evals.prune, "Pruning traces"))
-        if monitoring is not None:
-            loops.append(every(3600, monitoring.prune, "Pruning request history"))
-        if enrichers is not None:
-            loops.append(every(3600, enrichers.cache.prune, "Pruning the enrichers' cache"))
+        # Hourly, what is past its retention goes: traces also with capture off (TRACE_RETENTION_DAYS=0), so those
+        # kept before are dropped.
+        for store, what in ((evals, "traces"), (monitoring, "request history"), (audit_log, "the audit log"),
+                            (enrichers and enrichers.cache, "the enrichers' cache"),
+                            (tasks, "finished webhook deliveries")):
+            if store is not None:
+                loops.append(every(3600, store.prune, f"Pruning {what}"))
         background = [asyncio.create_task(loop) for loop in loops]
         if runs is not None:
             await runs.start()
@@ -224,12 +228,12 @@ def create_app() -> FastAPI:
         await webhooks.close()
         await model_manager.clear_all_models()
         # Model servers that are asleep rather than loaded, too.
-        await model_server.stop_all()
+        await servers.stop_all()
         if enrichers is not None:
             await enrichers.close()
         await evidence_tsa.close()
         # The writers finish their queues (the unloads above included) before the database closes.
-        for writer in (evals, monitoring):
+        for writer in (evals, monitoring, audit_log):
             if writer is not None:
                 writer.close()
         if database is not None:
@@ -271,6 +275,7 @@ def create_app() -> FastAPI:
 
     app.state.manager = model_manager
     app.state.monitoring = monitoring
+    app.state.audit = audit_log
     app.state.metrics = metrics
     app.state.hub_downloads = hub_downloads
     app.state.logs = log_buffer
@@ -306,26 +311,37 @@ def create_app() -> FastAPI:
             request_context.set(RequestContext(tags=tags, session=session, priority=PRIORITIES.get(named, HIGH)))
         return await call_next(request)
 
+    @app.middleware("http")
+    async def audit_changes(request: Request, call_next):
+        """Every change through an admin's route, and every delete, goes in the audit log (api/audit.py), with
+        the status it got: outermost, so a refusal or an internal error is kept as answered."""
+        started = time.time()
+        response = await call_next(request)
+        audit.record(app.state.audit, request, response.status_code, started)
+        return response
+
     app.state.database = database
     app.state.collections = collections
     app.state.tables = tables
+    app.state.playground = playground
     app.state.jobs = jobs
     app.state.tasks = tasks
     app.state.webhooks = webhooks
     app.state.enrichers = enrichers
     app.state.evidence = evidence
     app.state.evidence_tsa = evidence_tsa
-    # Every refusal the service makes (errors.py) is answered with its status; a plain ValueError is a 400.
+    # Every refusal the service makes (core/errors.py) is answered with its status; a plain ValueError is a 400.
     app.add_exception_handler(ServiceError, service_error_response)
     app.add_exception_handler(ValueError, value_error_response)
     # So the schema says what every route may answer with besides its own: a client's validator (and
-    # tests/test_schemathesis.py) then holds each error body to {"detail": message}.
-    refusals = {cls.status: {"model": ErrorDetail, "description": (cls.__doc__ or "").strip().split("\n")[0] or cls.__name__}
-                for cls in _every_error(ServiceError)}
+    # tests/test_schemathesis.py) then holds each error body to {"detail": message}. Each status is core/errors.py's
+    # class of it (the others are kinds of those).
+    refusals = {cls.status: {"model": ErrorDetail, "description": (cls.__doc__ or "").strip().split("\n")[0]}
+                for cls in ServiceError.__subclasses__()}
     refusals[400] = {"model": ErrorDetail, "description": "Refused: the request is wrong (a bad value, an unknown name)"}
     refusals[500] = {"model": ErrorDetail, "description": "Internal error: its type, and its text with DEBUG on"}
     # In this order: a path two routers could match goes to the first.
-    for r in (public_router, router, openai_router, decision_router, admin_router, setup_router, playground_router,
+    for r in (public_router, inference_router, openai_router, decision_router, admin_router, setup_router, playground_router,
               collection_router, table_router, job_router, eval_router, enrich_router, model_server_router, metrics_router,
               hub_router, evidence_router):
         app.include_router(r, responses=refusals)

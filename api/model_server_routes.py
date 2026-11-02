@@ -23,13 +23,13 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
-from config import Config
-from models import ModelManager, model_server
-from models.server_specs import (
+from core.config import Config
+from models import ModelManager, servers
+from models.servers.entries import (
     MODEL_ID, PROVIDER_NAME, TASKS, ModelEntry, Provider, ServerSpec, ServerStore, dump_entry, new_commands,
 )
-from errors import Conflict, Forbidden, NotFound, Refused, ServiceError, Unavailable
-from . import deps, responses
+from core.errors import Conflict, Forbidden, NotFound, Refused, ServiceError, Unavailable
+from . import audit, deps, responses
 
 router = APIRouter(prefix="/admin/model-servers", tags=["model servers"], dependencies=deps.ADMIN)
 
@@ -89,7 +89,7 @@ def _listing(manager: ModelManager, store: ServerStore, notes: List[str] = ()) -
 async def _apply(manager: ModelManager, store: ServerStore) -> List[str]:
     """Serve what the files say now; notes on what that did."""
     loaded = {e.info.model_id for e in manager.cache.entries.values()}
-    changed = await model_server.reload(manager.cache)
+    changed = await servers.reload(manager.cache)
     notes = [f"{m} was unloaded; its next request loads it from the new entry" for m in changed if m in loaded]
     if Config.WORKERS > 1:
         notes.append("Only this worker serves the change until the others restart (WORKERS > 1)")
@@ -105,7 +105,9 @@ def _save(write) -> None:
 
 @router.get("", **responses.answering(responses.ModelServers))
 async def list_model_servers(manager: deps.Manager) -> Dict[str, Any]:
-    """The providers and models in effect: the file's, each replaced by the one saved from /admin."""
+    """The providers and models in effect: the file's, each replaced by the one saved from /admin. Each says where it
+    comes from (``file``, ``saved``, ``replaced``), each model its status and serving backend, and the entries that
+    could not be read are listed as problems."""
     return _listing(manager, _store())
 
 
@@ -122,7 +124,8 @@ async def put_provider(manager: deps.Manager, name: str, provider: Provider) -> 
 
 @router.delete("/providers/{name}", **responses.answering(responses.ModelServers))
 async def delete_provider(manager: deps.Manager, name: str) -> Dict[str, Any]:
-    """Remove a saved provider, or the saved changes to one in the file (which comes back)."""
+    """Remove a saved provider, or the saved changes to one in the file (which comes back). 409 while a model's backends
+    use it."""
     store = _store()
     _writable(store)
     effective = store.effective()
@@ -140,7 +143,8 @@ async def delete_provider(manager: deps.Manager, name: str) -> Dict[str, Any]:
 
 @router.put("/models/{model_id:path}", **responses.answering(responses.ModelServers))
 async def put_model(manager: deps.Manager, model_id: str, entry: ModelEntry) -> Dict[str, Any]:
-    """Create or replace a model's entry: its task and its backends, in the order they are tried."""
+    """Create or replace a model's entry: its task and its backends, in the order they are tried. 403 for a command
+    (``cmd``, ``env``) the file does not give, unless MODEL_SERVERS_ALLOW_COMMANDS."""
     if not MODEL_ID.match(model_id):
         raise Refused("A model ID is letters, digits and ._:/@+- (up to 200)")
     store = _store()
@@ -176,13 +180,14 @@ async def delete_model(manager: deps.Manager, model_id: str) -> Dict[str, Any]:
 
 
 @router.post("/probe", **responses.answering(responses.ModelServerProbe))
+@audit.reads
 async def probe_model(body: ProbeRequest) -> Dict[str, Any]:
     """Probe every backend of an entry (the one in effect, or a draft) the way a load would. Nothing starts."""
     if body.entry is not None:
         spec = ServerSpec.model_validate({**body.entry.model_dump(exclude_unset=True), "model_id": body.model_id})
     else:
-        spec = model_server.specs().get(body.model_id)
+        spec = servers.specs().get(body.model_id)
         if spec is None:
             raise NotFound(f"No model server entry for {body.model_id}")
-    probes, chosen = await model_server.probe(spec)
+    probes, chosen = await servers.probe(spec)
     return {"model_id": body.model_id, "chosen": chosen, "backends": [p.as_dict() for p in probes]}

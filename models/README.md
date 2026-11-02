@@ -1,13 +1,13 @@
 # Models
 
-To add a model, add one file to a subfolder of `models/`. Nothing else needs editing: the service finds the file when it first needs a model, and the model appears in `/models/list` and `/v1/models`.
+To add a model, add one file to a subfolder of `models/families/`. Nothing else needs editing: the service finds the file when it first needs a model, and the model appears in `/models/list` and `/v1/models`.
 
 ## Adding a model
 
 ```python
-# models/custom/my_model.py
+# models/families/custom/my_model.py
 from models import BaseModel, register
-from models.tasks import GeneratedText, TextGenerationInput
+from models.contracts import GeneratedText, TextGenerationInput
 
 
 @register(task="text-generation", ids=["my-org/my-model"])
@@ -34,7 +34,7 @@ A request such as `POST /inference {"model_id": "my-org/my-model", "task": "text
 
 ## Task contracts
 
-What `predict()` receives and returns is set by the task, not the model: `models/tasks.py` has an input and an output Pydantic model for each task. Every model for a task follows the same contract, so clients get the same `result` shape whichever model answers.
+What `predict()` receives and returns is set by the task, not the model: `models/contracts.py` has an input and an output Pydantic model for each task. Every model for a task follows the same contract, so clients get the same `result` shape whichever model answers.
 
 | Task | Input model | Output model |
 |---|---|---|
@@ -57,6 +57,7 @@ The service checks both sides: a request that does not fit is refused before `pr
 | `predict(request)` | yes | Answers one request. `request` is the task's input model, already validated, with its defaults filled in; return the output model. `max_length` is `None` when the client left it out, so apply your model's own default. For `text-generation`, `/v1/chat/completions` sends a plain transcript as `request.text` and also the chat as `request.messages`; use `messages` to format it yourself, for example with the tokenizer's chat template. Add an `on_text` parameter to stream: call it with each new piece of text and stop generating once it returns False; `models.base.text_streaming(tokenizer, on_text)` gives the `generate()` arguments that do both. |
 | `unload()` | no | Extra cleanup, for things other than dropping attributes (closing a file or a client, for example). |
 | `estimate_bytes()` | no | The memory the model will need, asked before loading so the cache can make room. The default reads the safetensors headers of `model_id` and sizes them in `self.dtype`; return `None` if unknown, and the cache counts what loading took. |
+| `operator_chose(model_id)` | no | A classmethod: True for an ID the operator chose here, which clients may then use whatever `ALLOWED_MODELS` says. The model servers say it of their entries' IDs and the AutoGluon class of predictors a job trained. The default is False. |
 
 Set the class attribute `max_concurrency` to let one loaded instance run several requests at once (default 1).
 
@@ -114,7 +115,7 @@ Folders are for organisation only; put a file wherever it makes sense. Files and
 Define its contract next to the model, then register for it:
 
 ```python
-from models.tasks import TaskInput, TaskOutput, define_task
+from models.contracts import TaskInput, TaskOutput, define_task
 
 
 class SpeechInput(TaskInput):
@@ -125,7 +126,7 @@ class Transcript(TaskOutput):
     text: str
 
 
-define_task("speech-to-text", SpeechInput, Transcript, "Transcribe an audio file")
+define_task("speech-to-text", SpeechInput, Transcript, "Transcribe an audio file", category="audio", label="Speech to text")
 
 
 @register(task="speech-to-text", ids=["UsefulSensors/moonshine-tiny"])
@@ -134,7 +135,7 @@ class Whisper(BaseModel):
         ...
 ```
 
-`POST /inference` with `"task": "speech-to-text"` and `"input": {"audio_path": ...}` now reaches your model, and `/docs` and `GET /tasks` list the new task's input and result. `models/custom/custom_model.py` is a complete example. Subclass `TaskInput` and `TaskOutput`: the first rejects unknown fields, the second drops them.
+`POST /inference` with `"task": "speech-to-text"` and `"input": {"audio_path": ...}` now reaches your model, and `/docs` and `GET /tasks` list the new task's input and result. `category` is the playground tab and model browser heading it goes under (text, vision, audio, decision, prediction, or other, the default; chat is kept for the tasks the Chat tab talks to) and `label` its short name there. A task that does another task's job with another kind of model (labels named in the request, say) gives `variant_of="that-task"` instead of a category, and shares that task's place. The playground tries it with a form made from its contract; a nicer form or result of its own is an entry in `frontend/src/shared/task-io/TryPanel.tsx`. `models/families/custom/custom_model.py` is a complete example. Subclass `TaskInput` and `TaskOutput`: the first rejects unknown fields, the second drops them.
 
 `@register` alone also works: the task then has no contract, `input` reaches `predict()` exactly as the client sent it, and the result is returned unchecked. Add a contract before anyone depends on the task.
 
@@ -145,21 +146,24 @@ A dedicated route is only needed to match an external API's request format, as `
 ```
 models/
 ├── base.py         # BaseModel and shared torch helpers
-├── tasks.py        # Task contracts: each task's input and output model
+├── contracts.py    # Task contracts: each task's input and output model
 ├── registry.py     # @register, discovery and (model_id, task) -> class
 ├── manager.py      # ModelManager: load, run, unload, list
 ├── cache.py        # LRU cache with memory-aware eviction and per-model locks
-├── generic/        # Fallbacks for any Hub ID: text tasks, vision-language (Qwen3.5, LFM2.5-VL, ...), embeddings, speech
-├── vision/         # Apple FastVLM (text + image)
-├── decision/       # vegaml typed decisions
-└── custom/         # CustomModel: the smallest example, no weights, defines its own task
+├── servers/        # Models served by OpenAI-compatible servers (MODEL_SERVERS_FILE and /admin)
+└── families/       # The model files, found at first use:
+    ├── generic/    # Fallbacks for any Hub ID: text tasks, vision-language (Qwen3.5, LFM2.5-VL, ...), embeddings, speech
+    ├── vision/     # Apple FastVLM (text + image)
+    ├── decision/   # vegaml typed decisions
+    ├── autogluon/  # Predictors trained by the AutoGluon jobs
+    └── custom/     # CustomModel: the smallest example, no weights, defines its own task
 ```
 
 ## Testing a model without the server
 
 ```python
 import asyncio
-from models.custom.my_model import MyModel
+from models.families.custom.my_model import MyModel
 
 async def main():
     model = MyModel("my-org/my-model", device="cpu")
@@ -177,7 +181,7 @@ Unit tests can swap a registered class for a fake with `tests.fakes.swapped(Real
 A model can also be served by a separate OpenAI-compatible server (mlx-vlm,
 mlx-lm, vLLM, llama-server) instead of a model file: list it in
 `MODEL_SERVERS_FILE` (see `model_servers.example.toml`). `ServerModel` in
-`models/model_server.py` starts the server on the first request and stops it
+`models/servers/model.py` starts the server on the first request and stops it
 on eviction, so stopping it frees all of its memory and a crash in it affects
 only that model. Those entries are registered after every model file, so they
 win over a file that claims the same ID.

@@ -10,9 +10,10 @@ from fastapi.testclient import TestClient
 
 import tests.fake_jobs  # noqa: F401  registers the test-* jobs
 from api import app as app_module
-from config import Config
-from jobs.store import FAILED, SUCCEEDED
-from models.autogluon import predictor as ag
+from core.config import Config
+from tasks.store import FAILED, SUCCEEDED
+from models.families.autogluon import predictor as ag
+from tests import waits
 
 
 @pytest.fixture
@@ -28,13 +29,11 @@ def submit(client, job, **params):
 
 
 def wait(client, id, until=("succeeded", "failed", "cancelled"), timeout=30.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    """The job once its status is one of ``until``."""
+    def ended():
         job = client.get(f"/jobs/{id}").json()
-        if job["status"] in until:
-            return job
-        time.sleep(0.05)
-    raise AssertionError(f"job {id} still {job['status']} after {timeout}s")
+        return job if job["status"] in until else None
+    return waits.until(ended, timeout, lambda: f"job {id} is still {client.get(f'/jobs/{id}').json()['status']}")
 
 
 def alive(pid):
@@ -119,17 +118,39 @@ def test_failures_are_reported(client, job, error):
 def test_cancelling_a_running_job_stops_its_whole_process_group(client):
     id = submit(client, "test-sleep")
     child_pid_file = Config.JOBS_DIR and Path(Config.JOBS_DIR) / id / "child.pid"
-    deadline = time.monotonic() + 20
-    while not child_pid_file.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
+    waits.until(child_pid_file.exists, 20, "the job never started its child")
     child = int(child_pid_file.read_text())
     assert client.get(f"/jobs/{id}").json()["status"] == "running"
 
     assert client.post(f"/jobs/{id}/cancel").json()["status"] == "cancelled"
-    deadline = time.monotonic() + 5
-    while alive(child) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert not alive(child)
+    waits.until(lambda: not alive(child), 5, "its child is still alive")
+
+
+def test_a_failing_job_is_retried_and_its_log_marks_each_retry(client):
+    r = client.post("/jobs", json={"job": "test-fail", "retries": 1, "retry_delay_s": 1})
+    assert r.status_code == 202, r.text
+    assert r.json()["retries"] == 1 and r.json()["retried"] == 0
+    job = wait(client, r.json()["id"])
+    assert job["status"] == "failed" and job["retried"] == 1 and "boom" in job["error"]
+    log = client.get(f"/jobs/{job['id']}/log").text
+    assert log.count("boom") >= 2 and "--- retry 1 of 1 ---" in log
+
+
+def test_a_job_past_its_timeout_is_stopped_with_its_whole_process_group(client):
+    r = client.post("/jobs", json={"job": "test-sleep", "timeout_s": 1})
+    assert r.status_code == 202, r.text
+    id = r.json()["id"]
+    child_pid_file = Path(Config.JOBS_DIR) / id / "child.pid"
+    waits.until(child_pid_file.exists, 20, "the job never started its child")
+    child = int(child_pid_file.read_text())
+    job = wait(client, id)
+    assert job["status"] == "failed" and "Timed out" in job["error"]
+    waits.until(lambda: not alive(child), 5, "its child is still alive")
+
+
+@pytest.mark.parametrize("policy", [{"retries": 11}, {"retry_delay_s": 0}, {"timeout_s": 0.5}])
+def test_retries_and_timeouts_out_of_range_are_refused(client, policy):
+    assert client.post("/jobs", json={"job": "test-echo", "params": {"text": "x"}, **policy}).status_code == 422
 
 
 def test_a_queued_job_can_be_cancelled_and_waits_its_turn(client):
@@ -282,10 +303,10 @@ def test_a_job_cancelled_as_its_process_starts_ends_cancelled(client, monkeypatc
 
 def test_a_result_of_any_shape_comes_back_as_it_was(arcade):
     """A job's result is JSON text in its row: a top-level @type or a big integer would not survive ArcadeDB's maps."""
-    from jobs.store import JobStore
-    from vectorstore.tables import TableStore
+    from tasks.store import TaskStore
+    from db.tables import TableStore
 
-    store = JobStore(arcade, TableStore(arcade))
+    store = TaskStore(arcade, TableStore(arcade))
     result = {"@type": "Thing", "rows": [1, {"big": 2 ** 64}], "note": "done"}
     asyncio.run(store.insert("job1", "test-echo", {"text": "x", "nested": {"a": [1, 2]}}))
     asyncio.run(store.claim("job1"))

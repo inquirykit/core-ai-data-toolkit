@@ -1,6 +1,6 @@
 """
 What the AutoGluon jobs share: reading tables, progress while fit() runs,
-and predictor.json, which tells models/autogluon/predictor.py how to serve
+and predictor.json, which tells models/families/autogluon/predictor.py how to serve
 the predictor a job trained.
 
 Runs in the "autogluon" environment; pandas is imported inside functions so

@@ -6,10 +6,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.app import service_error_response
-from errors import Conflict, Forbidden, NotFound, Refused, ServiceError, TooLarge, Unauthorized, Unavailable
-from jobs.store import JobNotFound
+from core.errors import Conflict, Forbidden, NotFound, Refused, ServiceError, TooLarge, Unauthorized, Unavailable
 from models.cache import CapacityError
-from vectorstore.tables import NotFound as RowNotFound
+from db.tables import TableError
 
 
 @pytest.mark.parametrize("error, status, builtin", [
@@ -28,10 +27,9 @@ def test_each_error_has_its_status_and_is_the_builtin_callers_catch(error, statu
 
 def test_a_status_can_be_given_and_the_message_reads_as_given():
     assert ServiceError("teapot", status=418).status == 418
-    # A KeyError would quote it.
-    assert str(JobNotFound("Job not found")) == "Job not found"
-    assert isinstance(JobNotFound("x"), KeyError)
-    assert RowNotFound("no row").status == 404
+    assert str(NotFound("Job not found")) == "Job not found"
+    # The /db store's own refusals are the client's.
+    assert TableError("bad row").status == 400 and isinstance(TableError("x"), Refused)
 
 
 def app_raising(error: Exception) -> TestClient:
@@ -65,4 +63,4 @@ def test_the_routers_raise_only_these_errors():
         f.name for f in (Path(__file__).parent.parent / "api").glob("*.py")
         if f.name != "app.py" and re.search(r"from fastapi import[^\n]*HTTPException", f.read_text())
     )
-    assert offenders == [], f"raise the errors.py class instead of HTTPException in {offenders}"
+    assert offenders == [], f"raise the core/errors.py class instead of HTTPException in {offenders}"

@@ -3,7 +3,7 @@ Serves one trained predictor, in the "autogluon" environment:
 
     python -m jobs.autogluon._serve <job workdir>
 
-models/autogluon/predictor.py starts it when the model is loaded and stops
+models/families/autogluon/predictor.py starts it when the model is loaded and stops
 it when the cache evicts it. It reads predictor.json, loads the predictor,
 writes {"ready": true}, then answers one JSON request per stdin line with one
 JSON line on stdout: {"result": ...} or {"error": ..., "client": bool}

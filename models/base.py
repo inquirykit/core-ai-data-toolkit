@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple, List
 
-from .tasks import ContractViolation, GeneratedText, get as task_contract
+from .contracts import ContractViolation, GeneratedText, get as task_contract
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ _MPS_LOCK = threading.Lock()
 class TryNextBackend(RuntimeError):
     """The model's backend cannot serve it, but another may: a model server that failed to start, or one that
     went away before a request reached it. The manager drops the instance and tries again with a fresh one,
-    which picks the next backend (see models/model_server.py)."""
+    which picks the next backend (see models/servers/model.py)."""
 
 
 def _one_at_a_time(fn: Callable, *args, **kwargs) -> Any:
@@ -269,7 +269,7 @@ class BaseModel(ABC):
       requested torch dtype). Every attribute it sets is dropped on unload.
     - ``predict(request)``: answer one request. ``request`` is the task's
       input model and the return value must fit its output model (see
-      models/tasks.py; a dict with the same fields is fine). Name ``on_text``
+      models/contracts.py; a dict with the same fields is fine). Name ``on_text``
       to stream generated text.
     - ``predict_batch(requests)``: optional. Answer several requests at once
       (in padded forward passes, say), one result per request, in order.
@@ -289,7 +289,7 @@ class BaseModel(ABC):
     # served by another process (models/servers).
     kind = "in-process"
     # Which of a model server's backends answers, e.g. "ollama: qwen3.5:4b"
-    # (see models/model_server.py); None for a model with only one way to run.
+    # (see models/servers/model.py); None for a model with only one way to run.
     backend: Optional[str] = None
     # Whether dtype "auto" means float16 on MPS. Text generators set it:
     # producing tokens is bound by reading the weights, so half-size weights
@@ -370,6 +370,12 @@ class BaseModel(ABC):
     def weights_source(cls, model_id: str) -> Optional[str]:
         """The Hub ID or local path this model loads its files from, or None if it loads none here."""
         return model_id
+
+    @classmethod
+    def operator_chose(cls, model_id: str) -> bool:
+        """Whether the operator chose ``model_id`` here (a model server entry lists it, a job here trained it), so
+        clients may use it whatever ALLOWED_MODELS says. Most classes serve IDs anyone can name: no."""
+        return False
 
     async def estimate_bytes(self) -> Optional[int]:
         """Memory this model will need once loaded, asked before loading so the cache can make room.

@@ -20,11 +20,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from config import Config
+from core.config import Config
 from enrichers import EnricherSpec, EnrichService, EntityType
 from enrichers.spec import NAME
-from errors import Conflict, NotFound, Refused, ServiceError
-from . import deps
+from core.errors import Conflict, NotFound, Refused, ServiceError
+from . import audit, deps
 from . import responses
 from .setup_routes import write_settings
 
@@ -91,6 +91,7 @@ async def forget_cache(service: deps.Enrichers, enricher: Optional[str] = None):
 
 @router.get("/enrichers/{name}", **responses.answering(responses.EnricherInfo))
 async def get_enricher(service: deps.Enrichers, name: str) -> Dict[str, Any]:
+    """One enricher, as GET /enrichers lists it."""
     return service.describe(_entry(service, name))
 
 
@@ -138,8 +139,9 @@ async def put_secret(service: deps.Enrichers, name: str, body: SecretRequest) ->
 
 
 @router.post("/enrichers/{name}/test", **responses.answering(responses.EnricherTest), dependencies=deps.ADMIN)
+@audit.reads
 async def test_enricher(service: deps.Enrichers, name: str, body: TestRequest) -> Dict[str, Any]:
-    """Run the enricher on a value now: no cache, even when disabled. Shows the request it sent."""
+    """Run the enricher on a value now: no cache, even when disabled. Shows the request it sent, its key masked."""
     entry = _entry(service, name)
     type_, value = service.resolve_value(body.value, body.type)
     if type_ not in entry.spec.inputs:

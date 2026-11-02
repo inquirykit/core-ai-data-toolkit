@@ -13,6 +13,7 @@ import {
   speechInput,
   textGenerationInput,
   visionInput,
+  zeroShotInput,
   type DraftQuestion,
 } from "./build";
 import type { JSONSchema, TaskLimits } from "./schema";
@@ -67,6 +68,18 @@ describe("other inputs", () => {
     expect(embeddingInput("a\n\n b \n", limits).input).toEqual({ texts: ["a", "b"] });
     expect(embeddingInput("a\nb\nc\nd", limits).problem).toMatch(/At most 3/);
     expect(embeddingInput(" \n", limits).problem).toMatch(/at least one/);
+  });
+
+  it("name the labels comma-separated, each once, at most as many as the schema allows", () => {
+    const schema: JSONSchema = { properties: { labels: { type: "array", maxItems: 2 } } };
+    expect(zeroShotInput("Goal!", " sports, ,politics, sports ", true, schema, limits).input).toEqual({
+      text: "Goal!",
+      labels: ["sports", "politics"],
+      multi_label: true,
+    });
+    expect(zeroShotInput("Goal!", "a, b, c", false, schema, limits).problem).toMatch(/At most 2 labels/);
+    expect(zeroShotInput("Goal!", " , ", false, schema, limits).problem).toMatch(/at least one label/);
+    expect(zeroShotInput(" ", "a", false, schema, limits).problem).toMatch(/text is empty/);
   });
 
   it("check the question and the context", () => {

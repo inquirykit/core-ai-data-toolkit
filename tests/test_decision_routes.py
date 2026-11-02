@@ -5,9 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
-from models import tasks
-from models.decision.vega import VegaDecisionModel
+from core.config import Config
+from models import contracts
+from models.families.decision.vega import VegaDecisionModel
 from tests.fakes import FakeModel, swapped
 
 
@@ -192,7 +192,7 @@ def test_non_vega_model_is_rejected(client):
 
 
 def test_decision_input_needs_questions_and_one_of_state_or_image():
-    contract = tasks.get("decision")
+    contract = contracts.get("decision")
     questions = {"q": {"type": "boolean", "instructions": "x"}}
     with pytest.raises(ValueError):
         contract.parse_input("just text")

@@ -4,6 +4,8 @@ import { TriangleAlert } from "lucide-react";
 import { motion } from "motion/react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { CodeBlock, Facts } from "../components";
+import { plural } from "../format";
 import { answerSpan, decisionSummary, norm, rankedScores, similarityMatrix } from "./build";
 
 export interface OutputProps {
@@ -15,8 +17,6 @@ type Obj = Record<string, unknown>;
 const obj = (value: unknown): Obj => (value && typeof value === "object" ? (value as Obj) : {});
 const pct = (p: number) => `${(p * 100).toFixed(p > 0 && p < 0.001 ? 2 : 1)}%`;
 
-/** JSON shown as is: the raw response, and results with no better form. */
-export const preClass = "max-h-[480px] overflow-auto rounded-lg border bg-muted/50 p-3 font-mono text-xs leading-relaxed";
 // A reply or a transcript: text as written, on a soft tint.
 const textClass = "rounded-lg bg-muted px-3 py-2.5 text-sm whitespace-pre-wrap wrap-anywhere";
 const headlineClass = "text-[15px] wrap-anywhere";
@@ -108,7 +108,7 @@ export function EmbeddingOutput({ result, input }: OutputProps) {
     <>
       <p className={headlineClass}>
         <strong>
-          {vectors.length} vector{vectors.length === 1 ? "" : "s"} of {vectors[0]?.length ?? 0} dimensions
+          {plural(vectors.length, "vector")} of {vectors[0]?.length ?? 0} dimensions
         </strong>
         {typeof tokens === "number" && tokens > 0 && <span className="text-muted-foreground"> · {tokens} tokens read</span>}
       </p>
@@ -226,16 +226,7 @@ export function GenericOutput({ result }: OutputProps) {
   const r = obj(result);
   const entries = Object.entries(r);
   if (entries.length && entries.every(([, v]) => typeof v === "string")) {
-    return (
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-5 gap-y-2 text-sm">
-        {entries.map(([k, v]) => (
-          <div key={k} className="contents">
-            <dt className="text-muted-foreground">{k}</dt>
-            <dd className={cn(textClass, "min-w-0")}>{String(v)}</dd>
-          </div>
-        ))}
-      </dl>
-    );
+    return <Facts className="items-baseline gap-y-2" rows={entries.map(([k, v]) => [k, <div className={textClass}>{String(v)}</div>])} />;
   }
-  return <pre className={preClass}>{JSON.stringify(result, null, 2)}</pre>;
+  return <CodeBlock className="max-h-[480px]">{JSON.stringify(result, null, 2)}</CodeBlock>;
 }

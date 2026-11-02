@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
+from core.config import Config
 
 PAGES = [("/admin", "Admin"), ("/admin/setup", "Setup"), ("/playground", "Playground")]
 

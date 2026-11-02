@@ -10,26 +10,21 @@ route needs the admin key, and the ArcadeDB database (ARCADEDB_PATH).
 """
 
 import json
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from config import Config
-from evals import EvalError, RunExecutor
+from core.config import Config
+from evals import RunExecutor
 from evals.scoring import DEFAULT_RUBRIC, METRICS, Judge, score_items
 from evals.store import summarize_scores
-from errors import Refused
+from core.errors import Refused
 from . import deps
 from . import responses
 
-# The largest integer the database takes (a Java long): a query integer past it would otherwise be a 500.
-INT64_MAX = 2**63 - 1
-
 router = APIRouter(prefix="/admin", tags=["evals"], dependencies=deps.ADMIN)
-
-Status = Literal["ok", "client_error", "error"]
 
 
 # ---------------------------------------------------------------- traces
@@ -41,7 +36,7 @@ async def list_traces(
     before: Optional[float] = Query(None, description="Only traces older than this time: the cursor for the next page"),
     model: Optional[str] = Query(None, max_length=200, description="Part of the model ID"),
     task: Optional[str] = Query(None, max_length=64),
-    status: Optional[Status] = None,
+    status: Optional[responses.RequestStatus] = None,
     tag: Optional[str] = Query(None, max_length=64),
     session: Optional[str] = Query(None, max_length=128),
     q: Optional[str] = Query(None, max_length=200, description="Words to search the inputs and outputs for"),
@@ -59,6 +54,7 @@ async def list_traces(
 
 @router.get("/traces/{trace_id}", **responses.answering(responses.Trace))
 async def get_trace(store: deps.Evals, trace_id: str):
+    """One trace, with its input and output."""
     return await store.trace(trace_id)
 
 
@@ -89,11 +85,13 @@ class AddExamples(BaseModel):
 
 @router.get("/datasets", **responses.answering(responses.Datasets))
 async def list_datasets(store: deps.Evals):
+    """Every dataset."""
     return {"datasets": await store.datasets()}
 
 
 @router.post("/datasets", **responses.answering(responses.Dataset))
 async def create_dataset(store: deps.Evals, body: CreateDataset):
+    """Make an empty dataset."""
     return await store.create_dataset(body.name, body.description)
 
 
@@ -109,6 +107,7 @@ async def get_dataset(
     runs: Annotated[Optional[RunExecutor], Depends(_runs_or_none)],
     dataset_id: str,
 ):
+    """A dataset with its runs and what each run is doing now."""
     dataset = await store.dataset(dataset_id)
     run_list = await store.runs(dataset_id)
     activity = await runs.activity(run_list) if runs else {}
@@ -126,7 +125,8 @@ async def delete_dataset(store: deps.Evals, runs: Annotated[Optional[RunExecutor
 
 
 @router.get("/datasets/{dataset_id}/examples", **responses.answering(responses.DatasetExamples))
-async def list_examples(store: deps.Evals, dataset_id: str, limit: int = Query(100, ge=1, le=1000), skip: int = Query(0, ge=0, le=INT64_MAX)):
+async def list_examples(store: deps.Evals, dataset_id: str, limit: int = Query(100, ge=1, le=1000), skip: int = Query(0, ge=0, le=deps.INT64_MAX)):
+    """A page of the dataset's examples (``limit`` of them after ``skip``), and how many it holds."""
     dataset = await store.dataset(dataset_id)
     return {"examples": await store.examples(dataset_id, limit, skip), "total": dataset["examples"]}
 
@@ -165,6 +165,7 @@ async def add_examples(store: deps.Evals, dataset_id: str, body: AddExamples):
 
 @router.delete("/datasets/{dataset_id}/examples/{example_id}", **responses.answering(responses.Deleted))
 async def delete_example(store: deps.Evals, dataset_id: str, example_id: str):
+    """Delete one example of the dataset."""
     await store.delete_example(dataset_id, example_id)
     return {"deleted": example_id}
 
@@ -226,6 +227,7 @@ async def list_metrics(store: deps.Evals):
 
 @router.get("/runs", **responses.answering(responses.Runs))
 async def list_runs(store: deps.Evals, runs: deps.Runs, dataset_id: Optional[str] = None):
+    """The runs (of one dataset with ``dataset_id``), each with what it is doing now."""
     run_list = await store.runs(dataset_id)
     activity = await runs.activity(run_list)
     return {"runs": [{**r, "activity": activity.get(r["id"])} for r in run_list]}
@@ -270,6 +272,7 @@ async def get_run(store: deps.Evals, runs: deps.Runs, run_id: str):
 
 @router.delete("/runs/{run_id}", **responses.answering(responses.Deleted))
 async def delete_run(store: deps.Evals, runs: deps.Runs, run_id: str):
+    """Delete a run with its items and scores; one queued or under way is cancelled first."""
     await runs.cancel(run_id)
     await store.delete_run(run_id)
     return {"deleted": run_id}
@@ -277,6 +280,7 @@ async def delete_run(store: deps.Evals, runs: deps.Runs, run_id: str):
 
 @router.post("/runs/{run_id}/cancel", **responses.answering(responses.Run))
 async def cancel_run(store: deps.Evals, runs: deps.Runs, run_id: str):
+    """Cancel the run if it is queued or under way."""
     await runs.cancel(run_id)
     return await store.run(run_id)
 
@@ -286,7 +290,7 @@ async def resume_run(store: deps.Evals, runs: deps.Runs, run_id: str):
     """Queue an interrupted, failed or cancelled run again, at its priority; the examples it answered are skipped."""
     run = await store.run(run_id)
     if run["status"] not in ("interrupted", "failed", "cancelled"):
-        raise EvalError(f"Only an interrupted, failed or cancelled run resumes; this one is {run['status']}")
+        raise Refused(f"Only an interrupted, failed or cancelled run resumes; this one is {run['status']}")
     deps.check_model_allowed(run["model_id"])
     await store.update_run(run_id, status="queued", error=None, finished=None)
     await runs.submit(run_id, await runs.priority(run_id))
@@ -320,13 +324,13 @@ async def judge_run(store: deps.Evals, runs: deps.Runs, run_id: str, body: Judge
         deps.check_model_allowed(model)
     run = await store.run(run_id)
     if run["status"] != "done":
-        raise EvalError("Only a finished run can be judged")
+        raise Refused("Only a finished run can be judged")
     if body.against:
         other = await store.run(body.against)
         if other["dataset_id"] != run["dataset_id"]:
-            raise EvalError("The runs must be of the same dataset")
+            raise Refused("The runs must be of the same dataset")
         if other["status"] != "done":
-            raise EvalError("The other run has not finished")
+            raise Refused("The other run has not finished")
     await runs.judge(run_id, Judge(model=model, base_url=base_url or "", api_key=api_key, rubric=body.rubric), body.against,
                      body.concurrency, body.priority)
     return {"started": run_id, "against": body.against, "judge": model}
@@ -337,7 +341,7 @@ async def compare_runs(store: deps.Evals, run_a: str, run_b: str):
     """The two runs' outputs and scores side by side, example by example."""
     a, b = await store.run(run_a), await store.run(run_b)
     if a["dataset_id"] != b["dataset_id"]:
-        raise EvalError("The runs must be of the same dataset")
+        raise Refused("The runs must be of the same dataset")
     items_a, items_b = await store.items(run_a), await store.items(run_b)
     scores_a, scores_b = await store.scores(run_a), await store.scores(run_b)
 

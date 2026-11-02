@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-import procs
+from core import procs
 
 # Ignores SIGTERM, so stop() has to escalate.
 STUBBORN = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); time.sleep(60)"
@@ -91,3 +91,20 @@ def test_hidden_names_stay_out_of_children(monkeypatch):
     env = procs.python_env(False, JOB_ID="j1")
     assert "TK_TEST_SECRET" not in env and env["TK_TEST_PLAIN"] == "fine" and env["JOB_ID"] == "j1"
     assert procs.child_env(X="1")["X"] == "1" and "TK_TEST_SECRET" not in procs.child_env()
+
+
+def test_a_source_is_asked_before_each_child_and_its_names_stay_hidden(monkeypatch):
+    monkeypatch.setenv("TK_TEST_FIRST", "one")
+    monkeypatch.setenv("TK_TEST_LATER", "two")
+    monkeypatch.setattr(procs, "hidden", set())
+    monkeypatch.setattr(procs, "_sources", [])
+    named = {"TK_TEST_FIRST"}
+    procs.hide_from(lambda: set(named))
+    assert "TK_TEST_FIRST" not in procs.child_env() and procs.child_env()["TK_TEST_LATER"] == "two"
+    # Named while the service runs: hidden from the next child on.
+    named.add("TK_TEST_LATER")
+    assert "TK_TEST_LATER" not in procs.child_env()
+    # No longer named, but its value is still in the environment: still hidden.
+    named.clear()
+    env = procs.python_env(False)
+    assert "TK_TEST_FIRST" not in env and "TK_TEST_LATER" not in env

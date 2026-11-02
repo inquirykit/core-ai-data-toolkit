@@ -8,15 +8,18 @@ import type { ApiClient } from "../shared/api";
 import { ModelBrowserPanel } from "../shared/model-browser/ModelBrowser";
 import type { Section } from "../shared/nav";
 import type { AdminConfig, Stats } from "../shared/types";
-import { ActivitySection } from "./ActivitySection";
-import { DataSection } from "./DataSection";
-import { EnrichersSection } from "./EnrichersSection";
-import { EvalsSection } from "./EvalsSection";
-import { EvidenceSection } from "./EvidenceSection";
-import { JobsSection } from "./JobsSection";
+import { ActivitySection } from "./activity/ActivitySection";
+import { AuditSection } from "./audit/AuditSection";
+import { DataSection } from "./data/DataSection";
+import { EnrichersSection } from "./enrichers/EnrichersSection";
+import { EvalsSection } from "./evals/EvalsSection";
+import { EvidenceSection } from "./evidence/EvidenceSection";
+import { JobsSection } from "./jobs/JobsSection";
+import type { CatalogInfo } from "./catalog";
 import { OverviewSection } from "./OverviewSection";
-import { ConfigAndProcess, LimitsCard, ModelsCard, Warnings, type CatalogInfo } from "./panels";
-import { ServersSection } from "./ServersSection";
+import { RunningSection } from "./RunningSection";
+import { ServersSection } from "./servers/ServersSection";
+import { SettingsSection } from "./SettingsSection";
 
 /** What the dashboard loads for every section. */
 export interface Dashboard {
@@ -36,7 +39,7 @@ export interface SectionView {
 }
 
 // Hub is switched off (shared/nav.ts): loaded only if it is ever shown, so it costs the page nothing meanwhile.
-const HubSection = lazy(() => import("./HubSection").then((m) => ({ default: m.HubSection })));
+const HubSection = lazy(() => import("./hub/HubSection").then((m) => ({ default: m.HubSection })));
 
 /** The loaded models' keys, which change when one is loaded or unloaded. */
 const loadedKeys = (stats: Stats | null) => (stats ? Object.keys(stats.cache.model_details).sort().join("|") : "");
@@ -57,29 +60,14 @@ export const SECTIONS: Record<Section, SectionView> = {
       </Suspense>
     ),
   },
-  running: {
-    windowed: true,
-    render: (d) =>
-      d.stats && (
-        <>
-          <ModelsCard stats={d.stats} client={d.client} catalog={d.catalog} refresh={d.refresh} />
-          <LimitsCard stats={d.stats} client={d.client} refresh={d.refresh} />
-        </>
-      ),
-  },
+  running: { windowed: true, render: (d) => <RunningSection stats={d.stats} client={d.client} catalog={d.catalog} refresh={d.refresh} /> },
   servers: { render: (d) => <ServersSection client={d.client} /> },
   activity: { render: (d) => <ActivitySection client={d.client} monitoring={d.stats ? d.stats.monitoring.enabled : null} /> },
+  audit: { render: (d) => <AuditSection client={d.client} /> },
   evals: { render: (d) => <EvalsSection client={d.client} catalog={d.catalog} /> },
   jobs: { render: (d) => <JobsSection client={d.client} /> },
   data: { render: (d) => <DataSection client={d.client} /> },
   enrichers: { render: (d) => <EnrichersSection client={d.client} /> },
   evidence: { render: (d) => <EvidenceSection client={d.client} /> },
-  settings: {
-    render: (d) => (
-      <>
-        <Warnings warnings={d.config.warnings} />
-        <ConfigAndProcess config={d.config} stats={d.stats} open />
-      </>
-    ),
-  },
+  settings: { render: (d) => <SettingsSection config={d.config} stats={d.stats} /> },
 };

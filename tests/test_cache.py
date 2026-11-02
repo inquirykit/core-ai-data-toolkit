@@ -10,10 +10,7 @@ GB = memory.GB
 
 
 @pytest.fixture(autouse=True)
-def fresh_fakes(monkeypatch):
-    FakeModel.instances.clear()
-    FakeModel.log.clear()
-    FakeModel.load_delay = 0.0
+def free_memory_never_limits(monkeypatch):
     # Free memory never limits, unless a test says so.
     monkeypatch.setattr(memory, "free_bytes", lambda device: None)
 

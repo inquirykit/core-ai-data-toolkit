@@ -3,10 +3,10 @@
 // the same figures as a table; and what the Activity chart shares with them:
 // the legend, a bucket's tooltip rows, the box width.
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { EChart, TOOLTIP_BOX, tooltipHtml, useChartColors, type ChartColors, type ChartOption, type TooltipRow } from "../shared/echart";
 import { fmtClock, fmtCompact, fmtDuration, fmtInt, fmtMs } from "../shared/format";
+import { DataGrid, type GridColumn } from "../shared/grid";
 import type { Stats, TimelinePoint } from "../shared/types";
 
 /** A series' color swatch, in the legend and the tooltip. */
@@ -214,38 +214,13 @@ export function LatencyChart({ stats }: { stats: Stats }) {
 export function TimelineTable({ stats }: { stats: Stats }) {
   const rows = stats.timeline.filter((p) => p.ok + failedIn(p));
   const withDay = stats.window === "7d";
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead>Interval</TableHead>
-          <TableHead className="text-right">OK</TableHead>
-          <TableHead className="text-right">Client errors</TableHead>
-          <TableHead className="text-right">Server errors</TableHead>
-          <TableHead className="text-right">p50</TableHead>
-          <TableHead className="text-right">p95</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.length ? (
-          rows.map((p) => (
-            <TableRow key={p.start}>
-              <TableCell>{bucketTitle(p, stats.bucket_s, withDay)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtInt(p.ok)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtInt(p.client_error)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtInt(p.error)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtMs(p.p50_ms)}</TableCell>
-              <TableCell className="text-right tabular-nums">{fmtMs(p.p95_ms)}</TableCell>
-            </TableRow>
-          ))
-        ) : (
-          <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-              No requests in this window
-            </TableCell>
-          </TableRow>
-        )}
-      </TableBody>
-    </Table>
-  );
+  const columns: GridColumn<TimelinePoint>[] = [
+    { key: "interval", label: "Interval", render: (p) => bucketTitle(p, stats.bucket_s, withDay) },
+    { key: "ok", label: "OK", align: "right", render: (p) => fmtInt(p.ok) },
+    { key: "client", label: "Client errors", align: "right", render: (p) => fmtInt(p.client_error) },
+    { key: "server", label: "Server errors", align: "right", render: (p) => fmtInt(p.error) },
+    { key: "p50", label: "p50", align: "right", render: (p) => fmtMs(p.p50_ms) },
+    { key: "p95", label: "p95", align: "right", render: (p) => fmtMs(p.p95_ms) },
+  ];
+  return <DataGrid columns={columns} rows={rows} rowKey={(p) => p.start} empty="No requests in this window" />;
 }

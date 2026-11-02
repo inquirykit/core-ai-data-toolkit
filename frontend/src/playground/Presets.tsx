@@ -42,7 +42,8 @@ export function PresetPicker(props: {
   const [saving, setSaving] = useState(false);
   const current = presets.find((p) => p.id === selected);
 
-  const remove = async () => {
+  // Its failure goes to onError, on the chat's own line, not to a toast.
+  const remove = useAction(async () => {
     if (!current) return;
     try {
       await client.delete("/playground/presets/{preset_id}", { params: { path: { preset_id: current.id } } });
@@ -52,7 +53,7 @@ export function PresetPicker(props: {
     } catch (e) {
       onError(e);
     }
-  };
+  });
 
   return (
     <div className="flex items-end gap-2">
@@ -83,7 +84,8 @@ export function PresetPicker(props: {
           title={`Delete the preset "${current.name}"?`}
           body="The settings stay as they are; only the saved preset goes."
           disabled={props.disabled}
-          onConfirm={remove}
+          busy={remove.busy}
+          onConfirm={remove.run}
         />
       )}
       {saving && (

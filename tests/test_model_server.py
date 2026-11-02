@@ -7,11 +7,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from models import memory, model_server, registry
+from models import memory, registry, servers
 from models.manager import ModelManager
-from models.model_server import ServerModel, parse_specs
-from models.server_specs import Provider, parse_entry
+from models.servers import ServerModel, parse_specs
+from models.servers.entries import Provider, parse_entry
 from tests.fakes import FakeModel, registered
+from tests.waits import until_async
 
 FAKE = str(Path(__file__).resolve().parent / "fake_model_server.py")
 CMD = (sys.executable, FAKE, "--port", "{port}")
@@ -19,21 +20,8 @@ CMD = (sys.executable, FAKE, "--port", "{port}")
 
 @pytest.fixture(autouse=True)
 def clean_registry():
-    registry.discover()
-    saved_entries, saved_specs = list(registry._entries), dict(model_server._specs)
-    saved_providers = dict(model_server._providers)
-    saved_tasks = ServerModel.__dict__.get("tasks")
-    yield
-    registry._entries[:] = saved_entries
-    model_server._specs.clear()
-    model_server._specs.update(saved_specs)
-    model_server._providers.clear()
-    model_server._providers.update(saved_providers)
-    model_server._failed.clear()
-    if saved_tasks is None:
-        ServerModel.__dict__.get("tasks") is not None and delattr(ServerModel, "tasks")
-    else:
-        ServerModel.tasks = saved_tasks
+    with registry.restored(), servers.restored():
+        yield
 
 
 def serve(**specs):
@@ -43,7 +31,7 @@ def serve(**specs):
             return {"task": "text-generation", **kw}
         return {"task": "text-generation", "cmd": list(CMD), "startup_timeout": 20, **kw}
 
-    model_server.register_specs({model_id: parse_entry(model_id, entry(kw)) for model_id, kw in specs.items()})
+    servers.register_specs({model_id: parse_entry(model_id, entry(kw)) for model_id, kw in specs.items()})
 
 
 def chat(text, **kw):
@@ -52,7 +40,7 @@ def chat(text, **kw):
 
 def start_fake(*args):
     """The fake server as one that runs elsewhere (Ollama, say): its port and process, once it answers."""
-    port = model_server._free_port()
+    port = servers._free_port()
     proc = subprocess.Popen([sys.executable, FAKE, "--port", str(port), *args])
     for _ in range(100):
         try:
@@ -64,7 +52,7 @@ def start_fake(*args):
 
 
 def provider(name, port, **kw):
-    model_server.register_specs({}, {name: Provider(url=f"http://127.0.0.1:{port}", **kw)})
+    servers.register_specs({}, {name: Provider(url=f"http://127.0.0.1:{port}", **kw)})
 
 
 STARTED = {"cmd": list(CMD), "startup_timeout": 20}
@@ -77,7 +65,7 @@ def run(scenario):
         try:
             return await scenario()
         finally:
-            await model_server.stop_all()
+            await servers.stop_all()
     return asyncio.run(wrapped())
 
 
@@ -146,10 +134,7 @@ def test_crashed_server_is_dropped_and_restarted():
         with pytest.raises(httpx.HTTPError):
             await mgr.run_inference("local/chat", "text-generation", chat("crash"))
         # Give the exit a moment to be noticed, as a later request would.
-        for _ in range(50):
-            if mgr.get_cache_status()["cache_size"] == 0:
-                break
-            await asyncio.sleep(0.05)
+        await until_async(lambda: mgr.get_cache_status()["cache_size"] == 0, 2.5, "the dead server is still cached")
         out = await mgr.run_inference("local/chat", "text-generation", chat("hi"))
         assert out["cold_start"] is True
         assert mgr.cache.get_model("local/chat:text-generation").process.pid != first
@@ -181,11 +166,11 @@ def test_sleep_mode_keeps_the_process_and_wakes_it():
         process = mgr.cache.get_model("local/sleepy:text-generation").process
         # Loading another model evicts it: it sleeps instead of exiting.
         await mgr.run_inference("local/other", "text-generation", chat("hi"))
-        assert process.returncode is None and "local/sleepy" in model_server._sleeping
+        assert process.returncode is None and "local/sleepy" in servers._sleeping
         out = await mgr.run_inference("local/sleepy", "text-generation", chat("back"))
         assert out["result"].text.startswith("echo: back")
         assert mgr.cache.get_model("local/sleepy:text-generation").process is process
-        await model_server.stop_all()
+        await servers.stop_all()
         assert process.returncode is not None
 
     run(scenario)
@@ -194,7 +179,7 @@ def test_sleep_mode_keeps_the_process_and_wakes_it():
 def test_url_server_is_used_but_never_stopped():
     port, proc = start_fake()
     try:
-        model_server.register_specs({"remote/chat": parse_entry(
+        servers.register_specs({"remote/chat": parse_entry(
             "remote/chat", {"task": "vision-language", "url": f"http://127.0.0.1:{port}"})})
 
         async def scenario():
@@ -218,7 +203,7 @@ def test_url_server_is_used_but_never_stopped():
 
 def test_configured_servers_are_allowed_and_listed(monkeypatch):
     from api import deps
-    from config import Config
+    from core.config import Config
 
     serve(**{"local/chat": {}})
     monkeypatch.setattr(Config, "ALLOWED_MODELS", ["gpt2"])
@@ -259,7 +244,7 @@ def test_streamed_image_chat_through_the_api():
         assert text.startswith("echo: what? [image_url]")
         assert chunks[-1]["toolkit"]["cold_start"] is True
     # Leaving the client shuts the app down, which stops the server.
-    assert model_server._processes == {}
+    assert servers._processes == {}
 
 
 def test_embeddings_and_transcriptions_go_to_their_server():
@@ -285,7 +270,7 @@ def test_toml_description_and_tags_reach_the_catalog():
     specs = parse_specs({"models": {
         "local/chat": {"task": "text-generation", "url": "http://x", "description": "Remote chat", "tags": ["chat"]},
     }})
-    model_server.register_specs(specs)
+    servers.register_specs(specs)
     assert registry.cards()["text-generation"]["local/chat"] == registry.ModelCard("local/chat", "Remote chat", ("chat",))
     # A server that runs elsewhere loads no files here; a managed one loads its upstream model's.
     assert ServerModel.weights_source("local/chat") is None
@@ -373,7 +358,7 @@ def test_server_completions_score_tokens_with_logprobs_and_echo():
 def test_the_example_file_is_valid():
     import tomllib
 
-    from models.server_specs import parse_layer
+    from models.servers.entries import parse_layer
 
     example = Path(__file__).resolve().parent.parent / "model_servers.example.toml"
     layer = parse_layer(tomllib.loads(example.read_text()))
@@ -397,7 +382,7 @@ def test_flat_and_listed_backends_parse_alike():
 
 
 def test_provider_that_is_down_falls_back_to_the_started_server():
-    provider("ollama", model_server._free_port())
+    provider("ollama", servers._free_port())
     serve(**{"local/vlm": {"backends": [{"provider": "ollama", "upstream_model": "fake"}, {**STARTED, "memory_gb": 1}]}})
 
     async def scenario():
@@ -436,7 +421,7 @@ def test_server_that_does_not_list_the_model_is_passed_over():
         serve(**{"local/chat": {"backends": [{"url": f"http://127.0.0.1:{port}", "upstream_model": "other"}, STARTED]}})
 
         async def scenario():
-            probes, chosen = await model_server.probe(model_server._specs["local/chat"])
+            probes, chosen = await servers.probe(servers.specs()["local/chat"])
             assert [p.state for p in probes] == ["unlisted", "ok"] and chosen == 1
             assert probes[0].detail == "answers, but does not list other (it lists fake)"
             out = await ModelManager(device="cpu").run_inference("local/chat", "text-generation", chat("hi"))
@@ -457,7 +442,7 @@ def test_server_that_fails_to_start_moves_on_to_the_next_backend():
         out = await mgr.run_inference("local/chat", "text-generation", chat("hi"))
         assert "model=second" in out["result"].text
         # The failed one is skipped for a while, and says why.
-        probes, chosen = await model_server.probe(model_server._specs["local/chat"])
+        probes, chosen = await servers.probe(servers.specs()["local/chat"])
         assert chosen == 1 and probes[0].state == "unavailable" and "exited with code 7" in probes[0].detail
 
     run(scenario)
@@ -487,7 +472,7 @@ def test_server_that_goes_away_is_replaced_and_the_request_retried():
 
 def test_hub_backend_runs_the_model_in_process():
     with registered(FakeModel, task="text-generation", ids=["org/small"]):
-        serve(**{"local/chat": {"backends": [{"url": f"http://127.0.0.1:{model_server._free_port()}"}, {"hub": "org/small"}]}})
+        serve(**{"local/chat": {"backends": [{"url": f"http://127.0.0.1:{servers._free_port()}"}, {"hub": "org/small"}]}})
 
         async def scenario():
             mgr = ModelManager(device="cpu")
@@ -505,11 +490,11 @@ def test_hub_backend_runs_the_model_in_process():
 
 def test_no_backend_is_unavailable_with_the_reasons():
     serve(**{"local/chat": {"backends": [
-        {"url": f"http://127.0.0.1:{model_server._free_port()}"}, {"cmd": ["no-such-model-server", "--port", "{port}"]},
+        {"url": f"http://127.0.0.1:{servers._free_port()}"}, {"cmd": ["no-such-model-server", "--port", "{port}"]},
     ]}})
 
     async def scenario():
-        with pytest.raises(model_server.NoBackend) as caught:
+        with pytest.raises(servers.NoBackend) as caught:
             await ModelManager(device="cpu").run_inference("local/chat", "text-generation", chat("hi"))
         assert "nothing answers at http://127.0.0.1:" in str(caught.value)
         assert "no-such-model-server is not installed" in str(caught.value)

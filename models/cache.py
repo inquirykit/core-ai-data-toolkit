@@ -40,12 +40,12 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, Tuple
 
-from errors import Unavailable
+from core.errors import Unavailable
+from tasks import HIGH
 
 from . import memory
 from .base import BaseModel, ModelInfo, NullMonitor
 from .batching import Batcher
-from .events import HIGH
 
 logger = logging.getLogger(__name__)
 

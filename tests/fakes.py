@@ -1,5 +1,4 @@
 import asyncio
-import dataclasses
 from collections import Counter
 from contextlib import contextmanager
 from typing import Any
@@ -13,6 +12,9 @@ def sample_result(task: str, request: Any) -> Any:
         return {"text": f"echo: {request.text}"}
     if task == "text-classification":
         return {"label": "POSITIVE", "confidence": 0.9, "scores": {"NEGATIVE": 0.1, "POSITIVE": 0.9}}
+    if task == "zero-shot-classification":
+        share = 1 / len(request.labels)
+        return {"label": request.labels[0], "confidence": share, "scores": {label: share for label in request.labels}}
     if task == "question-answering":
         return {"answer": request.context.split()[0], "confidence": 0.9, "start_position": 0, "end_position": 0}
     if task == "rerank":
@@ -33,6 +35,16 @@ class FakeModel(BaseModel):
     last_request = None
     # ("load" | "unload", model_id), in order, across instances.
     log = []
+
+    @classmethod
+    def reset(cls):
+        """Back to how the class starts: no instances, nothing logged, no delays, no size (tests/conftest.py does it
+        before every test, so what one test set never reaches the next)."""
+        cls.instances.clear()
+        cls.log.clear()
+        cls.load_delay = cls.predict_delay = 0.0
+        cls.size_bytes = 0
+        cls.last_request = None
 
     async def estimate_bytes(self):
         return self.size_bytes
@@ -68,27 +80,21 @@ class FakeModel(BaseModel):
 @contextmanager
 def swapped(old: type, new: type):
     """Serve ``new`` wherever ``old`` is registered, same IDs and patterns."""
-    registry.discover()
-    saved = list(registry._entries)
-    registry._entries[:] = [dataclasses.replace(e, cls=new) if e.cls is old else e for e in saved]
-    try:
+    with registry.restored():
+        registry.swap(old, new)
         yield
-    finally:
-        registry._entries[:] = saved
 
 
 @contextmanager
 def registered(cls: type, **kwargs):
     """Register ``cls`` (register() keyword arguments) for the duration."""
-    registry.discover()
-    saved = list(registry._entries)
     saved_tasks = cls.__dict__.get("tasks")
-    registry.register(**kwargs)(cls)
-    try:
-        yield
-    finally:
-        registry._entries[:] = saved
-        if saved_tasks is None:
-            del cls.tasks
-        else:
-            cls.tasks = saved_tasks
+    with registry.restored():
+        registry.register(**kwargs)(cls)
+        try:
+            yield
+        finally:
+            if saved_tasks is None:
+                del cls.tasks
+            else:
+                cls.tasks = saved_tasks

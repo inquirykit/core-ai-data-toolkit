@@ -1,8 +1,6 @@
 // Small pieces the list and the details share.
 import type { ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { StatusDot } from "../components";
 import { fmtGB } from "../format";
 import type { CatalogModel } from "./catalog";
@@ -53,26 +51,5 @@ export function Section({ title, aside, children }: { title: string; aside?: Rea
       </div>
       {children}
     </section>
-  );
-}
-
-/** Labels and values in two columns (a <dl>): the details' facts and figures. */
-export const kvClass =
-  "grid grid-cols-[max-content_minmax(0,1fr)] gap-x-5 gap-y-1.5 text-sm [&_dd]:min-w-0 [&_dd]:wrap-anywhere [&_dt]:text-muted-foreground";
-
-/** Nothing to show: a muted icon above a line or two (and maybe a button). */
-export function EmptyState({ icon: Icon, className, children }: { icon: LucideIcon; className?: string; children: ReactNode }) {
-  return (
-    <div
-      className={cn(
-        "flex animate-in flex-col items-center gap-3 px-4 py-12 text-center text-sm text-muted-foreground duration-300 fade-in-0",
-        className,
-      )}
-    >
-      <span className="grid size-11 place-items-center rounded-full bg-muted" aria-hidden="true">
-        <Icon className="size-5 text-muted-foreground/80" strokeWidth={1.75} />
-      </span>
-      {children}
-    </div>
   );
 }

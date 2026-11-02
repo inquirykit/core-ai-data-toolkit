@@ -13,7 +13,7 @@ import { AuthError, type ApiClient } from "../shared/api";
 import { CHAT_TASKS, type CatalogModel } from "../shared/model-browser/catalog";
 import { Field, Notice, type NoticeState } from "../shared/components";
 import { failure } from "../shared/errors";
-import { fmtMs } from "../shared/format";
+import { fmtMs, plural } from "../shared/format";
 import { readLocal, writeLocal } from "../shared/storage";
 import type { Limits } from "../shared/types";
 import { chunkDelta, letter, messagesFor, reduceLog, settingsProblem, tokensPerSecond, type ChatEvent, type Column, type Entry, type Settings, type Turn } from "./chat";
@@ -202,7 +202,7 @@ export function ChatView(props: {
   }
 
   const addLabel = atMax
-    ? `The model cache holds ${maxColumns} model${maxColumns === 1 ? "" : "s"} (MAX_MODELS); more columns would reload models every turn`
+    ? `The model cache holds ${plural(maxColumns, "model")} (MAX_MODELS); more columns would reload models every turn`
     : "";
   const addButton = (
     <Button
@@ -421,10 +421,10 @@ function ColumnCard(props: {
           </span>
           <ModelPicker
             client={props.client}
-            models={props.models}
+            entries={props.models.map((m) => ({ id: m.id, status: m.status }))}
             tasks={CHAT_TASKS}
-            value={column.model}
-            onChange={props.onModel}
+            value={column.model ? { id: column.model } : null}
+            onChange={(entry) => props.onModel(entry.id)}
             label={`Model ${letter(index)}`}
             pickLabel={`Use in column ${letter(index)}`}
             disabled={busy}

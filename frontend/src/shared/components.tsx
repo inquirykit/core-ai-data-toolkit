@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState, type ComponentProps, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from "react";
-import { Check, CircleAlert, CircleCheck, Copy, KeyRound, LoaderCircle, Monitor, Moon, Plus, Sparkles, Sun, Trash2, X, type LucideIcon } from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState, type ComponentProps, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from "react";
+import { Check, ChevronRight, CircleAlert, CircleCheck, Copy, KeyRound, LoaderCircle, Monitor, Moon, Plus, Sparkles, Sun, Trash2, X, type LucideIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
 import {
@@ -15,10 +15,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { pretty } from "./json";
 import { fromItem, toItem } from "./select";
 import type { Status } from "./types";
 import { useTheme, type ThemeChoice } from "./theme";
@@ -494,7 +497,7 @@ export function CopyButton({ value, fallback }: { value: string; fallback?: RefO
 /**
  * A destructive button (Delete, by default) that asks first; with a ``hint`` it is disabled and the hint says why.
  * ``iconOnly`` shows just the icon, with ``label`` as its accessible name; ``action`` names the dialog's confirm
- * button when it should differ from ``label``.
+ * button when it should differ from ``label``. While ``busy`` (the action it confirmed runs) it is disabled and spins.
  */
 export function ConfirmButton(props: {
   title: ReactNode;
@@ -507,6 +510,7 @@ export function ConfirmButton(props: {
   iconOnly?: boolean;
   size?: "sm" | "default";
   disabled?: boolean;
+  busy?: boolean;
   hint?: string;
 }) {
   const label = props.label ?? "Delete";
@@ -516,11 +520,11 @@ export function ConfirmButton(props: {
       variant="outline"
       size={props.iconOnly ? (props.size === "default" ? "icon" : "icon-sm") : (props.size ?? "sm")}
       className="text-destructive hover:text-destructive"
-      disabled={props.disabled || Boolean(props.hint)}
+      disabled={props.disabled || props.busy || Boolean(props.hint)}
       aria-label={props.iconOnly ? label : undefined}
       title={props.iconOnly ? label : undefined}
     >
-      {props.icon ?? <Trash2 aria-hidden="true" />}
+      {props.busy ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : (props.icon ?? <Trash2 aria-hidden="true" />)}
       {!props.iconOnly && label}
     </Button>
   );
@@ -548,6 +552,140 @@ export function ConfirmButton(props: {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/** One row of Facts: its label and its value. */
+export type Fact = [label: ReactNode, value: ReactNode];
+
+/**
+ * Labels and values in two columns (a <dl>): the facts of a thing. The labels are muted and as wide as
+ * the widest, or ``labels`` wide ("8rem"; "auto" lets them shrink); ``mono`` sets them in the code face.
+ * ``boxed`` draws the rows in a bordered table with the labels shaded, for a configuration listing.
+ */
+export function Facts(props: { rows: Fact[]; size?: "xs" | "sm"; mono?: boolean; boxed?: boolean; labels?: string; className?: string }) {
+  if (props.boxed) {
+    return (
+      <div className={cn("overflow-hidden rounded-lg border", props.className)}>
+        <Table>
+          <TableBody>
+            {props.rows.map(([label, value], i) => (
+              <TableRow key={i}>
+                <TableHead className={cn("h-auto w-[1%] bg-muted/40 py-2 pr-6 pl-3 text-xs font-normal whitespace-nowrap", props.mono && "font-mono")}>{label}</TableHead>
+                <TableCell className="py-2 pr-3 whitespace-normal [overflow-wrap:anywhere]">{value}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }
+  return (
+    <dl
+      className={cn(
+        "grid gap-x-5 gap-y-1.5 [&_dd]:min-w-0 [&_dd]:wrap-anywhere [&_dt]:text-muted-foreground",
+        props.size === "xs" ? "text-xs" : "text-sm",
+        props.mono && "[&_dt]:font-mono",
+        props.className,
+      )}
+      style={{ gridTemplateColumns: `${props.labels ?? "max-content"} minmax(0,1fr)` }}
+    >
+      {props.rows.map(([label, value], i) => (
+        <Fragment key={i}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  );
+}
+
+/** A card whose body folds away under its title. */
+export function CollapsibleCard(props: { title: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <Card className="gap-0 py-0">
+      <Collapsible defaultOpen={props.defaultOpen}>
+        <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-xl px-6 py-4 text-left text-sm font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          <ChevronRight
+            className="size-4 text-muted-foreground transition-transform duration-200 group-hover:text-foreground group-data-[state=open]:rotate-90"
+            aria-hidden="true"
+          />
+          {props.title}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
+          <div className="px-6 pb-6">{props.children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}
+
+/**
+ * A line with a chevron that unfolds ``children`` under it: "Raw reply", "More settings". ``size`` is the
+ * line's text size (sm when left out); ``contentClassName`` lays out what unfolds (``pt-2`` when left out).
+ */
+export function Disclosure(props: { label: ReactNode; size?: "xs" | "sm"; defaultOpen?: boolean; contentClassName?: string; children: ReactNode }) {
+  return (
+    <Collapsible defaultOpen={props.defaultOpen}>
+      <CollapsibleTrigger
+        className={cn(
+          "group inline-flex items-center gap-1.5 rounded-md font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          props.size === "xs" ? "text-xs" : "text-sm",
+        )}
+      >
+        <ChevronRight className={cn("transition-transform duration-200 group-data-[state=open]:rotate-90", props.size === "xs" ? "size-3.5" : "size-4")} aria-hidden="true" />
+        {props.label}
+      </CollapsibleTrigger>
+      <CollapsibleContent className={cn("overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down", props.contentClassName ?? "pt-2")}>
+        {props.children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/**
+ * A block of code or text as written: a command, a log, a reply as JSON. It scrolls (``className`` caps
+ * its height); with ``wrap`` long lines fold instead.
+ */
+export function CodeBlock({ wrap, className, ...props }: ComponentProps<"pre"> & { wrap?: boolean }) {
+  return (
+    <pre
+      className={cn("overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-relaxed", wrap && "whitespace-pre-wrap [overflow-wrap:anywhere]", className)}
+      {...props}
+    />
+  );
+}
+
+/** A titled, scrolling block of JSON: a request's input or output, an example's. */
+export function Pane({ title, value, empty, className }: { title: string; value: unknown; empty?: string; className?: string }) {
+  return (
+    <section className={cn("min-w-0", className)}>
+      <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">{title}</h3>
+      {value == null ? (
+        <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">{empty ?? "None"}</p>
+      ) : (
+        <CodeBlock wrap className="max-h-96">
+          {pretty(value)}
+        </CodeBlock>
+      )}
+    </section>
+  );
+}
+
+/** Nothing to show: a muted icon above a line or two (and maybe a button). */
+export function EmptyState({ icon: Icon, className, children }: { icon: LucideIcon; className?: string; children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "flex animate-in flex-col items-center gap-3 px-4 py-12 text-center text-sm text-muted-foreground duration-300 fade-in-0",
+        className,
+      )}
+    >
+      <span className="grid size-11 place-items-center rounded-full bg-muted" aria-hidden="true">
+        <Icon className="size-5 text-muted-foreground/80" strokeWidth={1.75} />
+      </span>
+      {children}
+    </div>
   );
 }
 

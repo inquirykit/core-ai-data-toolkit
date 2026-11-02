@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 pytest.importorskip("arcadedb_embedded")
 
 from api import app as app_module  # noqa: E402
-from config import Config  # noqa: E402
+from core.config import Config  # noqa: E402
 from tests.fakes import FakeModel, registered  # noqa: E402
 
 TOPICS = ("cat", "stock", "dog")

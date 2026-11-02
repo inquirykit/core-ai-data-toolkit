@@ -89,6 +89,7 @@ cd frontend
 npm run dev        # http://localhost:5173/admin, /admin/setup, /playground with hot reload;
                    # API calls go to the server on :8000 (AI_TOOLKIT_URL to change it)
 npm test           # unit tests
+npm run test:e2e   # build, then open every page, section and tab in a browser (npx playwright install chromium once)
 npm run build      # typecheck, then build into api/static
 npm run gen:api    # after an API change: refresh openapi.json and the generated types
 ```
@@ -255,7 +256,7 @@ containers, build with `JOB_ENVS=autogluon` (e.g. `JOB_ENVS=autogluon
 make up`) to include the AutoGluon environment.
 
 **Queued work and priority.** Jobs, eval runs, judging and Hub downloads
-wait in one queue (`jobs/tasks.py`), each kind with a limit of its own:
+wait in one queue (`tasks/runner.py`), each kind with a limit of its own:
 `MAX_RUNNING_JOBS` jobs at once, one eval run, two judges, `MAX_HUB_DOWNLOADS`
 downloads, so a long training job never holds up a run. `POST /jobs`,
 `POST /jobs/schedules`, `POST /admin/runs`, `POST /admin/runs/{id}/judge` and
@@ -270,7 +271,26 @@ run or a download the service stopped under goes back in the queue and goes on
 where it stopped (a run skips the examples it answered, a download keeps its
 files); after a crash it is resumed at most twice, so a run that brings the
 service down cannot do it at every start. A job or a judge that was running is
-marked failed (interrupted): it would start over from scratch.
+marked failed (interrupted): it would start over from scratch. Its retries are
+not used for it, and its webhook (`job.finished`) is sent as it is marked.
+
+**Retries and timeouts.** `POST /jobs` and `POST /jobs/schedules` (for the jobs
+the schedule submits) also take:
+
+```bash
+POST /jobs  {"job": "fetch-prices", "params": {...}, "retries": 3, "retry_delay_s": 30, "timeout_s": 600}
+```
+
+A job that runs past `timeout_s` seconds is stopped, its whole process group
+with it, and fails with a "Timed out" error. A job that fails, by a timeout or
+otherwise, goes back in the queue until it has been retried `retries` times
+(0 to 10; none by default). It waits `retry_delay_s` (default 30) before the
+first retry, then twice as long before each next one, up to an hour. While it
+waits it is `queued` with its last `error`, `retried` counts the retries so
+far, and `not_before` says when the next one starts. The same log goes on, with
+a `--- retry 1 of 3 ---` line where each retry starts. Neither a cancel nor
+the service stopping under a job is retried, a wait survives a restart, and
+webhooks hear only the last outcome.
 
 #### Schedules and webhooks
 ```bash
@@ -301,12 +321,20 @@ the `webhook_url` the job, schedule or run names itself (`POST /jobs`,
 `POST /jobs/schedules` and `POST /admin/runs` take one). `X-Toolkit-Event`
 names the event. Each message carries the [Standard Webhooks](https://www.standardwebhooks.com)
 headers: `webhook-id` (the same across its retries, so a receiver can drop a
-duplicate), `webhook-timestamp` and, with `WEBHOOK_SECRET` set,
-`webhook-signature` (`v1,<base64 HMAC-SHA256 of "id.timestamp.body">`), which
-any Standard Webhooks library verifies given the secret as
+duplicate), `webhook-timestamp` (when that attempt was sent, so each retry is
+signed again) and, with `WEBHOOK_SECRET` set, `webhook-signature`
+(`v1,<base64 HMAC-SHA256 of "id.timestamp.body">`), which any Standard
+Webhooks library verifies given the secret as
 `whsec_<base64 of WEBHOOK_SECRET>`; `X-Toolkit-Signature` is still
-`sha256=<HMAC-SHA256 of the body>`. Delivery retries three times over about
-half a minute, then gives up with a warning in the log.
+`sha256=<HMAC-SHA256 of the body>`.
+
+Only a 2xx answer counts as delivered. Each delivery waits in the task queue,
+so a restart does not lose it: one not sent yet goes out at the next start,
+and one the service stopped under is sent again, with the same `webhook-id`.
+A delivery that gets no answer, or any other status, is tried again after 30
+seconds, then after twice as long each time up to an hour: ten retries over
+about four hours. A receiver that answers `410 Gone` is not asked again. A
+delivery that fails for good leaves a warning in the log.
 
 ### Hub downloads and weights on disk
 ```bash
@@ -324,6 +352,28 @@ built on them. Downloads run in a child process each (`MAX_HUB_DOWNLOADS` at
 once), so a cold start no longer has to wait for the weights. They are tasks
 in the service's queue, so they need the database, and one queued or running
 when the service stops goes on when it is back.
+
+### Audit log
+```bash
+GET /admin/audit                                         # the newest 100 changes, newest first
+GET /admin/audit?method=DELETE&outcome=refused&actor=wrong&route=/db&before_id=<last id>&since=<unix time>
+```
+
+Every change made through a route that needs the admin key or through the
+setup wizard (`POST`, `PUT`, `PATCH`, `DELETE`), and every `DELETE` whatever
+key it takes, goes in the audit log, refused attempts too: a `DELETE` with a
+wrong key is there with its `401`. An entry holds the method, the route
+(`/db/{namespace}/{table}`) and the path asked for with its query, the
+status, how long it took, the key it carried (`actor`: `admin`, `client`,
+`none`, `wrong`, or `open` while no key is set), the client's address,
+`X-Forwarded-For` and the User-Agent. Request bodies are never kept, so no
+key an admin saves lands in it. The admin POSTs that only read or try
+something are left out: `/db/{ns}/_query`, the model server probe, an
+enricher's test and the webhook test (marked `@audit.reads` where each is
+declared, `api/audit.py`). Entries are
+kept `AUDIT_RETENTION_DAYS` (default 365; 0 keeps none) in the ArcadeDB
+database. The dashboard's **Audit log** section (`/admin#/audit`) lists them
+with the same filters. It needs the admin key.
 
 ### Metrics
 ```bash
@@ -362,6 +412,7 @@ GET  /evidence/cases/{id}/captures                                 # its capture
 POST /evidence/captures  multipart: metadata=<JSON> file=@screenshot.png ...   # store a capture (see below)
 GET  /evidence/captures/{id}                                       # the signed record, hash, signature, time stamp
 GET  /evidence/captures/{id}/artifacts/{name}                      # one captured file
+GET  /evidence/search?q=phishing&tag=suspect&since=2026-10-01      # captures across the cases, by their words, tag and time
 GET  /evidence/cases/{id}/annotations                              # tags and notes of the case's captures that have any
 PUT  /evidence/captures/{id}/annotations  {"tags": [...], "notes": [{"id"?, "text"}]}  # replace either list (a key left out keeps it)
 GET  /evidence/cases/{id}/todos                                    # the case's to-do list
@@ -375,38 +426,18 @@ Evidence is kept by workspace, the unit that is isolated, verified and exported:
 
 Annotations are tags and analyst notes added to a capture after it was taken. They are mutable and kept apart from the signed records, in the workspace's `annotations` table: nothing about them enters the record, its hash, the chain or `/evidence/verify`. `PUT` replaces the lists it names; tags are trimmed, their inner whitespace collapsed and repeats dropped case-insensitively (at most 64, 1–64 characters each); notes keep their `id` and `createdAt` when the body names a known id, get `updatedAt` when their text changed, and are new otherwise (at most 200, each up to 20000 characters). The reply, and each item of the `GET`, is `{captureId, tags, notes: [{id, text, createdAt, updatedAt}], updatedAt}`.
 
+Search finds a workspace's captures across its cases, the way an investigator looks for every page they saw something on. `GET /evidence/search` takes `q`, words the captures must hold in their pages' text (the visible text of their HTML and MHTML snapshots and plain text files, read when they were captured), address, title, tags or notes. As in the tables' full-text search, every word must be there, a `"quoted phrase"` as written, `-word` must not, `word*` finds words starting so, and a domain such as `site.example.com` is one word. It also takes `case` (one case only), `tag` (as written), `since` and `until` (UTC times as ISO 8601 prefixes: `until=2026-10` takes all of October), `sort` (`relevance`, the default with `q`, `newest`, the default without, or `oldest`), `limit` (up to 200, default 50) and `cursor` (the previous page's `next`). Without `q` it lists the captures newest first: the workspace's timeline. Each result is a capture summary with its `caseId`, its `tags` and, for a search, a `snippet` of the text around the first word found. The words live in the workspace's `search` table, a row per capture written with it and again whenever its annotations change, derived and never part of a record; captures from before the search existed are indexed from their files the first time the workspace is used. The dashboard's Evidence section has the search box above the cases.
+
 Todos are a case's to-do list, kept the same way in the workspace's `todos` table, one row per case. `PUT` replaces the list, in the order given; a todo keeps its `id` and `createdAt` when the body names a known id, gets `updatedAt` when its text changed and `doneAt` when it was checked (cleared when unchecked), and is new otherwise (at most 500, each up to 2000 characters; `done` is false when left out). The reply, and the `GET`, is `{caseId, todos: [{id, text, done, createdAt, updatedAt, doneAt}], updatedAt}`, with `updatedAt` null for a case whose list was never saved.
 
 The `metadata` field is the extension's JSON: `caseId`, `artifacts` (each `{name, sha256, size?, mediaType?}`, hashed in the browser before upload) and whatever else it recorded (`page`, `network`, a note); one `file` field per artifact, named after it. The server re-hashes every file and refuses a mismatch, then builds the record (`evidence-capture/record/v3`; `v2` before workspaces): its `workspaceId`, the verified artifacts, the client metadata verbatim, the enrichers' findings about the page's server address and hosts, the receive time and the previous record's hash in the workspace's chain. Its RFC 8785 canonical bytes are hashed, Ed25519-signed and kept verbatim, in the database and as `EVIDENCE_DIR/captures/<id>/record.json` (`EVIDENCE_DIR/workspaces/<workspace>/captures/<id>/` in another workspace), with `record.sig`, `record.tsr` and the read-only `artifacts/`. Refusals come back as `{"detail": "...", "error": "..."}` (the `error` key is this API's; a body that does not validate is FastAPI's 422 `{"detail": [...]}`). A request with an `Origin` header must come from a browser extension (or one of `EVIDENCE_ALLOWED_ORIGINS`), so web pages cannot use these routes even with the key.
 
 ## Configuration
 
-Set environment variables to configure the service:
-
-- `MAX_MODELS`: Maximum number of models to cache (default: 3)
-- `MAX_MEMORY_GB`: Memory budget for the loaded models, by their sizes (default: 8.0; 0 = no budget)
-- `MODEL_WAIT_TIMEOUT`: Seconds a request may wait for its model, for room to load it or behind the requests ahead of it, before answering 503 (default: 120)
-- `MODEL_IDLE_TIMEOUT`: Unload models unused for this many seconds (default: 0, never)
-- `MODEL_KEEP_S`: Seconds an idle model keeps its place before another model may take it (default: 3)
-- `MODEL_TURN_S`: Seconds a load waits before it may take a busy model's place from work of the same priority (default: 15; 0, never)
-- `PRELOAD_MODELS`: Models to load at startup, comma-separated `model_id:task` (or `model_id` alone for the task a model file claims it for, else `text-generation`); the service answers while they load
-- `PINNED_MODELS`: Like `PRELOAD_MODELS`, and never evicted
-- `MODEL_SERVERS_FILE`: Models served by OpenAI-compatible servers, with backends tried in order (default: `model_servers.toml`)
-- `MODEL_SERVERS_SAVED_FILE`: Where `/admin` saves its edits of them (default: `data/model_servers.json`; empty: read-only there)
-- `MODEL_SERVERS_ALLOW_COMMANDS`: Let `/admin` add server commands, which run on this host (default: `false`)
-- `MAX_MEDIA_BYTES`, `MAX_MEDIA_PARTS`: Limits on images and audio in a chat (default: 10 MB, 8)
-- `MAX_PROMPT_TOKENS`, `MAX_COMPLETION_PROMPTS`: Token IDs a prompt given as tokens may hold, and prompts per `/v1/completions` request (default: 32768, 64)
-- `MAX_HUB_DOWNLOADS`: Hub downloads running at once from `/admin` (default: 2)
-- `WEBHOOK_URLS`, `WEBHOOK_SECRET`: URLs POSTed to when a job or eval run finishes, and the secret that signs the body (default: none)
-- `HOST`: API host (default: 127.0.0.1, this machine only; the image uses 0.0.0.0)
-- `PORT`: API port (default: 8000)
-- `LOG_LEVEL`: Logging level (default: INFO)
-- `TRACE_RETENTION_DAYS`: Days each request's input and output are kept as traces for debugging and datasets (default: 3; 0 keeps none)
-- `MONITORING_RETENTION_DAYS`: Days of the dashboard's request history, token counts and model events, kept in the ArcadeDB database (default: 7; 0 records nothing; `/metrics` works either way)
-- `JUDGE_MODEL`, `JUDGE_BASE_URL`, `JUDGE_API_KEY`: The default LLM judge for benchmark runs (a model this service runs, or an OpenAI-compatible endpoint; the key is sent to that endpoint only)
-- `ENRICHERS_DIR`: Your own enrichers (default: `data/enrichers`; empty turns enrichers off); their results are cached in the ArcadeDB database
-- `ENRICHER_TERMS`: Sources that may run, by their terms: `open`, `attribution`, `non_commercial`, `paid` (default: all)
-- `ENRICH_ALLOW_PRIVATE`: Let enrichers call private addresses (default: false)
+Settings are environment variables, read from the `.env` file too (a non-empty environment variable wins).
+[`env.example`](../env.example) lists every one with its default and what it does; copy it to `.env`, or let the setup
+wizard at `/admin/setup` write the keys. `GET /admin/config` (admin key) shows the values in effect, with keys reduced to
+whether they are set, and the dashboard's Settings section shows the same with the warnings.
 
 ## Example usage
 
@@ -435,6 +466,19 @@ response = requests.post("http://localhost:8000/inference", json={
 })
 
 print(response.json()["result"]["label"])
+```
+
+With labels of your own, no training needed (a zero-shot NLI model reads each label against the text;
+`"multi_label": true` scores each label on its own):
+
+```python
+response = requests.post("http://localhost:8000/inference", json={
+    "model_id": "MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
+    "task": "zero-shot-classification",
+    "input": {"text": "The striker scored twice in the second half.", "labels": ["sports", "politics", "science"]},
+})
+
+print(response.json()["result"]["scores"])
 ```
 
 ### Question Answering
@@ -663,7 +707,7 @@ curl 'localhost:8000/db/shop/products?tags=sale&_sort=-price&_limit=50'
 | `DELETE /db/{ns}` (admin) | | `204`; drops every table in it |
 | `POST /db/{ns}/_transaction` | `{puts?: {table: rows}, deletes?: {table: ids}, edges?, delete_edges?}` | `204`; all applied, or none |
 | `GET /db/{ns}/{table}` | | `{rows, next?}`; see the parameters below |
-| `GET /db/{ns}/{table}/_count` | | `{count}`; takes the same filters |
+| `GET /db/{ns}/{table}/_count` | | `{count}`; takes the same filters and `_search` |
 | `POST /db/{ns}/{table}` | row | `201` + the row, with `Location`; a missing id is made (UUIDv7); `409` if taken |
 | `DELETE /db/{ns}/{table}` (admin) | | `204`; drops the table |
 | `GET /db/{ns}/{table}/_schema?_sample=500` | | `{fields, strict, observed}` |
@@ -685,14 +729,16 @@ that keeps one is switched off. The list takes
 holds the value. On a declared field the value is read as the field's type.
 On other fields it is JSON when it parses as a number, `true`, `false` or
 `null` (quote text that looks like one: `code="30"`), else text. `_sort` takes
-comma-separated fields, `-field` for descending (default: `id`); `_limit`
-takes 1 to 1000 (default 100); `_cursor` takes the previous page's `next`.
+comma-separated fields, `-field` for descending (default: `id`, or the best
+match first with `_search`); `_limit` takes 1 to 1000 (default 100); `_cursor`
+takes the previous page's `next`. `_search` finds words in the table's
+full-text fields (below).
 `PATCH` is [JSON Merge Patch](https://www.rfc-editor.org/rfc/rfc7396): `null`
 removes a field, and objects merge. Bulk requests and transactions take up
 to 1000 rows and ids.
 
 **Schemas.** A table's schema lists fields, each
-`{name, type, list?, required?, indexed?, unique?}`:
+`{name, type, list?, required?, indexed?, unique?, fulltext?}`:
 
 - `type`: `string`, `integer`, `number`, `boolean`, `object` (a JSON
   object) or `any`; with `list: true`, a list of that type, and
@@ -703,6 +749,26 @@ to 1000 rows and ids.
   `string`, `integer`, `number` and `boolean` fields can be indexed.
 - `unique`: no two rows hold the same value (`409`); rows without it are
   fine. Implies `indexed`; not for lists.
+- `fulltext`: its words are searchable with `_search`. Only for a `string`
+  field that is not a list, and not with `indexed` (a filter on it still
+  works, by reading the rows).
+
+**Full-text search.** A table's full-text fields share one index, so a
+search finds its words across them:
+
+```bash
+curl -G localhost:8000/db/notes/reports --data-urlencode '_search=phish* "login page" -test' --data-urlencode status=open
+```
+
+Every word must be in the row, in any of its full-text fields, case aside. A
+`"quoted phrase"` must be there as written, `-word` or `-"phrase"` must not,
+and `word*` finds words starting so. The index splits text on spaces and most
+punctuation, but keeps a domain, a version or an address whole
+(`site.example.com`, `v1.2`): search it whole, or with `*` after its start.
+`field=value` filters still apply, the best match comes first unless `_sort`
+says otherwise, and `_count` takes `_search` too. A table without a full-text
+field answers `400`. Marking a field full-text indexes the rows already there,
+and the dashboard's table page then has a search box (for a graph table too).
 
 `strict: true` also refuses fields the schema does not declare. Writes that
 break the schema get `400`. The service checks rows itself because ArcadeDB

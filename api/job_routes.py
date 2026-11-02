@@ -19,18 +19,19 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Path as PathParam, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from config import Config
+from core.config import Config
 from jobs import registry
 from jobs.runner import JobRunner
-from jobs.store import FINISHED, public
-from errors import NotFound, Refused, TooLarge
-from . import deps
+from tasks.store import FINISHED, RETRY_DELAY_S, public
+from tasks.runner import MAX_RETRIES, MAX_RETRY_DELAY_S
+from core.errors import NotFound, Refused, TooLarge
+from . import audit, deps
 from . import responses
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=deps.ADMIN)
@@ -42,7 +43,17 @@ MAX_LISTED_FILES = 2000
 EVENTS_POLL_S = 0.5
 
 
-class SubmitJob(BaseModel):
+class Retries(BaseModel):
+    """What happens to a job that fails or runs too long (tasks/runner.py)."""
+
+    retries: int = Field(0, ge=0, le=MAX_RETRIES, description="Times a job that fails (a timeout too) is queued again")
+    retry_delay_s: float = Field(RETRY_DELAY_S, ge=1, le=MAX_RETRY_DELAY_S,
+                                 description="Seconds before the first retry; doubled before each next one, up to an hour")
+    timeout_s: Optional[float] = Field(None, ge=1, description="Seconds a run may take; past them it is stopped and fails. "
+                                                               "Unset: no limit")
+
+
+class SubmitJob(Retries):
     model_config = ConfigDict(extra="forbid")
 
     job: str = Field(..., min_length=1, max_length=128, description="A name from GET /jobs/types")
@@ -51,8 +62,9 @@ class SubmitJob(BaseModel):
     priority: responses.Priority = Field("normal", description="Queued jobs start the most urgent first, then the oldest")
 
 
-class ScheduleBody(BaseModel):
-    """A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds."""
+class ScheduleBody(Retries):
+    """A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds, and the retries
+    and timeout of the jobs it submits."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -149,6 +161,7 @@ async def upload_data(runner: deps.Jobs, file: UploadFile = File(...)):
 
 @router.delete("/data/{path:path}")
 async def delete_data(runner: deps.Jobs, path: str):
+    """Delete an input file from JOB_DATA_DIR."""
     target = _inside(Config.JOB_DATA_DIR, path)
     if not target.is_file():
         raise NotFound("File not found")
@@ -160,7 +173,8 @@ async def delete_data(runner: deps.Jobs, path: str):
 @router.post("", **responses.answering(responses.Job), status_code=202)
 async def submit_job(runner: deps.Jobs, body: SubmitJob):
     """Queue a job. 400 for an unknown job, params its schema rejects, or an environment not set up."""
-    return public(await runner.submit(body.job, body.params, webhook_url=body.webhook_url, priority=body.priority))
+    return public(await runner.submit(body.job, body.params, webhook_url=body.webhook_url, priority=body.priority,
+                                      retries=body.retries, retry_delay_s=body.retry_delay_s, timeout_s=body.timeout_s))
 
 
 # --------------------------------------------------------------- schedules
@@ -190,6 +204,7 @@ async def create_schedule(runner: deps.Jobs, body: ScheduleBody):
 
 @router.get("/schedules/{id}", **responses.answering(responses.Schedule))
 async def get_schedule(runner: deps.Jobs, id: str = ScheduleId):
+    """One schedule."""
     return await runner.scheduler.get(id)
 
 
@@ -201,6 +216,7 @@ async def update_schedule(runner: ExistingSchedule, body: ScheduleBody, id: str 
 
 @router.delete("/schedules/{id}", status_code=204, response_class=PlainTextResponse)
 async def delete_schedule(runner: ExistingSchedule, id: str = ScheduleId):
+    """Delete a schedule."""
     await runner.scheduler.delete(id)
     return PlainTextResponse(status_code=204)
 
@@ -214,14 +230,16 @@ async def run_schedule(runner: ExistingSchedule, id: str = ScheduleId):
 # ---------------------------------------------------------------- webhooks
 @router.get("/webhooks", **responses.answering(responses.Webhooks))
 async def webhooks(hooks: deps.Webhooks):
-    """The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, and the event names.
+    """The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, the event names, and the latest
+    deliveries with how each went (those still retried are queued, with the last try's error).
 
     Eval runs post to them too, so these work with jobs off.
     """
-    return hooks.describe()
+    return {**hooks.describe(), "deliveries": await hooks.deliveries()}
 
 
 @router.post("/webhooks/test", **responses.answering(responses.WebhookTestResult))
+@audit.reads
 async def test_webhook(hooks: deps.Webhooks, body: WebhookTest):
     """Send a ``test`` event to the URL now and report what it answered."""
     if not body.url.startswith(("http://", "https://")):
@@ -233,7 +251,7 @@ async def test_webhook(hooks: deps.Webhooks, body: WebhookTest):
 async def list_jobs(
     runner: deps.Jobs,
     limit: int = Query(50, ge=1, le=500),
-    status: Optional[Literal["queued", "running", "succeeded", "failed", "cancelled"]] = None,
+    status: Optional[responses.JobStatus] = None,
 ):
     """Jobs, newest first."""
     return {"jobs": [public(row) for row in await runner.store.list(limit, status)]}
@@ -241,6 +259,7 @@ async def list_jobs(
 
 @router.get("/{id}", **responses.answering(responses.Job))
 async def get_job(runner: deps.Jobs, id: str = JobId):
+    """The job: its status, progress, message, result and error."""
     return public(await runner.get(id))
 
 
@@ -321,6 +340,7 @@ async def job_files(runner: ExistingJob, id: str = JobId):
 
 @router.get("/{id}/files/{path:path}")
 async def job_file(runner: ExistingJob, path: str, id: str = JobId):
+    """One file of the job's directory."""
     target = _inside(runner.workdir(id), path)
     if not target.is_file():
         raise NotFound("File not found")

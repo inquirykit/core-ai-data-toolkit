@@ -7,7 +7,7 @@ from .common import Json, Out
 
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-# How urgent a task is: of the queued tasks of a kind, the most urgent starts first (jobs/tasks.py).
+# How urgent a task is: of the queued tasks of a kind, the most urgent starts first (tasks/runner.py).
 Priority = Literal["high", "normal", "low"]
 
 
@@ -29,6 +29,14 @@ class Job(Out):
     # The schedule that started it, when one did
     schedule_id: Optional[str]
     webhook_url: Optional[str]
+    # Times it is queued again after failing, and the seconds before the first retry (doubled for each next)
+    retries: int
+    retry_delay_s: float
+    # Seconds a run may take, null for no limit
+    timeout_s: Optional[float]
+    # Retries so far; a queued retry waits until not_before
+    retried: int
+    not_before: Optional[float]
 
 
 class Jobs(Out):
@@ -72,6 +80,10 @@ class Schedule(Out):
     webhook_url: Optional[str]
     # The jobs it submits wait by it
     priority: Priority
+    # The retries and timeout of the jobs it submits
+    retries: int
+    retry_delay_s: float
+    timeout_s: Optional[float]
     created: float
     updated: float
     next_run: Optional[float]
@@ -84,10 +96,30 @@ class Schedules(Out):
     schedules: List[Schedule]
 
 
+class WebhookDelivery(Out):
+    """One delivery of an event to one URL (tasks/webhooks.py): a task, retried with backoff."""
+    id: str
+    event: Optional[str]
+    # The job's or run's id the event tells of
+    about: Optional[str]
+    url: Optional[str]
+    status: JobStatus
+    # The last try's failure: still retried while queued
+    error: Optional[str]
+    retried: int
+    retries: int
+    # When a queued retry is tried
+    not_before: Optional[float]
+    created: float
+    finished: Optional[float]
+
+
 class Webhooks(Out):
     urls: List[str]
     secret_set: bool
     events: List[str]
+    # The latest deliveries, newest first
+    deliveries: List[WebhookDelivery]
 
 
 class WebhookTestResult(Out):

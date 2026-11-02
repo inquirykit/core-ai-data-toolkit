@@ -1,69 +1,124 @@
-// The playground's tabs: the catalog's tasks grouped into categories, and
-// which of them can be used yet.
-import { filterModels, type CatalogModel, type CatalogTask } from "../shared/model-browser/catalog";
+// The playground's tabs (shared/categories.ts): the catalog's tasks in the tab each names, and which tabs
+// can be used yet.
+import { CATEGORIES, type Category, type CategoryKey } from "../shared/categories";
+import { CHAT_TASKS, filterModels, type CatalogModel, type CatalogTask } from "../shared/model-browser/catalog";
 
-export type CategoryKey = "chat" | "vision" | "text" | "audio" | "decision" | "prediction" | "other";
-
-export interface Category {
-  key: CategoryKey;
-  label: string;
-  blurb: string;
-  /** Its tasks, in the order the task switch shows them. "other" takes every task no category names. */
-  tasks: string[];
-  /** Not offered yet: not shown. */
-  disabled?: boolean;
-}
-
-export const CATEGORIES: Category[] = [
-  { key: "chat", label: "Chat", blurb: "Chat with models and compare their replies side by side", tasks: ["text-generation", "vision-language"] },
-  { key: "vision", label: "Vision", blurb: "Ask about an image", tasks: ["vision-language"] },
-  { key: "text", label: "Text", blurb: "Classify text, answer questions from a passage, embed text", tasks: ["text-classification", "question-answering", "embedding"] },
-  { key: "audio", label: "Audio", blurb: "Transcribe speech", tasks: ["speech-to-text"] },
-  { key: "decision", label: "Decision", blurb: "Weigh options against questions", tasks: ["decision"] },
-  // The AutoGluon tasks need a trained predictor first; not offered here yet,
-  // so the tab is not shown.
-  {
-    key: "prediction",
-    label: "Prediction",
-    blurb: "Tabular, multimodal and time-series predictors",
-    tasks: ["tabular-prediction", "multimodal-prediction", "timeseries-forecast"],
-    disabled: true,
-  },
-  { key: "other", label: "Other", blurb: "Custom tasks", tasks: [] },
-];
-
-const NAMED = new Set(CATEGORIES.flatMap((c) => c.tasks));
-
-/** Short names for the task switch; other tasks show their ID. */
-const TASK_LABELS: Record<string, string> = {
-  "text-generation": "Text generation",
-  "vision-language": "Vision-language",
-  "text-classification": "Classification",
-  "question-answering": "Question answering",
-  embedding: "Embedding",
-  "speech-to-text": "Speech to text",
-  decision: "Decision",
-};
-
-export const taskLabel = (task: string) => TASK_LABELS[task] ?? task;
-
-/** The catalog's tasks that belong to ``category``, in the category's order. */
+/** ``category``'s tasks, in the catalog's order. Chat takes the tasks whose models chat (CHAT_TASKS), wherever they live. */
 export function tasksIn(category: Category, catalog: CatalogTask[]): CatalogTask[] {
-  if (category.key === "other") return catalog.filter((t) => !NAMED.has(t.task));
-  return category.tasks.flatMap((name) => catalog.filter((t) => t.task === name));
+  if (category.key === "chat") return catalog.filter((t) => CHAT_TASKS.includes(t.task));
+  return catalog.filter((t) => t.category === category.key);
 }
 
-/** The tabs to show: every category the server has a task for, except the disabled ones. */
+/** The tabs to show: every one the server has a task for, except the disabled ones. */
 export function shownCategories(catalog: CatalogTask[]): Category[] {
   return CATEGORIES.filter((c) => !c.disabled && tasksIn(c, catalog).length > 0);
 }
 
-/** The category a task opens in: the first usable one that has it. */
-export function categoryOf(task: string): CategoryKey | null {
-  if (task === "text-generation" || task === "vision-language") return "chat";
-  const found = CATEGORIES.find((c) => c.tasks.includes(task));
-  if (found) return found.disabled ? null : found.key;
-  return "other";
+/** The tab a link to ``task`` opens: Chat for a chat task, else the task's own; null when the catalog lacks the task or its tab is disabled. */
+export function categoryOf(task: string, catalog: CatalogTask[]): CategoryKey | null {
+  if (CHAT_TASKS.includes(task)) return "chat";
+  const home = catalog.find((t) => t.task === task)?.category;
+  return home && !CATEGORIES.find((c) => c.key === home)?.disabled ? home : null;
+}
+
+/** An entry of a tab's task switch: a task with its variants (the same job, done by another kind of model). */
+export interface TaskGroup {
+  /** The task the others vary */
+  key: string;
+  label: string;
+  tasks: CatalogTask[];
+}
+
+/** ``category``'s task switch: its tasks gathered under the group each names (the catalog's ``group``), in order. */
+export function groupsIn(category: Category, catalog: CatalogTask[]): TaskGroup[] {
+  const groups = new Map<string, TaskGroup>();
+  for (const t of tasksIn(category, catalog)) {
+    const group = groups.get(t.group) ?? { key: t.group, label: t.group_label, tasks: [] };
+    group.tasks.push(t);
+    groups.set(t.group, group);
+  }
+  return [...groups.values()];
+}
+
+/** A model, and the task it is chosen for. */
+export interface Choice {
+  id: string;
+  task: string;
+}
+
+/** A model in a picker's list: ``task`` when the list mixes tasks (a group's), ``badge`` naming a variant's models. */
+export interface PickerEntry {
+  id: string;
+  task?: string;
+  status?: CatalogModel["status"];
+  badge?: string;
+}
+
+/** ``choice`` as an entry of ``group``'s list: the listed one, else (a model chosen with Browse) one made for it. */
+export function entryFor(group: TaskGroup, choice: Choice): PickerEntry {
+  const listed = choicesOf(group).find((e) => e.id === choice.id && e.task === choice.task);
+  const variant = choice.task === group.key ? undefined : group.tasks.find((t) => t.task === choice.task);
+  return listed ?? { ...choice, badge: variant?.label };
+}
+
+/**
+ * ``group``'s models, each with the task it is chosen for: loaded first, then downloaded, then the rest. A
+ * variant's models carry its label as a badge; a model listed under two of the tasks is in the list twice.
+ */
+export function choicesOf(group: TaskGroup): PickerEntry[] {
+  // Each model object belongs to one task's list, so it finds its task again after filterModels sorts them.
+  const taskOf = new Map<CatalogModel, CatalogTask>();
+  for (const t of group.tasks) for (const m of t.models) taskOf.set(m, t);
+  return filterModels([...taskOf.keys()], { query: "", status: "all", tag: "" }).map((m) => {
+    const t = taskOf.get(m)!;
+    return { id: m.id, task: t.task, status: m.status, badge: t.task === group.key ? undefined : t.label };
+  });
+}
+
+/** The tab, each tab's entry in its task switch (a group's key), each task's model, and each group's task. */
+export interface TabPrefs {
+  category: CategoryKey;
+  tasks: Partial<Record<CategoryKey, string>>;
+  models: Record<string, string>;
+  /** The task last chosen in each group (missing: the group's own); prefs stored before groups have none */
+  groups?: Record<string, string>;
+}
+
+/**
+ * The model chosen for ``group``: the last one picked in it, else its own task's last model (prefs stored before
+ * groups, or a picked variant since gone), else the first listed.
+ */
+export function choiceIn(group: TaskGroup, prefs: TabPrefs): Choice | null {
+  for (const task of [prefs.groups?.[group.key], group.key]) {
+    const id = task && group.tasks.some((t) => t.task === task) ? prefs.models[task] : undefined;
+    if (task && id) return { id, task };
+  }
+  const first = choicesOf(group)[0];
+  return first ? { id: first.id, task: first.task! } : null;
+}
+
+/** The task switch's entry ``stored`` names: a group's key, or (stored before groups) a task in a group; else the first. */
+export function groupFor(groups: TaskGroup[], stored: string | undefined): TaskGroup {
+  return groups.find((g) => g.key === stored) ?? groups.find((g) => g.tasks.some((t) => t.task === stored)) ?? groups[0];
+}
+
+/** ``prefs`` with ``choice`` picked in ``group``. */
+export function withChoice(prefs: TabPrefs, group: string, choice: Choice): TabPrefs {
+  return { ...prefs, models: { ...prefs.models, [choice.task]: choice.id }, groups: { ...prefs.groups, [group]: choice.task } };
+}
+
+/** A link to a model of a task: /playground?model=ID&task=TASK. */
+export interface TaskLink {
+  model: string;
+  task: string;
+}
+
+/** ``prefs`` opened on ``link``'s model, in its task's tab and group; as they were when the catalog has no tab for it. */
+export function withLink(prefs: TabPrefs, link: TaskLink, catalog: CatalogTask[]): TabPrefs {
+  const key = categoryOf(link.task, catalog);
+  const group = catalog.find((t) => t.task === link.task)?.group;
+  if (!key || !group) return prefs;
+  return { ...withChoice(prefs, group, { id: link.model, task: link.task }), category: key, tasks: { ...prefs.tasks, [key]: group } };
 }
 
 /** ``tasks``' models with each ID once: loaded first, then downloaded, then the rest. */

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from errors import NotFound
+from core.errors import NotFound
 from models import UnsupportedModel
 from models.manager import ModelManager
 from tests.fakes import FakeModel, registered
@@ -10,9 +10,6 @@ from tests.fakes import FakeModel, registered
 
 @pytest.fixture(autouse=True)
 def fake_registry():
-    FakeModel.instances.clear()
-    FakeModel.load_delay = 0.0
-    FakeModel.predict_delay = 0.0
     with registered(FakeModel, task="t", fallback=True):
         yield
 
@@ -161,15 +158,15 @@ def test_available_models_come_from_the_registry():
 
 def test_invalid_request_is_rejected_before_loading():
     from pydantic import Field
-    from models import tasks
+    from models import contracts
 
-    class Input(tasks.TaskInput):
+    class Input(contracts.TaskInput):
         text: str = Field(..., max_length=3)
 
-    class Output(tasks.TaskOutput):
+    class Output(contracts.TaskOutput):
         echo: str
 
-    tasks.define_task("strict", Input, Output)
+    contracts.define_task("strict", Input, Output)
     try:
         async def scenario():
             mgr = make_manager()
@@ -181,7 +178,7 @@ def test_invalid_request_is_rejected_before_loading():
 
         asyncio.run(scenario())
     finally:
-        tasks._contracts.pop("strict", None)
+        contracts._contracts.pop("strict", None)
 
 
 def test_preload_loads_and_pins_and_survives_failures():
@@ -266,7 +263,7 @@ def test_batch_goes_to_predict_batch_in_one_call():
 
 
 def test_batch_with_a_result_missing_is_a_contract_violation():
-    from models.tasks import ContractViolation
+    from models.contracts import ContractViolation
 
     Batcher.batches, Batcher.drop_one = [], True
 
@@ -283,15 +280,15 @@ def test_batch_with_a_result_missing_is_a_contract_violation():
 
 def test_batch_names_the_bad_input_and_loads_nothing():
     from pydantic import Field
-    from models import tasks
+    from models import contracts
 
-    class Input(tasks.TaskInput):
+    class Input(contracts.TaskInput):
         text: str = Field(..., max_length=3)
 
-    class Output(tasks.TaskOutput):
+    class Output(contracts.TaskOutput):
         echo: str
 
-    tasks.define_task("strict", Input, Output)
+    contracts.define_task("strict", Input, Output)
     try:
         async def scenario():
             mgr = make_manager()
@@ -304,4 +301,4 @@ def test_batch_names_the_bad_input_and_loads_nothing():
 
         asyncio.run(scenario())
     finally:
-        tasks._contracts.pop("strict", None)
+        contracts._contracts.pop("strict", None)

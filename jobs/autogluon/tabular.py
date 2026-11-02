@@ -2,7 +2,7 @@
 Train an AutoGluon TabularPredictor: predict one column of a table from the others.
 
 The predictor is served afterwards as model ID "autogluon:<job id>" for the
-tabular-prediction task (see models/autogluon/predictor.py).
+tabular-prediction task (see models/families/autogluon/predictor.py).
 """
 
 import time

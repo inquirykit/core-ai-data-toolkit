@@ -1,7 +1,7 @@
 import os
 import stat
 
-import envfile
+from core import envfile
 
 
 def test_parse_handles_comments_quotes_and_export():

@@ -1,6 +1,6 @@
 // What the task inputs send and what the outputs compute: plain functions,
 // so they are tested without a browser. Each builder returns the task's
-// input (as models/tasks.py defines it) or why the form cannot run yet.
+// input (as models/contracts.py defines it) or why the form cannot run yet.
 import { fmtBytes } from "../format";
 import { numberProblem, property, type JSONSchema, type TaskLimits } from "./schema";
 
@@ -81,6 +81,22 @@ export function visionInput(
 export function classificationInput(text: string, limits: TaskLimits): Built {
   const problem = textProblem("The text", text, limits);
   return problem ? fail(problem) : { input: { text }, problem: "" };
+}
+
+/** Labels typed comma-separated: each trimmed, empty ones and repeats dropped. */
+function labelsOf(text: string): string[] {
+  return [...new Set(text.split(",").map((l) => l.trim()).filter(Boolean))];
+}
+
+/** A text and the labels to choose among (zero-shot), at most as many as the input schema allows. */
+export function zeroShotInput(text: string, labels: string, multiLabel: boolean, schema: JSONSchema | null, limits: TaskLimits): Built {
+  const problem = textProblem("The text", text, limits);
+  if (problem) return fail(problem);
+  const named = labelsOf(labels);
+  const most = property(schema, "labels")?.maxItems;
+  if (!named.length) return fail("Name at least one label.");
+  if (most != null && named.length > most) return fail(`At most ${most} labels.`);
+  return { input: { text, labels: named, multi_label: multiLabel }, problem: "" };
 }
 
 export function questionAnsweringInput(question: string, context: string, limits: TaskLimits): Built {

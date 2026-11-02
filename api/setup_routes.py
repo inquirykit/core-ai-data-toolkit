@@ -18,9 +18,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field, constr, model_validator
 
-import envfile
-from config import Config
-from errors import Conflict, Forbidden, ServiceError
+from core import envfile
+from core.config import Config
+from core.errors import Conflict, Forbidden, ServiceError
 from .pages import page
 from . import responses
 

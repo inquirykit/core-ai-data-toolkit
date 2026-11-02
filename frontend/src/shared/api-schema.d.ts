@@ -11,8 +11,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Root */
+        /**
+         * Root
+         * @description Service status: whether it is running.
+         */
         get: operations["root__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audit Log
+         * @description The audit log, newest first: every change made through an admin's route or the setup wizard, and every
+         *     delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status, never a
+         *     body.
+         */
+        get: operations["audit_log_admin_audit_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -48,10 +73,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Datasets */
+        /**
+         * List Datasets
+         * @description Every dataset.
+         */
         get: operations["list_datasets_admin_datasets_get"];
         put?: never;
-        /** Create Dataset */
+        /**
+         * Create Dataset
+         * @description Make an empty dataset.
+         */
         post: operations["create_dataset_admin_datasets_post"];
         delete?: never;
         options?: never;
@@ -66,7 +97,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset */
+        /**
+         * Get Dataset
+         * @description A dataset with its runs and what each run is doing now.
+         */
         get: operations["get_dataset_admin_datasets__dataset_id__get"];
         put?: never;
         post?: never;
@@ -87,7 +121,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Examples */
+        /**
+         * List Examples
+         * @description A page of the dataset's examples (``limit`` of them after ``skip``), and how many it holds.
+         */
         get: operations["list_examples_admin_datasets__dataset_id__examples_get"];
         put?: never;
         /**
@@ -111,7 +148,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Example */
+        /**
+         * Delete Example
+         * @description Delete one example of the dataset.
+         */
         delete: operations["delete_example_admin_datasets__dataset_id__examples__example_id__delete"];
         options?: never;
         head?: never;
@@ -230,7 +270,9 @@ export interface paths {
         };
         /**
          * List Model Servers
-         * @description The providers and models in effect: the file's, each replaced by the one saved from /admin.
+         * @description The providers and models in effect: the file's, each replaced by the one saved from /admin. Each says where it
+         *     comes from (``file``, ``saved``, ``replaced``), each model its status and serving backend, and the entries that
+         *     could not be read are listed as problems.
          */
         get: operations["list_model_servers_admin_model_servers_get"];
         put?: never;
@@ -251,7 +293,8 @@ export interface paths {
         get?: never;
         /**
          * Put Model
-         * @description Create or replace a model's entry: its task and its backends, in the order they are tried.
+         * @description Create or replace a model's entry: its task and its backends, in the order they are tried. 403 for a command
+         *     (``cmd``, ``env``) the file does not give, unless MODEL_SERVERS_ALLOW_COMMANDS.
          */
         put: operations["put_model_admin_model_servers_models__model_id__put"];
         post?: never;
@@ -301,7 +344,8 @@ export interface paths {
         post?: never;
         /**
          * Delete Provider
-         * @description Remove a saved provider, or the saved changes to one in the file (which comes back).
+         * @description Remove a saved provider, or the saved changes to one in the file (which comes back). 409 while a model's backends
+         *     use it.
          */
         delete: operations["delete_provider_admin_model_servers_providers__name__delete"];
         options?: never;
@@ -336,7 +380,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Runs */
+        /**
+         * List Runs
+         * @description The runs (of one dataset with ``dataset_id``), each with what it is doing now.
+         */
         get: operations["list_runs_admin_runs_get"];
         put?: never;
         /**
@@ -384,7 +431,10 @@ export interface paths {
         get: operations["get_run_admin_runs__run_id__get"];
         put?: never;
         post?: never;
-        /** Delete Run */
+        /**
+         * Delete Run
+         * @description Delete a run with its items and scores; one queued or under way is cancelled first.
+         */
         delete: operations["delete_run_admin_runs__run_id__delete"];
         options?: never;
         head?: never;
@@ -400,7 +450,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Run */
+        /**
+         * Cancel Run
+         * @description Cancel the run if it is queued or under way.
+         */
         post: operations["cancel_run_admin_runs__run_id__cancel_post"];
         delete?: never;
         options?: never;
@@ -537,7 +590,8 @@ export interface paths {
         };
         /**
          * Stats
-         * @description Process and cache state now, plus request metrics over ``window``.
+         * @description Process and cache state now, plus request metrics over ``window`` (1h, 24h or 7d): totals, per-model stats and a
+         *     timeline of at most 60 points, those of 24h and 7d whole hours from the hourly summary.
          */
         get: operations["stats_admin_stats_get"];
         put?: never;
@@ -560,7 +614,9 @@ export interface paths {
          * @description Request metrics over any range: totals, per-model stats and a timeline of ``buckets`` points.
          *
          *     The Activity & logs page zooms with this: a narrower range gets the same
-         *     number of points, so each covers less time.
+         *     number of points, so each covers less time. A range longer than six hours,
+         *     or older than the request history, is summed up from the hourly summary:
+         *     its points are whole hours, and it starts at the hour ``since`` falls in.
          */
         get: operations["timeline_admin_timeline_get"];
         put?: never;
@@ -598,7 +654,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Trace */
+        /**
+         * Get Trace
+         * @description One trace, with its input and output.
+         */
         get: operations["get_trace_admin_traces__trace_id__get"];
         put?: never;
         post?: never;
@@ -639,7 +698,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Collection */
+        /**
+         * Get Collection
+         * @description The collection and how many items it holds.
+         */
         get: operations["get_collection_collections__name__get"];
         put?: never;
         post?: never;
@@ -680,11 +742,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Item */
+        /**
+         * Get Item
+         * @description One item of the collection.
+         */
         get: operations["get_item_collections__name__items__item_id__get"];
         put?: never;
         post?: never;
-        /** Delete Item */
+        /**
+         * Delete Item
+         * @description Delete one item of the collection.
+         */
         delete: operations["delete_item_collections__name__items__item_id__delete"];
         options?: never;
         head?: never;
@@ -946,8 +1014,10 @@ export interface paths {
          *     one, finds the rows). On other fields values are JSON when they parse as a number,
          *     true, false or null (quote a string that looks like one: ``code="30"``),
          *     else text, and every row is scanned. A list field matches when it holds
-         *     the value. ``next`` is the next page's cursor,
-         *     absent on the last page.
+         *     the value. ``_search`` finds the rows whose full-text fields hold its words
+         *     (400 for a table without one): words as the index splits them, case aside,
+         *     a domain such as site.example.com being one word. ``next`` is the next
+         *     page's cursor, absent on the last page.
          */
         get: operations["list_rows_db__namespace___table__get"];
         put?: never;
@@ -1036,7 +1106,7 @@ export interface paths {
         };
         /**
          * Count Rows
-         * @description How many rows the filters (``field=value``, as in the list) select.
+         * @description How many rows the filters (``field=value``) and the search (``_search``), as in the list, select.
          */
         get: operations["count_rows_db__namespace___table___count_get"];
         put?: never;
@@ -1081,7 +1151,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Row */
+        /**
+         * Get Row
+         * @description One row.
+         */
         get: operations["get_row_db__namespace___table___row_id__get"];
         /**
          * Put Row
@@ -1234,7 +1307,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Enricher */
+        /**
+         * Get Enricher
+         * @description One enricher, as GET /enrichers lists it.
+         */
         get: operations["get_enricher_enrichers__name__get"];
         /**
          * Put Enricher
@@ -1283,7 +1359,7 @@ export interface paths {
         put?: never;
         /**
          * Test Enricher
-         * @description Run the enricher on a value now: no cache, even when disabled. Shows the request it sent.
+         * @description Run the enricher on a value now: no cache, even when disabled. Shows the request it sent, its key masked.
          */
         post: operations["test_enricher_enrichers__name__test_post"];
         delete?: never;
@@ -1303,7 +1379,9 @@ export interface paths {
         put?: never;
         /**
          * Create Capture
-         * @description Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it.
+         * @description Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it. The body is
+         *     multipart: ``metadata`` (JSON with ``caseId`` and ``artifacts``, each with the SHA-256 the browser computed) and one
+         *     ``file`` per artifact, named after it.
          */
         post: operations["create_capture_evidence_captures_post"];
         delete?: never;
@@ -1319,7 +1397,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Capture */
+        /**
+         * Get Capture
+         * @description The parsed record, with its hash, its signature and its time stamp (when it was granted, or why it failed).
+         */
         get: operations["get_capture_evidence_captures__capture_id__get"];
         put?: never;
         post?: never;
@@ -1376,10 +1457,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Cases */
+        /**
+         * List Cases
+         * @description The workspace's cases; ``inbox`` always exists.
+         */
         get: operations["list_cases_evidence_cases_get"];
         put?: never;
-        /** Create Case */
+        /**
+         * Create Case
+         * @description Make a case in the workspace.
+         */
         post: operations["create_case_evidence_cases_post"];
         delete?: never;
         options?: never;
@@ -1414,7 +1501,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Captures */
+        /**
+         * List Captures
+         * @description The case's captures, newest first.
+         */
         get: operations["list_captures_evidence_cases__case_id__captures_get"];
         put?: never;
         post?: never;
@@ -1455,8 +1545,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Public Key */
+        /**
+         * Public Key
+         * @description The signing key's public half (PEM), to check the records' signatures with.
+         */
         get: operations["public_key_evidence_public_key_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/evidence/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Captures
+         * @description Search the workspace's captures across its cases, or list them all, newest first, by case, tag and time.
+         *     Each comes with its case, its tags and, for a search, the bit of text that matched. 400 for ``q`` with no
+         *     word to find. The words of a page are those of its HTML and MHTML snapshots and plain text files, read when
+         *     it was captured; a domain such as site.example.com is one word.
+         */
+        get: operations["search_captures_evidence_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1512,7 +1628,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Workspaces */
+        /**
+         * List Workspaces
+         * @description The workspaces; ``default`` always exists.
+         */
         get: operations["list_workspaces_evidence_workspaces_get"];
         put?: never;
         /**
@@ -1534,7 +1653,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health Check */
+        /**
+         * Health Check
+         * @description Health check: the device models run on and the model cache's state.
+         */
         get: operations["health_check_health_get"];
         put?: never;
         post?: never;
@@ -1559,7 +1681,8 @@ export interface paths {
         put?: never;
         /**
          * Start Download
-         * @description Download a repo's files into the Hub cache in the background; 409 if it is already being downloaded.
+         * @description Download a repo's files into the Hub cache in the background; 409 if it is already being downloaded. A child
+         *     process downloads them, and the progress is the cache folder's size against the repo's total.
          */
         post: operations["start_download_hub_downloads_post"];
         delete?: never;
@@ -1768,7 +1891,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Data */
+        /**
+         * Delete Data
+         * @description Delete an input file from JOB_DATA_DIR.
+         */
         delete: operations["delete_data_jobs_data__path__delete"];
         options?: never;
         head?: never;
@@ -1806,7 +1932,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Schedule */
+        /**
+         * Get Schedule
+         * @description One schedule.
+         */
         get: operations["get_schedule_jobs_schedules__id__get"];
         /**
          * Update Schedule
@@ -1814,7 +1943,10 @@ export interface paths {
          */
         put: operations["update_schedule_jobs_schedules__id__put"];
         post?: never;
-        /** Delete Schedule */
+        /**
+         * Delete Schedule
+         * @description Delete a schedule.
+         */
         delete: operations["delete_schedule_jobs_schedules__id__delete"];
         options?: never;
         head?: never;
@@ -1870,7 +2002,8 @@ export interface paths {
         };
         /**
          * Webhooks
-         * @description The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, and the event names.
+         * @description The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, the event names, and the latest
+         *     deliveries with how each went (those still retried are queued, with the last try's error).
          *
          *     Eval runs post to them too, so these work with jobs off.
          */
@@ -1910,7 +2043,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Job */
+        /**
+         * Get Job
+         * @description The job: its status, progress, message, result and error.
+         */
         get: operations["get_job_jobs__id__get"];
         put?: never;
         post?: never;
@@ -1991,7 +2127,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job File */
+        /**
+         * Job File
+         * @description One file of the job's directory.
+         */
         get: operations["job_file_jobs__id__files__path__get"];
         put?: never;
         post?: never;
@@ -2030,7 +2169,8 @@ export interface paths {
         };
         /**
          * Metrics
-         * @description Request counts, latency histogram, token counts, model and memory gauges, in Prometheus format.
+         * @description Request counts, latency histogram, token counts, model and memory gauges, in Prometheus format. Counters run from
+         *     the process's start; gauges are read from the cache and host at each scrape.
          */
         get: operations["metrics_metrics_get"];
         put?: never;
@@ -2050,7 +2190,9 @@ export interface paths {
         };
         /**
          * Model Catalog
-         * @description Every task with its models, cards, status and what is on disk: what the model browser shows
+         * @description Every task with its models, cards, status and what is on disk: what the model browser shows. Tasks come in the
+         *     order they were defined, with their category and label; only ALLOWED_MODELS when it is set. What is on disk is read
+         *     from the local Hub cache only.
          */
         get: operations["model_catalog_models_catalog_get"];
         put?: never;
@@ -2110,7 +2252,7 @@ export interface paths {
         };
         /**
          * List Available Models
-         * @description List available models for different tasks
+         * @description List available models for different tasks (only those in ALLOWED_MODELS when it is set).
          */
         get: operations["list_available_models_models_list_get"];
         put?: never;
@@ -2170,7 +2312,8 @@ export interface paths {
         };
         /**
          * List Model Types
-         * @description Every registered model class with its task, IDs and patterns
+         * @description Every registered model class with its task, IDs and patterns, and whether it is a fallback (serving any ID no
+         *     other class claims).
          */
         get: operations["list_model_types_models_types_get"];
         put?: never;
@@ -2234,7 +2377,10 @@ export interface paths {
          */
         get: operations["list_conversations_playground_conversations_get"];
         put?: never;
-        /** Create Conversation */
+        /**
+         * Create Conversation
+         * @description Save a conversation.
+         */
         post: operations["create_conversation_playground_conversations_post"];
         delete?: never;
         options?: never;
@@ -2249,7 +2395,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Conversation */
+        /**
+         * Get Conversation
+         * @description A saved conversation, with its turns.
+         */
         get: operations["get_conversation_playground_conversations__conversation_id__get"];
         /**
          * Replace Conversation
@@ -2257,7 +2406,10 @@ export interface paths {
          */
         put: operations["replace_conversation_playground_conversations__conversation_id__put"];
         post?: never;
-        /** Delete Conversation */
+        /**
+         * Delete Conversation
+         * @description Delete a saved conversation.
+         */
         delete: operations["delete_conversation_playground_conversations__conversation_id__delete"];
         options?: never;
         head?: never;
@@ -2317,7 +2469,10 @@ export interface paths {
          */
         get: operations["list_presets_playground_presets_get"];
         put?: never;
-        /** Create Preset */
+        /**
+         * Create Preset
+         * @description Save a preset.
+         */
         post: operations["create_preset_playground_presets_post"];
         delete?: never;
         options?: never;
@@ -2333,10 +2488,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Replace Preset */
+        /**
+         * Replace Preset
+         * @description Replace a saved preset; 404 if it was deleted.
+         */
         put: operations["replace_preset_playground_presets__preset_id__put"];
         post?: never;
-        /** Delete Preset */
+        /**
+         * Delete Preset
+         * @description Delete a saved preset.
+         */
         delete: operations["delete_preset_playground_presets__preset_id__delete"];
         options?: never;
         head?: never;
@@ -2352,7 +2513,8 @@ export interface paths {
         };
         /**
          * List Tasks
-         * @description Every task with the JSON Schema of its input and result (null for a task without a contract)
+         * @description Every task with the JSON Schema of its input and result (null for a task without a contract), its category,
+         *     label and the task it is a variant of
          *
          *     ``limits`` are the caps the schemas cannot show (media sizes are checked
          *     by validators), so clients can check a file before sending it.
@@ -2395,7 +2557,24 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Chat Completions */
+        /**
+         * Chat Completions
+         * @description Chat over a text-generation model, plain or streamed.
+         *
+         *     Models whose tokenizer has a chat template get the chat in that format (with thinking mode off); others get a
+         *     ``User:``/``Assistant:`` transcript. Chats longer than MAX_INPUT_CHARS lose their oldest turns first, keeping the
+         *     system prompt. Message content may be a string or a list of parts: text, images and audio for the models that take
+         *     them. Streamed replies arrive as the model writes them, and generation stops when the reply ends or the client
+         *     disconnects; a model that fails to load still gets an HTTP error, and a failure mid-reply arrives as an event
+         *     holding ``error``. The reply (the final chunk, when streamed) carries a non-standard ``toolkit`` field: ``processing_ms``
+         *     and ``cold_start``. ``tools``, ``tool_choice`` and ``response_format`` (``json_object``, ``json_schema``) work as
+         *     with OpenAI: a chat template that takes tools renders them, other models get an instruction, and the reply is parsed
+         *     for calls or JSON; a model server does it itself. A reply without the JSON asked for is a 502, and streamed replies
+         *     with tools or a response format arrive as one chunk at the end. ``usage`` comes when the model counts tokens
+         *     (streamed in a closing chunk with ``stream_options.include_usage``), ``finish_reason`` is ``length`` when
+         *     ``max_tokens`` was used up, ``stop`` strings end the reply, and ``logprobs`` / ``top_logprobs`` give the generated
+         *     tokens' log probabilities.
+         */
         post: operations["chat_completions_v1_chat_completions_post"];
         delete?: never;
         options?: never;
@@ -2438,7 +2617,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Decisions */
+        /**
+         * Decisions
+         * @description Typed decisions in the request and response format of Perplexity's Decisions API, served by vegaml (``uv sync
+         *     --extra vega``): a state and up to 128 named questions in, each answer with its probabilities out. A state longer
+         *     than MAX_INPUT_CHARS is 413.
+         */
         post: operations["decisions_v1_decisions_post"];
         delete?: never;
         options?: never;
@@ -2521,7 +2705,8 @@ export interface paths {
         put?: never;
         /**
          * Run Vision Language Inference
-         * @description Run vision-language inference on a FastVLM model
+         * @description Run vision-language inference on a FastVLM model: the same as POST /inference with task vision-language, under
+         *     older field names. ``image_path`` is relative to IMAGE_DIR.
          */
         post: operations["run_vision_language_inference_vision_language_post"];
         delete?: never;
@@ -2611,6 +2796,46 @@ export interface components {
              * @enum {string}
              */
             type: "input_audio";
+        };
+        /** AuditEntries */
+        AuditEntries: {
+            /** Entries */
+            entries: components["schemas"]["AuditEntry"][];
+            /** On */
+            on: boolean;
+            /** Retention Days */
+            retention_days: number;
+        };
+        /**
+         * AuditEntry
+         * @description A change made through the API (api/audit.py): what was asked, with which key, from where, and how it went.
+         */
+        AuditEntry: {
+            /**
+             * Actor
+             * @enum {string}
+             */
+            actor: "admin" | "client" | "none" | "wrong" | "open";
+            /** Agent */
+            agent: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Forwarded */
+            forwarded: string | null;
+            /** Id */
+            id: number;
+            /** Ip */
+            ip: string | null;
+            /** Method */
+            method: string;
+            /** Path */
+            path: string;
+            /** Route */
+            route: string;
+            /** Status */
+            status: number;
+            /** Ts */
+            ts: number;
         };
         /**
          * Backend
@@ -2877,11 +3102,32 @@ export interface components {
              */
             any_id: boolean;
             /**
+             * Category
+             * @description The tab the playground and the model browser file it under
+             * @enum {string}
+             */
+            category: "chat" | "text" | "vision" | "audio" | "decision" | "prediction" | "other";
+            /**
              * Description
              * @description What the task does, from its contract
              * @default
              */
             description?: string;
+            /**
+             * Group
+             * @description Its entry in the tab's task switch: the task it is a variant of, else itself
+             */
+            group: string;
+            /**
+             * Group Label
+             * @description That entry's label
+             */
+            group_label: string;
+            /**
+             * Label
+             * @description Its short name for people; the task's name when it has none
+             */
+            label: string;
             /** Models */
             models: components["schemas"]["CatalogModel"][];
             /**
@@ -4043,6 +4289,15 @@ export interface components {
             /** Cases */
             cases: components["schemas"]["EvidenceCase"][];
         };
+        /** EvidenceSearch */
+        EvidenceSearch: {
+            /** Captures */
+            captures: components["schemas"]["SearchHit"][];
+            /** Count */
+            count: number;
+            /** Next */
+            next: string | null;
+        };
         /** EvidenceWorkspace */
         EvidenceWorkspace: {
             /** Createdat */
@@ -4113,6 +4368,8 @@ export interface components {
          * @description A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``.
          */
         FieldInfo: {
+            /** Fulltext */
+            fulltext: boolean;
             /** Indexed */
             indexed: boolean;
             /** List */
@@ -4131,6 +4388,12 @@ export interface components {
         };
         /** FieldSpec */
         FieldSpec: {
+            /**
+             * Fulltext
+             * @description Its words are searchable with _search (a string field, not a list, and not also indexed)
+             * @default false
+             */
+            fulltext?: boolean;
             /**
              * Indexed
              * @description Filters and sorts on it use an index (string, integer, number, boolean)
@@ -4525,6 +4788,8 @@ export interface components {
             job: string;
             /** Message */
             message: string | null;
+            /** Not Before */
+            not_before: number | null;
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -4538,6 +4803,12 @@ export interface components {
             progress: number | null;
             /** Result */
             result: unknown;
+            /** Retried */
+            retried: number;
+            /** Retries */
+            retries: number;
+            /** Retry Delay S */
+            retry_delay_s: number;
             /** Schedule Id */
             schedule_id: string | null;
             /** Started */
@@ -4547,6 +4818,8 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** Timeout S */
+            timeout_s: number | null;
             /** Webhook Url */
             webhook_url: string | null;
         };
@@ -4806,7 +5079,10 @@ export interface components {
         };
         /** ModelCatalog */
         ModelCatalog: {
-            /** Tasks */
+            /**
+             * Tasks
+             * @description In the order the tasks were defined; tasks without a contract last
+             */
             tasks: components["schemas"]["CatalogTask"][];
         };
         /**
@@ -6183,6 +6459,12 @@ export interface components {
              * @enum {string}
              */
             priority: "high" | "normal" | "low";
+            /** Retries */
+            retries: number;
+            /** Retry Delay S */
+            retry_delay_s: number;
+            /** Timeout S */
+            timeout_s: number | null;
             /** Updated */
             updated: number;
             /** Webhook Url */
@@ -6190,7 +6472,8 @@ export interface components {
         };
         /**
          * ScheduleBody
-         * @description A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds.
+         * @description A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds, and the retries
+         *     and timeout of the jobs it submits.
          */
         ScheduleBody: {
             /**
@@ -6227,6 +6510,23 @@ export interface components {
              * @enum {string}
              */
             priority?: "high" | "normal" | "low";
+            /**
+             * Retries
+             * @description Times a job that fails (a timeout too) is queued again
+             * @default 0
+             */
+            retries?: number;
+            /**
+             * Retry Delay S
+             * @description Seconds before the first retry; doubled before each next one, up to an hour
+             * @default 30
+             */
+            retry_delay_s?: number;
+            /**
+             * Timeout S
+             * @description Seconds a run may take; past them it is stopped and fails. Unset: no limit
+             */
+            timeout_s?: number | null;
             /** Webhook Url */
             webhook_url?: string | null;
         };
@@ -6312,6 +6612,32 @@ export interface components {
              * @description ArcadeDB SQL condition on the fields, e.g. tenant = :t AND year >= 2024
              */
             where?: string | null;
+        };
+        /**
+         * SearchHit
+         * @description A capture a search found, from any case of the workspace.
+         */
+        SearchHit: {
+            /** Captureid */
+            captureId: string;
+            /** Caseid */
+            caseId: string;
+            /** Receivedat */
+            receivedAt: string;
+            /** Recordhash */
+            recordHash: string;
+            /** Seq */
+            seq: number;
+            /** Snippet */
+            snippet: string | null;
+            /** Tags */
+            tags: string[];
+            /** Timestampedat */
+            timestampedAt: string | null;
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string | null;
         };
         /** SecretRequest */
         SecretRequest: {
@@ -6548,6 +6874,23 @@ export interface components {
              */
             priority?: "high" | "normal" | "low";
             /**
+             * Retries
+             * @description Times a job that fails (a timeout too) is queued again
+             * @default 0
+             */
+            retries?: number;
+            /**
+             * Retry Delay S
+             * @description Seconds before the first retry; doubled before each next one, up to an hour
+             * @default 30
+             */
+            retry_delay_s?: number;
+            /**
+             * Timeout S
+             * @description Seconds a run may take; past them it is stopped and fails. Unset: no limit
+             */
+            timeout_s?: number | null;
+            /**
              * Webhook Url
              * @description POSTed to when the job finishes, besides WEBHOOK_URLS
              */
@@ -6692,16 +7035,29 @@ export interface components {
         };
         /** TaskInfo */
         TaskInfo: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "chat" | "text" | "vision" | "audio" | "decision" | "prediction" | "other";
             /** Description */
             description: string;
+            /** Group */
+            group: string;
+            /** Group Label */
+            group_label: string;
             /** Input */
             input: {
                 [key: string]: unknown;
             } | null;
+            /** Label */
+            label: string;
             /** Output */
             output: {
                 [key: string]: unknown;
             } | null;
+            /** Variant Of */
+            variant_of: string | null;
         };
         /** TaskLimits */
         TaskLimits: {
@@ -7715,6 +8071,37 @@ export interface components {
              */
             top_p?: number;
         };
+        /**
+         * WebhookDelivery
+         * @description One delivery of an event to one URL (tasks/webhooks.py): a task, retried with backoff.
+         */
+        WebhookDelivery: {
+            /** About */
+            about: string | null;
+            /** Created */
+            created: number;
+            /** Error */
+            error: string | null;
+            /** Event */
+            event: string | null;
+            /** Finished */
+            finished: number | null;
+            /** Id */
+            id: string;
+            /** Not Before */
+            not_before: number | null;
+            /** Retried */
+            retried: number;
+            /** Retries */
+            retries: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** Url */
+            url: string | null;
+        };
         /** WebhookTest */
         WebhookTest: {
             /** Url */
@@ -7731,6 +8118,8 @@ export interface components {
         };
         /** Webhooks */
         Webhooks: {
+            /** Deliveries */
+            deliveries: components["schemas"]["WebhookDelivery"][];
             /** Events */
             events: string[];
             /** Secret Set */
@@ -7741,6 +8130,122 @@ export interface components {
         /** WorkspaceCreated */
         WorkspaceCreated: {
             workspace: components["schemas"]["EvidenceWorkspace"];
+        };
+        /**
+         * ZeroShotClassificationBatchInferenceRequest
+         * @description Label a text with labels named in the request, with a probability for each (no training)
+         */
+        ZeroShotClassificationBatchInferenceRequest: {
+            /**
+             * Inputs
+             * @description Run together; results come back in this order
+             */
+            inputs: components["schemas"]["ZeroShotClassificationInput"][];
+            /** Model Id */
+            model_id: string;
+            /**
+             * Task
+             * @constant
+             */
+            task: "zero-shot-classification";
+        };
+        /** ZeroShotClassificationBatchInferenceResponse */
+        ZeroShotClassificationBatchInferenceResponse: {
+            /**
+             * Backend
+             * @description Which backend of a model server answered, e.g. "ollama: qwen3.5:4b"
+             */
+            backend?: string | null;
+            /**
+             * Cold Start
+             * @description True when this request had to load the model first
+             * @default false
+             */
+            cold_start?: boolean;
+            /** Model Used */
+            model_used: string;
+            /** Processing Time */
+            processing_time: number;
+            /**
+             * Results
+             * @description One result per input, in the same order
+             */
+            results: components["schemas"]["TextClassificationOutput"][];
+            /**
+             * Task
+             * @constant
+             */
+            task: "zero-shot-classification";
+            /**
+             * Trace Ids
+             * @description Each input's trace (GET /admin/traces/{id}), in order, when tracing is on
+             */
+            trace_ids?: string[];
+        };
+        /**
+         * ZeroShotClassificationInferenceRequest
+         * @description Label a text with labels named in the request, with a probability for each (no training)
+         */
+        ZeroShotClassificationInferenceRequest: {
+            input: components["schemas"]["ZeroShotClassificationInput"];
+            /** Model Id */
+            model_id: string;
+            /**
+             * Task
+             * @constant
+             */
+            task: "zero-shot-classification";
+        };
+        /** ZeroShotClassificationInferenceResponse */
+        ZeroShotClassificationInferenceResponse: {
+            /**
+             * Backend
+             * @description Which backend of a model server answered, e.g. "ollama: qwen3.5:4b"
+             */
+            backend?: string | null;
+            /**
+             * Cold Start
+             * @description True when this request had to load the model first
+             * @default false
+             */
+            cold_start?: boolean;
+            /** Model Used */
+            model_used: string;
+            /** Processing Time */
+            processing_time: number;
+            result: components["schemas"]["TextClassificationOutput"];
+            /**
+             * Task
+             * @constant
+             */
+            task: "zero-shot-classification";
+            /**
+             * Trace Id
+             * @description This request's trace (GET /admin/traces/{id}), when tracing is on
+             */
+            trace_id?: string | null;
+        };
+        /** ZeroShotClassificationInput */
+        ZeroShotClassificationInput: {
+            /**
+             * Hypothesis
+             * @description How each label is put to the model; {} is the label
+             * @default This text is about {}.
+             */
+            hypothesis?: string;
+            /**
+             * Labels
+             * @description The labels to choose from
+             */
+            labels: string[];
+            /**
+             * Multi Label
+             * @description Score each label on its own, so several can fit; unset: the labels share the probability
+             * @default false
+             */
+            multi_label?: boolean;
+            /** Text */
+            text: string;
         };
     };
     responses: never;
@@ -7796,7 +8301,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7805,7 +8310,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7814,7 +8319,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -7832,7 +8337,126 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    audit_log_admin_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Only entries older than this one: the last id of the previous page */
+                before_id?: number | null;
+                method?: ("POST" | "PUT" | "PATCH" | "DELETE") | null;
+                /** @description Part of the route or the path asked for */
+                route?: string | null;
+                /** @description The key it carried */
+                actor?: ("admin" | "client" | "none" | "wrong" | "open") | null;
+                /** @description 2xx and 3xx, 4xx, or 5xx */
+                outcome?: ("ok" | "refused" | "failed") | null;
+                /** @description Only entries at or after this Unix time */
+                since?: number | null;
+                /** @description Only entries at or before this Unix time */
+                until?: number | null;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-api-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntries"];
+                };
+            };
+            /** @description Refused: the request is wrong (a bad value, an unknown name) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description No key, or not one of the accepted ones; the header names the scheme. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description No such thing: an unknown id or name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The request, or a file in it, is larger than allowed. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal error: its type, and its text with DEBUG on */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7891,7 +8515,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7900,7 +8524,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7909,7 +8533,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -7936,7 +8560,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7995,7 +8619,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8004,7 +8628,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8013,7 +8637,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8040,7 +8664,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8103,7 +8727,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8112,7 +8736,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8121,7 +8745,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8148,7 +8772,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8209,7 +8833,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8218,7 +8842,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8227,7 +8851,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8254,7 +8878,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8315,7 +8939,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8324,7 +8948,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8333,7 +8957,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8360,7 +8984,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8424,7 +9048,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8433,7 +9057,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8442,7 +9066,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8469,7 +9093,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8534,7 +9158,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8543,7 +9167,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8552,7 +9176,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8579,7 +9203,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8641,7 +9265,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8650,7 +9274,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8659,7 +9283,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8686,7 +9310,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8747,7 +9371,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8756,7 +9380,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8765,7 +9389,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8792,7 +9416,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8851,7 +9475,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8860,7 +9484,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8869,7 +9493,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -8896,7 +9520,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -8962,7 +9586,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8971,7 +9595,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8980,7 +9604,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9007,7 +9631,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9070,7 +9694,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9079,7 +9703,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9088,7 +9712,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9115,7 +9739,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9178,7 +9802,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9187,7 +9811,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9196,7 +9820,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9223,7 +9847,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9282,7 +9906,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9291,7 +9915,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9300,7 +9924,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9327,7 +9951,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9392,7 +10016,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9401,7 +10025,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9410,7 +10034,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9437,7 +10061,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9498,7 +10122,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9507,7 +10131,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9516,7 +10140,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9543,7 +10167,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9606,7 +10230,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9615,7 +10239,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9624,7 +10248,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9651,7 +10275,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9716,7 +10340,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9725,7 +10349,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9734,7 +10358,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9761,7 +10385,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9822,7 +10446,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9831,7 +10455,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9840,7 +10464,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9867,7 +10491,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -9935,7 +10559,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -9944,7 +10568,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9953,7 +10577,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -9980,7 +10604,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10041,7 +10665,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10050,7 +10674,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10059,7 +10683,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10086,7 +10710,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10149,7 +10773,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10158,7 +10782,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10167,7 +10791,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10194,7 +10818,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10256,7 +10880,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10265,7 +10889,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10274,7 +10898,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10301,7 +10925,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10362,7 +10986,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10371,7 +10995,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10380,7 +11004,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10407,7 +11031,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10468,7 +11092,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10477,7 +11101,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10486,7 +11110,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10513,7 +11137,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10574,7 +11198,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10583,7 +11207,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10592,7 +11216,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10619,7 +11243,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10684,7 +11308,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10693,7 +11317,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10702,7 +11326,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10729,7 +11353,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10790,7 +11414,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10799,7 +11423,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10808,7 +11432,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10835,7 +11459,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10900,7 +11524,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10909,7 +11533,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10918,7 +11542,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -10945,7 +11569,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11005,7 +11629,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11014,7 +11638,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11023,7 +11647,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11050,7 +11674,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11110,7 +11734,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11119,7 +11743,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11128,7 +11752,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11155,7 +11779,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11211,7 +11835,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11220,7 +11844,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11229,7 +11853,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11247,7 +11871,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11308,7 +11932,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11317,7 +11941,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11326,7 +11950,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11353,7 +11977,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11418,7 +12042,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11427,7 +12051,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11436,7 +12060,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11463,7 +12087,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11536,7 +12160,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11545,7 +12169,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11554,7 +12178,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11581,7 +12205,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11642,7 +12266,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11651,7 +12275,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11660,7 +12284,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11687,7 +12311,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11746,7 +12370,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11755,7 +12379,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11764,7 +12388,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11791,7 +12415,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11854,7 +12478,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11863,7 +12487,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11872,7 +12496,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -11899,7 +12523,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11960,7 +12584,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11969,7 +12593,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11978,7 +12602,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12005,7 +12629,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12066,7 +12690,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12075,7 +12699,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12084,7 +12708,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12111,7 +12735,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12176,7 +12800,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12185,7 +12809,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12194,7 +12818,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12221,7 +12845,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12283,7 +12907,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12292,7 +12916,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12301,7 +12925,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12328,7 +12952,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12390,7 +13014,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12399,7 +13023,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12408,7 +13032,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12435,7 +13059,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12500,7 +13124,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12509,7 +13133,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12518,7 +13142,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12545,7 +13169,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12610,7 +13234,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12619,7 +13243,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12628,7 +13252,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12655,7 +13279,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12714,7 +13338,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12723,7 +13347,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12732,7 +13356,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12759,7 +13383,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12822,7 +13446,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12831,7 +13455,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12840,7 +13464,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12867,7 +13491,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12928,7 +13552,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12937,7 +13561,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12946,7 +13570,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -12973,7 +13597,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13038,7 +13662,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13047,7 +13671,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13056,7 +13680,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13083,7 +13707,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13142,7 +13766,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13151,7 +13775,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13160,7 +13784,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13187,7 +13811,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13248,7 +13872,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13257,7 +13881,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13266,7 +13890,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13293,7 +13917,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13356,7 +13980,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13365,7 +13989,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13374,7 +13998,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13401,7 +14025,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13466,7 +14090,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13475,7 +14099,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13484,7 +14108,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13511,7 +14135,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13574,7 +14198,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13583,7 +14207,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13592,7 +14216,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13619,7 +14243,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13679,7 +14303,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13688,7 +14312,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13697,7 +14321,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13724,7 +14348,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13790,7 +14414,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13799,7 +14423,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13808,7 +14432,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13835,7 +14459,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -13900,7 +14524,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13909,7 +14533,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13918,7 +14542,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -13945,7 +14569,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14008,7 +14632,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14017,7 +14641,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14026,7 +14650,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14053,7 +14677,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14071,8 +14695,10 @@ export interface operations {
                 _limit?: number;
                 /** @description The previous page's 'next' */
                 _cursor?: string | null;
-                /** @description Fields, comma-separated; -field sorts descending. Default: id */
+                /** @description Fields, comma-separated; -field sorts descending. Default: id, or the best match first with _search */
                 _sort?: string | null;
+                /** @description Words the full-text fields must hold: every word, a "quoted phrase", -word must not, word* for words starting so */
+                _search?: string | null;
             };
             header?: {
                 authorization?: string | null;
@@ -14122,7 +14748,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14131,7 +14757,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14140,7 +14766,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14167,7 +14793,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14235,7 +14861,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14244,7 +14870,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14253,7 +14879,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14280,7 +14906,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14340,7 +14966,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14349,7 +14975,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14358,7 +14984,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14385,7 +15011,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14449,7 +15075,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14458,7 +15084,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14467,7 +15093,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14494,7 +15120,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14558,7 +15184,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14567,7 +15193,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14576,7 +15202,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14603,7 +15229,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14669,7 +15295,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14678,7 +15304,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14687,7 +15313,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14714,7 +15340,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14727,7 +15353,10 @@ export interface operations {
     };
     count_rows_db__namespace___table___count_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Words the full-text fields must hold: every word, a "quoted phrase", -word must not, word* for words starting so */
+                _search?: string | null;
+            };
             header?: {
                 authorization?: string | null;
                 "x-api-key"?: string | null;
@@ -14776,7 +15405,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14785,7 +15414,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14794,7 +15423,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14821,7 +15450,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14886,7 +15515,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14895,7 +15524,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14904,7 +15533,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -14931,7 +15560,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14997,7 +15626,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15006,7 +15635,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15015,7 +15644,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15042,7 +15671,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15105,7 +15734,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15114,7 +15743,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15123,7 +15752,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15150,7 +15779,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15228,7 +15857,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15237,7 +15866,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15246,7 +15875,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15273,7 +15902,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15334,7 +15963,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15343,7 +15972,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15352,7 +15981,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15379,7 +16008,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15448,7 +16077,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15457,7 +16086,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15466,7 +16095,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15493,7 +16122,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15562,7 +16191,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15571,7 +16200,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15580,7 +16209,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15607,7 +16236,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15676,7 +16305,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15685,7 +16314,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15694,7 +16323,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15721,7 +16350,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15790,7 +16419,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15799,7 +16428,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15808,7 +16437,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15835,7 +16464,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -15898,7 +16527,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15907,7 +16536,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15916,7 +16545,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -15943,7 +16572,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16002,7 +16631,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16011,7 +16640,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16020,7 +16649,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16047,7 +16676,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16106,7 +16735,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16115,7 +16744,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16124,7 +16753,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16151,7 +16780,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16212,7 +16841,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16221,7 +16850,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16230,7 +16859,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16257,7 +16886,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16322,7 +16951,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16331,7 +16960,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16340,7 +16969,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16367,7 +16996,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16426,7 +17055,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16435,7 +17064,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16444,7 +17073,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16471,7 +17100,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16536,7 +17165,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16545,7 +17174,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16554,7 +17183,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16581,7 +17210,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16646,7 +17275,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16655,7 +17284,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16664,7 +17293,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16691,7 +17320,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16756,7 +17385,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16765,7 +17394,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16774,7 +17403,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16801,7 +17430,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16866,7 +17495,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16875,7 +17504,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16884,7 +17513,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -16911,7 +17540,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -16980,7 +17609,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -16989,7 +17618,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16998,7 +17627,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17025,7 +17654,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17089,7 +17718,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17098,7 +17727,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17107,7 +17736,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17134,7 +17763,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17197,7 +17826,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17206,7 +17835,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17215,7 +17844,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17242,7 +17871,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17309,7 +17938,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17318,7 +17947,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17327,7 +17956,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17354,7 +17983,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17419,7 +18048,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17428,7 +18057,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17437,7 +18066,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17464,7 +18093,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17529,7 +18158,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17538,7 +18167,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17547,7 +18176,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17574,7 +18203,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17639,7 +18268,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17648,7 +18277,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17657,7 +18286,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17684,7 +18313,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17753,7 +18382,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17762,7 +18391,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17771,7 +18400,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17798,7 +18427,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -17858,7 +18487,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17867,7 +18496,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17876,7 +18505,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -17903,13 +18532,136 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "text/plain": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    search_captures_evidence_search_get: {
+        parameters: {
+            query?: {
+                /** @description Words the captures must hold, in their pages' text, address, title, tags or notes: every word, a "quoted phrase" as written, -word must not, word* for words starting so */
+                q?: string | null;
+                /** @description Only this case's captures; every case's when left out */
+                case?: string | null;
+                /** @description Only captures with this tag, as written */
+                tag?: string | null;
+                /** @description Received at or after this UTC time: 2026-10-31, 2026-10-31T12:00 */
+                since?: string | null;
+                /** @description Received up to the end of this UTC time: 2026-10 is all of October */
+                until?: string | null;
+                /** @description The best match first with q (relevance), else the newest first */
+                sort?: ("relevance" | "newest" | "oldest") | null;
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
+                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                workspace?: string;
+            };
+            header?: {
+                origin?: string | null;
+                authorization?: string | null;
+                "x-api-key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceSearch"];
+                };
+            };
+            /** @description Refused: the request is wrong (a bad value, an unknown name) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description No key, or not one of the accepted ones; the header names the scheme. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description No such thing: an unknown id or name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The request, or a file in it, is larger than allowed. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal error: its type, and its text with DEBUG on */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description A part of the service is off, full or down: the request may work later. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
@@ -17963,7 +18715,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -17972,7 +18724,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17981,7 +18733,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18008,7 +18760,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18071,7 +18823,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18080,7 +18832,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18089,7 +18841,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18116,7 +18868,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18176,7 +18928,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18185,7 +18937,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18194,7 +18946,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18221,7 +18973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18285,7 +19037,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18294,7 +19046,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18303,7 +19055,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18330,7 +19082,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18386,7 +19138,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18395,7 +19147,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18404,7 +19156,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18422,7 +19174,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18481,7 +19233,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18490,7 +19242,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18499,7 +19251,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18526,7 +19278,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18589,7 +19341,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18598,7 +19350,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18607,7 +19359,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18634,7 +19386,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18693,7 +19445,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18702,7 +19454,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18711,7 +19463,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18738,7 +19490,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18797,7 +19549,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18806,7 +19558,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18815,7 +19567,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18842,7 +19594,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -18901,7 +19653,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18910,7 +19662,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18919,7 +19671,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -18946,7 +19698,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19007,7 +19759,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19016,7 +19768,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19025,7 +19777,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19052,7 +19804,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19069,7 +19821,7 @@ export interface operations {
                 /** @description Words of the model ID or card */
                 q?: string;
                 /** @description Only models for this task (by the Hub's pipeline tag) */
-                task?: ("text-generation" | "text-classification" | "question-answering" | "vision-language" | "embedding" | "rerank" | "speech-to-text") | null;
+                task?: ("text-generation" | "text-classification" | "zero-shot-classification" | "question-answering" | "vision-language" | "embedding" | "rerank" | "speech-to-text") | null;
                 limit?: number;
             };
             header?: {
@@ -19117,7 +19869,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19126,7 +19878,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19135,7 +19887,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19162,7 +19914,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19185,7 +19937,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TextGenerationInferenceRequest"] | components["schemas"]["TextClassificationInferenceRequest"] | components["schemas"]["QuestionAnsweringInferenceRequest"] | components["schemas"]["VisionLanguageInferenceRequest"] | components["schemas"]["EmbeddingInferenceRequest"] | components["schemas"]["RerankInferenceRequest"] | components["schemas"]["SpeechToTextInferenceRequest"] | components["schemas"]["DecisionInferenceRequest"] | components["schemas"]["TabularPredictionInferenceRequest"] | components["schemas"]["MultimodalPredictionInferenceRequest"] | components["schemas"]["TimeseriesForecastInferenceRequest"] | components["schemas"]["CustomInferenceRequest"] | components["schemas"]["UntypedInferenceRequest"];
+                "application/json": components["schemas"]["TextGenerationInferenceRequest"] | components["schemas"]["TextClassificationInferenceRequest"] | components["schemas"]["ZeroShotClassificationInferenceRequest"] | components["schemas"]["QuestionAnsweringInferenceRequest"] | components["schemas"]["VisionLanguageInferenceRequest"] | components["schemas"]["EmbeddingInferenceRequest"] | components["schemas"]["RerankInferenceRequest"] | components["schemas"]["SpeechToTextInferenceRequest"] | components["schemas"]["DecisionInferenceRequest"] | components["schemas"]["TabularPredictionInferenceRequest"] | components["schemas"]["MultimodalPredictionInferenceRequest"] | components["schemas"]["TimeseriesForecastInferenceRequest"] | components["schemas"]["CustomInferenceRequest"] | components["schemas"]["UntypedInferenceRequest"];
             };
         };
         responses: {
@@ -19195,7 +19947,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
                 };
             };
             /** @description Refused: the request is wrong (a bad value, an unknown name) */
@@ -19225,7 +19977,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19234,7 +19986,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19243,7 +19995,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19270,7 +20022,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19293,7 +20045,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TextGenerationBatchInferenceRequest"] | components["schemas"]["TextClassificationBatchInferenceRequest"] | components["schemas"]["QuestionAnsweringBatchInferenceRequest"] | components["schemas"]["VisionLanguageBatchInferenceRequest"] | components["schemas"]["EmbeddingBatchInferenceRequest"] | components["schemas"]["RerankBatchInferenceRequest"] | components["schemas"]["SpeechToTextBatchInferenceRequest"] | components["schemas"]["DecisionBatchInferenceRequest"] | components["schemas"]["TabularPredictionBatchInferenceRequest"] | components["schemas"]["MultimodalPredictionBatchInferenceRequest"] | components["schemas"]["TimeseriesForecastBatchInferenceRequest"] | components["schemas"]["CustomBatchInferenceRequest"] | components["schemas"]["UntypedBatchInferenceRequest"];
+                "application/json": components["schemas"]["TextGenerationBatchInferenceRequest"] | components["schemas"]["TextClassificationBatchInferenceRequest"] | components["schemas"]["ZeroShotClassificationBatchInferenceRequest"] | components["schemas"]["QuestionAnsweringBatchInferenceRequest"] | components["schemas"]["VisionLanguageBatchInferenceRequest"] | components["schemas"]["EmbeddingBatchInferenceRequest"] | components["schemas"]["RerankBatchInferenceRequest"] | components["schemas"]["SpeechToTextBatchInferenceRequest"] | components["schemas"]["DecisionBatchInferenceRequest"] | components["schemas"]["TabularPredictionBatchInferenceRequest"] | components["schemas"]["MultimodalPredictionBatchInferenceRequest"] | components["schemas"]["TimeseriesForecastBatchInferenceRequest"] | components["schemas"]["CustomBatchInferenceRequest"] | components["schemas"]["UntypedBatchInferenceRequest"];
             };
         };
         responses: {
@@ -19303,7 +20055,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationBatchInferenceResponse"] | components["schemas"]["TextClassificationBatchInferenceResponse"] | components["schemas"]["QuestionAnsweringBatchInferenceResponse"] | components["schemas"]["VisionLanguageBatchInferenceResponse"] | components["schemas"]["EmbeddingBatchInferenceResponse"] | components["schemas"]["RerankBatchInferenceResponse"] | components["schemas"]["SpeechToTextBatchInferenceResponse"] | components["schemas"]["DecisionBatchInferenceResponse"] | components["schemas"]["TabularPredictionBatchInferenceResponse"] | components["schemas"]["MultimodalPredictionBatchInferenceResponse"] | components["schemas"]["TimeseriesForecastBatchInferenceResponse"] | components["schemas"]["CustomBatchInferenceResponse"] | components["schemas"]["UntypedBatchInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationBatchInferenceResponse"] | components["schemas"]["TextClassificationBatchInferenceResponse"] | components["schemas"]["ZeroShotClassificationBatchInferenceResponse"] | components["schemas"]["QuestionAnsweringBatchInferenceResponse"] | components["schemas"]["VisionLanguageBatchInferenceResponse"] | components["schemas"]["EmbeddingBatchInferenceResponse"] | components["schemas"]["RerankBatchInferenceResponse"] | components["schemas"]["SpeechToTextBatchInferenceResponse"] | components["schemas"]["DecisionBatchInferenceResponse"] | components["schemas"]["TabularPredictionBatchInferenceResponse"] | components["schemas"]["MultimodalPredictionBatchInferenceResponse"] | components["schemas"]["TimeseriesForecastBatchInferenceResponse"] | components["schemas"]["CustomBatchInferenceResponse"] | components["schemas"]["UntypedBatchInferenceResponse"];
                 };
             };
             /** @description Refused: the request is wrong (a bad value, an unknown name) */
@@ -19333,7 +20085,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19342,7 +20094,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19351,7 +20103,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19378,7 +20130,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19440,7 +20192,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19449,7 +20201,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19458,7 +20210,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19485,7 +20237,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19548,7 +20300,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19557,7 +20309,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19566,7 +20318,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19593,7 +20345,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19652,7 +20404,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19661,7 +20413,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19670,7 +20422,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19697,7 +20449,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19760,7 +20512,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19769,7 +20521,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19778,7 +20530,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19805,7 +20557,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19866,7 +20618,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19875,7 +20627,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19884,7 +20636,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -19911,7 +20663,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -19970,7 +20722,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -19979,7 +20731,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19988,7 +20740,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20015,7 +20767,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20078,7 +20830,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20087,7 +20839,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20096,7 +20848,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20123,7 +20875,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20184,7 +20936,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20193,7 +20945,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20202,7 +20954,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20229,7 +20981,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20294,7 +21046,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20303,7 +21055,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20312,7 +21064,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20339,7 +21091,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20398,7 +21150,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20407,7 +21159,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20416,7 +21168,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20443,7 +21195,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20504,7 +21256,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20513,7 +21265,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20522,7 +21274,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20549,7 +21301,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20608,7 +21360,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20617,7 +21369,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20626,7 +21378,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20653,7 +21405,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20712,7 +21464,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20721,7 +21473,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20730,7 +21482,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20757,7 +21509,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20820,7 +21572,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20829,7 +21581,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20838,7 +21590,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20865,7 +21617,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -20926,7 +21678,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -20935,7 +21687,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20944,7 +21696,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -20971,7 +21723,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21032,7 +21784,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21041,7 +21793,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21050,7 +21802,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21077,7 +21829,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21138,7 +21890,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21147,7 +21899,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21156,7 +21908,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21183,7 +21935,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21244,7 +21996,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21253,7 +22005,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21262,7 +22014,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21289,7 +22041,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21350,7 +22102,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21359,7 +22111,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21368,7 +22120,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21395,7 +22147,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21457,7 +22209,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21466,7 +22218,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21475,7 +22227,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21502,7 +22254,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21565,7 +22317,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21574,7 +22326,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21583,7 +22335,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21610,7 +22362,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21669,7 +22421,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21678,7 +22430,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21687,7 +22439,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21714,7 +22466,7 @@ export interface operations {
                     "text/plain": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21773,7 +22525,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21782,7 +22534,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21791,7 +22543,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21818,7 +22570,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21877,7 +22629,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21886,7 +22638,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21895,7 +22647,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -21922,7 +22674,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -21985,7 +22737,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -21994,7 +22746,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22003,7 +22755,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22030,7 +22782,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22091,7 +22843,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22100,7 +22852,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22109,7 +22861,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22136,7 +22888,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22199,7 +22951,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22208,7 +22960,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22217,7 +22969,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22244,7 +22996,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22303,7 +23055,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22312,7 +23064,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22321,7 +23073,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22348,7 +23100,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22407,7 +23159,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22416,7 +23168,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22425,7 +23177,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22452,7 +23204,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22514,7 +23266,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22523,7 +23275,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22532,7 +23284,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22559,7 +23311,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22625,7 +23377,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22634,7 +23386,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22643,7 +23395,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22670,7 +23422,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22729,7 +23481,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22738,7 +23490,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22747,7 +23499,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22774,7 +23526,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22837,7 +23589,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22846,7 +23598,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22855,7 +23607,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22882,7 +23634,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -22943,7 +23695,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -22952,7 +23704,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22961,7 +23713,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -22988,7 +23740,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23053,7 +23805,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23062,7 +23814,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23071,7 +23823,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23098,7 +23850,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23157,7 +23909,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23166,7 +23918,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23175,7 +23927,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23202,7 +23954,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23267,7 +24019,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23276,7 +24028,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23285,7 +24037,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23312,7 +24064,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23371,7 +24123,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23380,7 +24132,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23389,7 +24141,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23416,7 +24168,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23475,7 +24227,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23484,7 +24236,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23493,7 +24245,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23520,7 +24272,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23583,7 +24335,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23592,7 +24344,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23601,7 +24353,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23628,7 +24380,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23693,7 +24445,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23702,7 +24454,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23711,7 +24463,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23738,7 +24490,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23797,7 +24549,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23806,7 +24558,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23815,7 +24567,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23842,7 +24594,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -23901,7 +24653,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -23910,7 +24662,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23919,7 +24671,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -23946,7 +24698,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24009,7 +24761,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24018,7 +24770,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24027,7 +24779,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24054,7 +24806,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24117,7 +24869,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24126,7 +24878,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24135,7 +24887,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24162,7 +24914,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24225,7 +24977,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24234,7 +24986,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24243,7 +24995,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24270,7 +25022,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24333,7 +25085,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24342,7 +25094,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24351,7 +25103,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24378,7 +25130,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24441,7 +25193,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24450,7 +25202,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24459,7 +25211,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24486,7 +25238,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24545,7 +25297,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24554,7 +25306,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24563,7 +25315,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24590,7 +25342,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24653,7 +25405,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24662,7 +25414,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24671,7 +25423,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24698,7 +25450,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -24731,7 +25483,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
                 };
             };
             /** @description Refused: the request is wrong (a bad value, an unknown name) */
@@ -24761,7 +25513,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's. */
+            /** @description No such thing: an unknown id or name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -24770,7 +25522,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The namespace, table or row already exists, or a unique value is taken. */
+            /** @description The request is fine, but not now: the thing is busy, or in the way. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24779,7 +25531,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description An inline image or audio item exceeds MAX_MEDIA_BYTES (a ValueError, so a validator turns it into one). */
+            /** @description The request, or a file in it, is larger than allowed. */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -24806,7 +25558,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The database cannot be used here. */
+            /** @description A part of the service is off, full or down: the request may work later. */
             503: {
                 headers: {
                     [name: string]: unknown;

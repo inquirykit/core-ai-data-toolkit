@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { fmtBytes, statusOf } from "./format";
+import { fmtBytes, fmtIso, plural, statusOf } from "./format";
+
+describe("fmtIso", () => {
+  it("shows a time the browser's way, and other text as it is", () => {
+    expect(fmtIso(null)).toBe("–");
+    expect(fmtIso("not a time")).toBe("not a time");
+    expect(fmtIso("2026-10-18T12:00:00.000Z")).not.toBe("2026-10-18T12:00:00.000Z");
+  });
+});
+
+describe("plural", () => {
+  it("counts a noun", () => {
+    expect(plural(1, "example")).toBe("1 example");
+    expect(plural(0, "run")).toBe("0 runs");
+    expect(plural(1000, "record")).toBe("1,000 records");
+  });
+});
 
 describe("fmtBytes", () => {
   it("picks the nearest unit", () => {

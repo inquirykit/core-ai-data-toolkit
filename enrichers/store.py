@@ -12,11 +12,11 @@ import logging
 import os
 import tomllib
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from pydantic import ValidationError
 
-from errors import Unavailable
+from core.errors import Unavailable
 
 from .spec import EnricherSpec
 
@@ -86,6 +86,10 @@ class EnricherStore:
 
     def get(self, name: str) -> Optional["Entry"]:
         return self.all().get(name)
+
+    def secrets(self) -> Set[str]:
+        """The environment variables the enrichers take their keys from, as the files say now."""
+        return {entry.spec.secret for entry in self.all().values() if entry.spec.secret}
 
     def save(self, spec: EnricherSpec) -> "Entry":
         if self.user_dir is None:

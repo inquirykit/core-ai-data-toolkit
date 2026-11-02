@@ -13,6 +13,7 @@ import tests.fake_jobs  # noqa: F401  registers the test-* jobs
 from api import app as app_module
 from jobs import schedule
 from tests.test_jobs import wait
+from tests.waits import until
 
 
 # ---------------------------------------------------------------------- cron
@@ -63,11 +64,16 @@ def test_schedules_are_created_run_and_deleted(client):
     assert sched["next_run"] > time.time() and sched["interval_s"] is None
     assert [s["id"] for s in client.get("/jobs/schedules").json()["schedules"]] == [sched["id"]]
 
-    # Run now: the job carries the schedule and its webhook URL; the planned next run stays.
+    assert sched["retries"] == 0 and sched["timeout_s"] is None
+
+    # Run now: the job carries the schedule, its webhook URL and retries; the planned next run stays.
+    client.put(f"/jobs/schedules/{sched['id']}", json={**{k: sched[k] for k in ("name", "job", "params", "cron", "webhook_url")},
+                                                       "retries": 2, "retry_delay_s": 5, "timeout_s": 600})
     r = client.post(f"/jobs/schedules/{sched['id']}/run")
     assert r.status_code == 202, r.text
     job = r.json()
     assert job["schedule_id"] == sched["id"] and job["webhook_url"] == "http://127.0.0.1:9/hook"
+    assert (job["retries"], job["retry_delay_s"], job["timeout_s"]) == (2, 5, 600)
     wait(client, job["id"])
     again = client.get(f"/jobs/schedules/{sched['id']}").json()
     assert again["last_job_id"] == job["id"] and again["last_status"] == "succeeded"
@@ -120,12 +126,15 @@ def test_due_schedules_submit_their_job_once(client):
 # ------------------------------------------------------------------ webhooks
 class Receiver(BaseHTTPRequestHandler):
     received = []
+    raw = []  # the bodies as sent, which the signatures cover
     status = 200
+    statuses = []  # answered in turn before ``status``
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         Receiver.received.append((dict(self.headers), json.loads(body)))
-        self.send_response(Receiver.status)
+        Receiver.raw.append(body)
+        self.send_response(Receiver.statuses.pop(0) if Receiver.statuses else Receiver.status)
         self.end_headers()
 
     def log_message(self, *args):
@@ -138,16 +147,15 @@ def receiver():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     Receiver.received = []
+    Receiver.raw = []
     Receiver.status = 200
+    Receiver.statuses = []
     yield f"http://127.0.0.1:{server.server_port}/hook"
     server.shutdown()
 
 
 def wait_received(n, timeout=10.0):
-    deadline = time.time() + timeout
-    while len(Receiver.received) < n and time.time() < deadline:
-        time.sleep(0.02)
-    assert len(Receiver.received) >= n, Receiver.received
+    until(lambda: len(Receiver.received) >= n, timeout, lambda: f"received {Receiver.received}")
 
 
 def test_finished_jobs_are_posted_to_webhooks(client, receiver, monkeypatch):
@@ -176,6 +184,111 @@ def test_finished_jobs_are_posted_to_webhooks(client, receiver, monkeypatch):
     assert describe["urls"] == [receiver] and describe["secret_set"] is True and "job.finished" in describe["events"]
 
 
+def delivery(client, url, status):
+    """The delivery to ``url`` once it is ``status``."""
+    tasks = client.app.state.tasks
+    return until(lambda: (task := client.portal.call(tasks.find, "webhook", url)) and task["status"] == status and task,
+                 15, lambda: f"delivery {client.portal.call(tasks.find, 'webhook', url)}, received {Receiver.received}")
+
+
+def test_a_failed_delivery_is_tried_again_with_its_id_and_a_fresh_signature(client, receiver, monkeypatch):
+    import base64, hashlib, hmac
+    import tasks.webhooks
+
+    hooks = client.app.state.webhooks
+    monkeypatch.setattr(hooks, "secret", "s3cret")
+    monkeypatch.setattr(tasks.webhooks, "RETRY_DELAY_S", 1.0)
+    # Down, then a redirect, which is not a delivery either (Standard Webhooks: only a 2xx is), then taken.
+    Receiver.statuses = [503, 302]
+    assert client.portal.call(hooks.send, "job.finished", {"id": "j1"}, [receiver]) == 1
+    task = delivery(client, receiver, "succeeded")
+    assert task["retried"] == 2 and task["result"] == {"status": 200} and len(Receiver.received) == 3
+
+    # One message: the same id and body each time. Each try has its own time, signed with it, since a receiver
+    # refuses a time far from its clock and later retries come hours after the first.
+    ids = {headers["webhook-id"] for headers, _ in Receiver.received}
+    times = [int(headers["webhook-timestamp"]) for headers, _ in Receiver.received]
+    assert len(ids) == 1 and len(set(Receiver.raw)) == 1 and times == sorted(times) and times[-1] > times[0]
+    for (headers, _), body in zip(Receiver.received, Receiver.raw):
+        signed = f"{headers['webhook-id']}.{headers['webhook-timestamp']}.".encode() + body
+        assert headers["webhook-signature"] == "v1," + base64.b64encode(hmac.new(b"s3cret", signed, hashlib.sha256).digest()).decode()
+
+
+def test_a_delivery_answered_410_is_not_tried_again(client, receiver):
+    Receiver.statuses = [410]
+    client.portal.call(client.app.state.webhooks.send, "run.finished", {"id": "r1"}, [receiver])
+    task = delivery(client, receiver, "failed")
+    assert task["error"] == "HTTP 410" and task["retried"] == 0 and len(Receiver.received) == 1
+    # The dashboard lists it among the latest deliveries.
+    listed = {d["id"]: d for d in client.get("/jobs/webhooks").json()["deliveries"]}
+    assert {k: listed[task["id"]][k] for k in ("event", "about", "url", "status", "error", "retries")} == {
+        "event": "run.finished", "about": "r1", "url": receiver, "status": "failed", "error": "HTTP 410", "retries": 10}
+
+
+def test_a_delivery_outlives_a_restart(arcade, receiver):
+    import asyncio
+    from db.tables import TableStore
+    from tasks.runner import TaskRunner
+    from tasks.store import TaskStore
+    from tasks.webhooks import Webhooks
+    from tests.waits import until_async
+
+    store = TaskStore(arcade, TableStore(arcade))
+
+    async def scenario():
+        # Two sent before the runner started: the service stopped first, and died while the second was going out.
+        await Webhooks([receiver], tasks=TaskRunner(store)).send("job.finished", {"id": "j1"})
+        await Webhooks([receiver], tasks=TaskRunner(store)).send("run.finished", {"id": "r1"})
+        sent = await store.queued("webhook")
+        assert await store.claim(sent[1]["id"])
+
+        # The next start sends both.
+        runner = TaskRunner(store)
+        hooks = Webhooks([receiver], tasks=runner)
+        await runner.start()
+        try:
+            async def delivered():
+                rows = [await store.get(row["id"]) for row in sent]
+                return all(row["status"] == "succeeded" for row in rows) and rows
+
+            return await until_async(delivered, 15, lambda: f"received {Receiver.received}")
+        finally:
+            await runner.stop()
+            await hooks.close()
+
+    rows = asyncio.run(scenario())
+    assert sorted(body["event"] for _, body in Receiver.received) == ["job.finished", "run.finished"]
+    assert rows[0]["attempts"] == 0 and rows[1]["attempts"] == 1, "the one under way counts as resumed"
+
+
+def test_finished_deliveries_are_deleted_after_their_days(arcade):
+    import asyncio
+    from db.tables import TableStore
+    from tasks.runner import TaskRunner
+    from tasks.store import TaskStore
+    from tasks.webhooks import Webhooks
+
+    store = TaskStore(arcade, TableStore(arcade))
+    runner = TaskRunner(store)
+    Webhooks(tasks=runner)
+
+    async def scenario():
+        delivered = await runner.submit("webhook", params={})
+        waiting = await runner.submit("webhook", params={})
+        job = await store.insert("j1", "test-echo", {})
+        for row in (delivered, job):
+            await store.claim(row["id"])
+            await store.finish(row["id"], "succeeded")
+        kept = await runner.prune()
+        runner.kinds["webhook"].keep_s = 0
+        pruned = await runner.prune()
+        return kept, pruned, [await store.get(row["id"]) for row in (delivered, waiting, job)]
+
+    kept, pruned, (delivered, waiting, job) = asyncio.run(scenario())
+    assert (kept, pruned) == (0, 1), "kept KEEP_DAYS, then deleted"
+    assert delivered is None and waiting["status"] == "queued" and job["status"] == "succeeded", "jobs are kept"
+
+
 def test_webhook_test_reports_the_answer(client, receiver):
     r = client.post("/jobs/webhooks/test", json={"url": receiver})
     assert r.status_code == 200, r.text
@@ -188,7 +301,7 @@ def test_webhook_test_reports_the_answer(client, receiver):
 
 
 def test_signature_is_hmac_of_the_body():
-    from jobs.webhooks import Webhooks
+    from tasks.webhooks import Webhooks
     import base64, hashlib, hmac
     hooks = Webhooks(["http://x"], secret="k")
     body = hooks.body("test", {"a": 1})

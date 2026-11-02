@@ -1,6 +1,6 @@
 """
 /db: namespaced tables of JSON rows, in the embedded ArcadeDB database (see
-vectorstore/tables.py).
+db/tables.py).
 
 Namespaces, tables and their schemas are made and changed with the admin key
 (the /admin dashboard's Data section does it), and so are raw queries
@@ -8,7 +8,7 @@ Namespaces, tables and their schemas are made and changed with the admin key
 key. The service's own namespaces (evals, jobs, enrichers, evidence, the
 playground) need the admin key for everything, and are read-only here. A
 table also appears on its first write, with an empty schema. Writes that do
-not fit the schema get 400 (see vectorstore/tables.py). A table made with
+not fit the schema get 400 (see db/tables.py). A table made with
 ``graph`` is a graph table: its rows can be joined by edges
 (``{type, from: "table/id", to: "table/id", ...properties}``), read back as a
 row's edges or neighbors, by traversal, or by a read-only SQL or Cypher query. Path segments and query parameters starting with ``_`` belong to the
@@ -54,10 +54,10 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from vectorstore.tables import (DIRECTIONS, GRAPH_MAX_EDGES, GRAPH_MAX_NODES, MAX_DEPTH, QUERY_LANGUAGES, TYPES,
-                                Field as SchemaField, TableSchema, check_id, decode_cursor, make_schema)
-from errors import Forbidden, Refused
-from . import deps
+from db.tables import (DIRECTIONS, GRAPH_MAX_EDGES, GRAPH_MAX_NODES, MAX_DEPTH, MAX_SEARCH, QUERY_LANGUAGES,
+                                TYPES, Field as SchemaField, TableSchema, check_id, decode_cursor, make_schema)
+from core.errors import Forbidden, Refused
+from . import audit, deps
 from . import responses
 
 # POST routes that only read.
@@ -89,7 +89,7 @@ router = APIRouter(prefix="/db", tags=["tables"], dependencies=[*deps.CLIENT, De
 # Rows or ids in one bulk request or transaction.
 MAX_BATCH = 1000
 MAX_LIMIT = 1000
-LIST_PARAMS = {"_limit", "_cursor", "_sort"}
+LIST_PARAMS = {"_limit", "_cursor", "_sort", "_search"}
 EDGE_PARAMS = {"_type", "_direction", "_limit", "_cursor"}
 TRAVERSE_PARAMS = {"_type", "_direction", "_depth", "_limit"}
 GRAPH_PARAMS = {"_table", "_type", "_limit", "_edge_limit"}
@@ -115,6 +115,8 @@ class FieldSpec(BaseModel):
     required: bool = Field(False, description="Every row has it, not null")
     indexed: bool = Field(False, description="Filters and sorts on it use an index (string, integer, number, boolean)")
     unique: bool = Field(False, description="No two rows with the same value (rows without one are fine); indexed")
+    fulltext: bool = Field(False, description="Its words are searchable with _search (a string field, not a list, "
+                                              "and not also indexed)")
 
 
 class SchemaBody(BaseModel):
@@ -269,6 +271,7 @@ async def transaction(store: deps.Tables, namespace: str, body: Transaction):
 
 
 @router.post("/{namespace}/_query", **responses.answering(responses.RowList), dependencies=deps.ADMIN)
+@audit.reads
 async def graph_query(store: deps.Tables, namespace: str, body: GraphQuery):
     """Run a read-only SQL or Cypher query over the namespace's tables and edges and return up to ``limit`` rows.
 
@@ -344,11 +347,16 @@ async def drop_edge_type(store: deps.Tables, namespace: str, edge_type: str):
 
 
 # ----------------------------------------------------------------- tables
+SEARCH = Query(None, alias="_search", max_length=MAX_SEARCH,
+               description='Words the full-text fields must hold: every word, a "quoted phrase", -word must not, word* '
+                           'for words starting so')
+
+
 @router.get("/{namespace}/{table}/_count", **responses.answering(responses.RowCount))
-async def count_rows(store: deps.Tables, request: Request, namespace: str, table: str):
-    """How many rows the filters (``field=value``, as in the list) select."""
-    filters = _filters(request, set())
-    return {"count": await store.count(namespace, table, filters)}
+async def count_rows(store: deps.Tables, request: Request, namespace: str, table: str, search: Optional[str] = SEARCH):
+    """How many rows the filters (``field=value``) and the search (``_search``), as in the list, select."""
+    filters = _filters(request, {"_search"})
+    return {"count": await store.count(namespace, table, filters, search)}
 
 
 @router.get("/{namespace}/{table}/_schema", **responses.answering(responses.SchemaInfo))
@@ -398,7 +406,9 @@ async def list_rows(
     limit: int = Query(100, alias="_limit", ge=1, le=MAX_LIMIT, description="Rows per page"),
     cursor: Optional[str] = Query(None, alias="_cursor", description="The previous page's 'next'"),
     sort: Optional[str] = Query(None, alias="_sort",
-                                description="Fields, comma-separated; -field sorts descending. Default: id"),
+                                description="Fields, comma-separated; -field sorts descending. Default: id, "
+                                            "or the best match first with _search"),
+    search: Optional[str] = SEARCH,
 ):
     """A page of rows, filtered by ``field=value`` query parameters (all must hold).
 
@@ -406,11 +416,13 @@ async def list_rows(
     one, finds the rows). On other fields values are JSON when they parse as a number,
     true, false or null (quote a string that looks like one: ``code="30"``),
     else text, and every row is scanned. A list field matches when it holds
-    the value. ``next`` is the next page's cursor,
-    absent on the last page.
+    the value. ``_search`` finds the rows whose full-text fields hold its words
+    (400 for a table without one): words as the index splits them, case aside,
+    a domain such as site.example.com being one word. ``next`` is the next
+    page's cursor, absent on the last page.
     """
     filters = _filters(request, LIST_PARAMS)
-    rows, after = await store.list(namespace, table, filters, _sort_keys(sort), limit, _offset(cursor))
+    rows, after = await store.list(namespace, table, filters, _sort_keys(sort), limit, _offset(cursor), search)
     return _page("rows", rows, after)
 
 
@@ -487,6 +499,7 @@ async def row_traverse(
 # ------------------------------------------------------------------- rows
 @router.get("/{namespace}/{table}/{row_id}", **responses.answering(responses.Row))
 async def get_row(store: deps.Tables, namespace: str, table: str, row_id: str):
+    """One row."""
     check_id(row_id)
     return await store.get(namespace, table, row_id)
 

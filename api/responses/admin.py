@@ -111,9 +111,14 @@ class MonitoringInfo(Out):
     retention_days: float
 
 
+Window = Literal["1h", "24h", "7d"]
+# The key a request carried (api/deps.py key_used): wrong is a key that is neither, open that no key is set.
+Actor = Literal["admin", "client", "none", "wrong", "open"]
+
+
 class Stats(Timeline):
     """GET /admin/stats: process and cache state now, plus request metrics over ``window``."""
-    window: Literal["1h", "24h", "7d"]
+    window: Window
     monitoring: MonitoringInfo
     process: ProcessInfo
     cache: CacheStatus
@@ -130,6 +135,29 @@ class ModelEvent(Out):
 
 class ModelEvents(Out):
     events: List[ModelEvent]
+
+
+class AuditEntry(Out):
+    """A change made through the API (api/audit.py): what was asked, with which key, from where, and how it went."""
+    id: int
+    ts: float
+    method: str
+    # The route's path, /db/{namespace}/{table}; ``path`` is the one asked for, with its query
+    route: str
+    path: str
+    status: int
+    duration_ms: float
+    actor: Actor
+    ip: Optional[str]
+    forwarded: Optional[str]
+    agent: Optional[str]
+
+
+class AuditEntries(Out):
+    entries: List[AuditEntry]
+    # Whether the audit log is on (AUDIT_RETENTION_DAYS above 0, and the database)
+    on: bool
+    retention_days: float
 
 
 class RequestRow(Out):

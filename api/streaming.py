@@ -12,8 +12,8 @@ import logging
 import threading
 from typing import Any, Dict
 
-from config import Config
-from errors import describe
+from core.config import Config
+from core.errors import describe
 from models import ModelManager
 from models.chat import ReplyStream
 

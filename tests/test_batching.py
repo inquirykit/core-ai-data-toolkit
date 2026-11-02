@@ -6,7 +6,7 @@ from collections import Counter
 
 import pytest
 
-from errors import Unavailable
+from core.errors import Unavailable
 from models.manager import ModelManager
 from tests.fakes import FakeModel, registered
 
@@ -44,7 +44,6 @@ class SlowBatchingModel(BatchingModel):
 
 @pytest.fixture(autouse=True)
 def fake_registry():
-    FakeModel.instances.clear()
     BatchingModel.batch_calls.clear()
     SlowBatchingModel.sizes = []
     with registered(BatchingModel, task="t", fallback=True), registered(SlowBatchingModel, task="slow", fallback=True):

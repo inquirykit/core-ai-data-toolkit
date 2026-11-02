@@ -10,7 +10,7 @@ import { StatusDot } from "../shared/components";
 import { fmtDuration, fmtGB } from "../shared/format";
 import type { MenuBadges } from "../shared/Shell";
 import type { Stats } from "../shared/types";
-import { isActive, JOBS_LIMIT, pollInterval } from "./jobs";
+import { isActive, JOBS_LIMIT, pollInterval } from "./jobs/jobs";
 import { requestsPerBucket, sparkline } from "./menu-status";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

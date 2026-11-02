@@ -22,7 +22,7 @@ from typing import Any, Dict, List
 
 import rfc8785
 
-from errors import Refused
+from core.errors import Refused
 
 SCHEMA = "evidence-capture/record/v3"
 SERVICE_NAME = "ai-toolkit-evidence"

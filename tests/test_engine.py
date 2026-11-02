@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("arcadedb_embedded")
 
-from vectorstore import DocumentStore  # noqa: E402
-from vectorstore.engine import MIGRATIONS  # noqa: E402
-from vectorstore.tables import TableStore, schema_of  # noqa: E402
+from db import DocumentStore  # noqa: E402
+from db.engine import MIGRATIONS  # noqa: E402
+from db.tables import TableStore, schema_of  # noqa: E402
 
 
 def _type_indexes(database, type_name):
@@ -26,8 +26,9 @@ def test_a_type_from_an_earlier_version_gets_the_declared_props_and_indexes(arca
     assert arcade.properties("tk_thing") == {"id"}
     After(arcade)._db()
     assert arcade.properties("tk_thing") == {"id", "kind", "n", "text"}
-    assert arcade.indexes("tk_thing") == {(("id",), "LSM_TREE"), (("kind",), "LSM_TREE"), (("kind", "n"), "LSM_TREE"),
-                                          (("text",), "FULL_TEXT")}
+    assert {(i.props, i.kind, i.unique) for i in arcade.indexes("tk_thing")} == {
+        (("id",), "LSM_TREE", True), (("kind",), "LSM_TREE", False), (("kind", "n"), "LSM_TREE", False),
+        (("text",), "FULL_TEXT", False)}
     # Up to date already: nothing is made twice.
     After(arcade)._db()
     assert len(_type_indexes(arcade, "tk_thing")) == 4
@@ -90,7 +91,7 @@ def test_a_managed_table_gets_the_schema_declared_now(arcade):
     assert later._schema("svc", "things").fields["kind"].indexed
     # Saved, so a store opened later reads it back.
     assert TableStore(arcade)._schema("svc", "things").fields["kind"].indexed
-    assert (("kind",), "LSM_TREE") in arcade.indexes("ns_svc__things")
+    assert (("kind",), "LSM_TREE") in {(i.props, i.kind) for i in arcade.indexes("ns_svc__things")}
 
 
 def test_a_kept_namespace_is_made_when_the_namespaces_are_first_loaded(arcade):
@@ -107,7 +108,7 @@ def test_a_kept_namespace_stays_kept_when_its_store_is_switched_off(arcade):
     still keeps it from clients."""
     import asyncio
 
-    from vectorstore.tables import SWITCHED_OFF, Conflict
+    from db.tables import SWITCHED_OFF, Conflict
 
     tables = TableStore(arcade)
     tables.manage("svc", "a test", {"things": schema_of("name:string")})
@@ -124,7 +125,7 @@ def test_a_store_takes_over_a_namespace_made_through_db_only_when_it_says_so(arc
     """An admin's namespace is not taken over; the playground's, which it made through /db until 2026-10, is."""
     import asyncio
 
-    from vectorstore.tables import SWITCHED_OFF, TableSchema
+    from db.tables import SWITCHED_OFF, TableSchema
 
     tables = TableStore(arcade)
     tables._create_namespace("mine")
@@ -142,10 +143,10 @@ def test_a_store_takes_over_a_namespace_made_through_db_only_when_it_says_so(arc
 
 
 def test_a_plain_table_store_refuses_edges(arcade):
-    """Edges are the graph store's (vectorstore/graph.py); a TableStore says so instead of failing inside."""
+    """Edges are the graph store's (db/graph.py); a TableStore says so instead of failing inside."""
     import asyncio
 
-    from vectorstore.tables import TableError
+    from db.tables import TableError
 
     tables = TableStore(arcade)
     tables.manage("plain", "a test", {})

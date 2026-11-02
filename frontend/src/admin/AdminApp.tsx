@@ -2,16 +2,17 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Boundary } from "../shared/boundary";
 import { useHash } from "../shared/browser";
 import { LoginForm, Segmented, StatusDot } from "../shared/components";
 import { fmtTime } from "../shared/format";
-import { sectionFromHash } from "../shared/nav";
+import { navItem, sectionFromHash } from "../shared/nav";
 import { errorText, poll } from "../shared/query";
 import { ADMIN_KEY_STORAGE, useSession } from "../shared/session";
 import { PageMain, Shell } from "../shared/Shell";
 import type { Catalog, StatsWindow } from "../shared/types";
 import { useMenuStatus } from "./MenuStatus";
-import { MODEL_IDS_LIST, type CatalogInfo } from "./panels";
+import { MODEL_IDS_LIST, type CatalogInfo } from "./catalog";
 import { SECTIONS } from "./sections";
 
 const REFRESH_MS = 5000;
@@ -21,6 +22,7 @@ const WINDOWS: [StatsWindow, string][] = [
   ["7d", "7 days"],
 ];
 const NO_CATALOG: CatalogInfo = { tasks: [], taskOf: {} };
+const wholeHash = (hash: string) => hash;
 
 function catalogInfo(catalog: Catalog): CatalogInfo {
   const taskOf: Record<string, string> = {};
@@ -33,6 +35,7 @@ export function AdminApp() {
   const { client } = session;
   const [window, setWindow] = useState<StatsWindow>("1h");
   const section = useHash(sectionFromHash);
+  const hash = useHash(wholeHash);
 
   // Start (and start over after each sign-in, which loads every query again). A fresh instance goes through the
   // setup wizard first.
@@ -107,13 +110,17 @@ export function AdminApp() {
         ) : (
           config.data && (
             <PageMain>
-              {view.render({
-                client,
-                config: config.data,
-                stats: stats.data ?? null,
-                catalog: catalog.data ?? NO_CATALOG,
-                refresh: () => void stats.refetch(),
-              })}
+              {/* A section that throws shows what failed in its place, the menu still works, and a link followed
+                  (another section, another view of it) draws it again. */}
+              <Boundary what={navItem(section).label} resetKey={hash}>
+                {view.render({
+                  client,
+                  config: config.data,
+                  stats: stats.data ?? null,
+                  catalog: catalog.data ?? NO_CATALOG,
+                  refresh: () => void stats.refetch(),
+                })}
+              </Boundary>
             </PageMain>
           )
         )}

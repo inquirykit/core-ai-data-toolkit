@@ -22,6 +22,7 @@ import {
   speechInput,
   textGenerationInput,
   visionInput,
+  zeroShotInput,
   type Built,
   type DraftQuestion,
   type GenerationSettings,
@@ -189,6 +190,26 @@ export function ClassificationInput({ ctx, onChange }: InputProps) {
     <Field label="Text to label">
       <Textarea rows={4} className={AREA} maxLength={ctx.limits.max_input_chars} value={text} onChange={(e) => setText(e.target.value)} />
     </Field>
+  );
+}
+
+export function ZeroShotInput({ ctx, onChange }: InputProps) {
+  const [text, setText] = useState("");
+  const [labels, setLabels] = useState("");
+  const [multiLabel, setMultiLabel] = useState(false);
+  useEffect(() => onChange(zeroShotInput(text, labels, multiLabel, ctx.schema, ctx.limits)), [text, labels, multiLabel]);
+  return (
+    <>
+      <Field label="Text to label">
+        <Textarea rows={4} className={AREA} maxLength={ctx.limits.max_input_chars} value={text} onChange={(e) => setText(e.target.value)} />
+      </Field>
+      <Field label="Labels" hint="comma-separated; the model has never seen them">
+        <Input value={labels} placeholder="sports, politics, science" onChange={(e) => setLabels(e.target.value)} />
+      </Field>
+      <Check checked={multiLabel} onChange={setMultiLabel} title="Unset: the labels share the probability, so exactly one fits">
+        Several labels can fit
+      </Check>
+    </>
   );
 }
 

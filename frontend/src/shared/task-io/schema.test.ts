@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { numberProblem, numberRange, property, type JSONSchema } from "./schema";
 
-// The shapes pydantic writes (models/tasks.py, as GET /tasks serves them).
+// The shapes pydantic writes (models/contracts.py, as GET /tasks serves them).
 const generation: JSONSchema = {
   properties: {
     text: { type: "string", minLength: 1, maxLength: 20000, title: "Text" },

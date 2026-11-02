@@ -4,11 +4,13 @@ import { motion } from "motion/react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { ApiClient } from "../api";
+import { byCategory, taskTitle, variantsAfterTheirTasks } from "../categories";
+import { EmptyState } from "../components";
 import { errorText, useReloadOn } from "../query";
 import { defaultTask, type CatalogTask, type ModelFilter } from "./catalog";
 import { ModelDetails } from "./ModelDetails";
 import { ModelList } from "./ModelList";
-import { EmptyState, type PickedModel } from "./parts";
+import type { PickedModel } from "./parts";
 
 export type { PickedModel } from "./parts";
 
@@ -92,6 +94,7 @@ export function ModelBrowserPanel(props: BrowseOptions & { onDone?(): void; refr
             client={client}
             picked={selected}
             model={current.models.find((m) => m.id === selected.id)}
+            taskLabel={taskTitle(current)}
             pick={pick}
             onBack={() => setSelected(null)}
             onChange={() => {
@@ -140,7 +143,10 @@ export function ModelBrowser(props: BrowseOptions & { open: boolean; onClose(): 
   );
 }
 
-/** The tasks, down the side (across the top on a narrow screen). */
+/**
+ * The tasks, down the side under their tabs' headings when there are several, each variant set in under the task it
+ * varies (across the top on a narrow screen).
+ */
 function TaskNav(props: { tasks: CatalogTask[]; current: string; onSelect(task: string): void }) {
   const current = useRef<HTMLButtonElement>(null);
   // Across the top on a narrow screen, the chosen task may start out of view.
@@ -150,38 +156,53 @@ function TaskNav(props: { tasks: CatalogTask[]; current: string; onSelect(task: 
   }, [props.current]);
   // Each panel its own pill, so two panels never pass it between them.
   const pill = useId();
+  const groups = byCategory(variantsAfterTheirTasks(props.tasks));
+  const headed = groups.length > 1;
+  const listed = new Set(props.tasks.map((t) => t.task));
   return (
     <nav
-      className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-muted/40 p-2 @xl:w-[210px] @xl:flex-col @xl:overflow-x-visible @xl:overflow-y-auto @xl:border-r @xl:border-b-0"
+      className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-muted/40 p-2 @xl:w-[210px] @xl:flex-col @xl:gap-3 @xl:overflow-x-visible @xl:overflow-y-auto @xl:border-r @xl:border-b-0"
       aria-label="Tasks"
     >
-      {props.tasks.map((t) => {
-        const active = t.task === props.current;
-        return (
-          <button
-            key={t.task}
-            ref={active ? current : undefined}
-            type="button"
-            aria-current={active ? "true" : undefined}
-            title={t.description}
-            onClick={() => props.onSelect(t.task)}
-            className={cn(
-              "relative flex flex-none items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-sm whitespace-nowrap text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 @xl:w-full",
-              active && "font-medium text-foreground hover:bg-transparent",
-            )}
-          >
-            {active && (
-              <motion.span
-                layoutId={`task-pill-${pill}`}
-                className="absolute inset-0 rounded-md bg-background shadow-xs ring-1 ring-border dark:bg-input/30"
-                transition={{ type: "spring", stiffness: 500, damping: 38 }}
-              />
-            )}
-            <span className="relative truncate">{t.task}</span>
-            <span className="relative text-xs font-normal text-muted-foreground tabular-nums">{t.models.length}</span>
-          </button>
-        );
-      })}
+      {groups.map(({ category, tasks }) => (
+        <div key={category.key} role="group" aria-label={category.label} className="flex gap-0.5 @xl:flex-col">
+          {headed && (
+            // Across the top on a narrow screen, the headings would only take room.
+            <div className="hidden px-2.5 pb-1 text-xs font-medium text-muted-foreground @xl:block" aria-hidden="true">
+              {category.label}
+            </div>
+          )}
+          {tasks.map((t) => {
+            const active = t.task === props.current;
+            return (
+              <button
+                key={t.task}
+                ref={active ? current : undefined}
+                type="button"
+                aria-current={active ? "true" : undefined}
+                title={t.description ? `${t.task}: ${t.description}` : t.task}
+                onClick={() => props.onSelect(t.task)}
+                className={cn(
+                  "relative flex flex-none items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-sm whitespace-nowrap text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 @xl:w-full",
+                  active && "font-medium text-foreground hover:bg-transparent",
+                  t.group !== t.task && listed.has(t.group) && "@xl:pl-5",
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId={`task-pill-${pill}`}
+                    className="absolute inset-0 rounded-md bg-background shadow-xs ring-1 ring-border dark:bg-input/30"
+                    transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                  />
+                )}
+                {/* Set in under its task, a variant's own label says enough; away from it, it needs the task's. */}
+                <span className="relative truncate">{listed.has(t.group) ? t.label : taskTitle(t)}</span>
+                <span className="relative text-xs font-normal text-muted-foreground tabular-nums">{t.models.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 }

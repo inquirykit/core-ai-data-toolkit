@@ -1,7 +1,7 @@
 """
 Traces, datasets, runs and scores in the embedded ArcadeDB database.
 
-Shares the database and its thread pool with every store (vectorstore/engine.py),
+Shares the database and its thread pool with every store (db/engine.py),
 so every call here blocks and runs there, never on the event loop.
 
 Traces: one document per request (model, task, input, output, timing,
@@ -16,7 +16,7 @@ traces or added directly, kept as given (a trace whose input was cut is
 refused, since a run would then measure something else); they are never
 expired. A run is one model over a dataset, its items the outputs; scores
 belong to items (see scoring.py). These are /db tables in the ``evals``
-namespace (vectorstore/tables.py): browsable in /admin's Data section,
+namespace (db/tables.py): browsable in /admin's Data section,
 read-only there, written only here.
 """
 
@@ -28,9 +28,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional, TYPE_CHECKING
 
-import errors
-from vectorstore import BatchWriter, Database, DocumentStore, StoreError, on_pool
-from vectorstore.tables import TableSchema, TableStore, schema_of, table_type
+from core.errors import NotFound, Refused
+from db import Database, QueuedStore, Where, on_pool
+from db.tables import TableSchema, TableStore, schema_of, table_type
 
 from .capture import compact, compacted, input_text, output_text, text_of
 
@@ -76,18 +76,6 @@ TABLES: Dict[str, TableSchema] = {
 # Examples are read this many at a time (runs, exports, comparisons).
 EXAMPLE_PAGE = 500
 
-RUN_STATUSES = ("queued", "running", "done", "failed", "cancelled", "interrupted")
-
-
-class EvalError(StoreError, ValueError):
-    """A request the store refuses (a client error)."""
-
-
-class NotFound(EvalError, errors.NotFound):
-    """No such dataset, example, run or trace: an errors.NotFound too, so one ``except`` catches every store's."""
-
-    status = 404  # before StoreError's 400 in the bases' order
-
 
 def new_id() -> str:
     return uuid.uuid4().hex
@@ -127,26 +115,20 @@ def expired_buckets(names: Iterable[str], retention_days: float, now: Optional[f
     return found
 
 
-class EvalStore(DocumentStore):
+class EvalStore(QueuedStore):
     """Traces, datasets, runs and scores; see the module docstring."""
 
     SCHEMA = SCHEMA
     MIGRATIONS = (("evals/2026-10-drop-judge-cache", "_drop_judge_cache"),)
+    NAMESPACE = NAMESPACE
+    OWNER = "traces and evals: change them in /admin's Evals section"
+    TABLES = TABLES
 
     def __init__(self, database: Database, tables: TableStore, retention_days: float = 3,
                  max_chars: int = 8000, max_queue: int = 5000):
-        super().__init__(database)
-        self._t = tables
-        tables.manage(NAMESPACE, "traces and evals: change them in /admin's Evals section", TABLES)
-        self.retention_days = retention_days
+        super().__init__(database, "trace-writer", retention_days, max_queue, tables=tables)
         self.max_chars = max_chars
         self._buckets: set = set()
-        self.writer = BatchWriter(self._write, "trace-writer", max_queue)
-
-    @property
-    def dropped(self) -> int:
-        """Traces not kept because the queue was full."""
-        return self.writer.dropped
 
     @property
     def capturing(self) -> bool:
@@ -157,7 +139,6 @@ class EvalStore(DocumentStore):
     def _ensure_schema(self, db) -> None:
         super()._ensure_schema(db)
         self._buckets = set(self._type_buckets(db))
-        self._t.ensure_managed(NAMESPACE)
 
     def _drop_judge_cache(self, db) -> None:
         """Until 2026-10 the judge's replies were cached in a table; Pydantic Evals asks the judge afresh."""
@@ -224,14 +205,6 @@ class EvalStore(DocumentStore):
             self._ensure_bucket(db, bucket_for(doc["ts"]))
         self._commit(db, lambda: [self._insert(db, TRACE, doc, bucket_for(doc["ts"])) for doc in docs])
 
-    def flush(self) -> None:
-        """Block until every trace recorded so far is written (tests)."""
-        self.writer.flush()
-
-    def close(self) -> None:
-        """Write what is queued and stop the writer."""
-        self.writer.close()
-
     def _prune(self) -> List[str]:
         """Drop the day buckets older than the retention; returns their names."""
         db = self._db()
@@ -244,8 +217,6 @@ class EvalStore(DocumentStore):
             logger.info("Dropped expired traces %s", name)
         return dropped
 
-    prune = on_pool(_prune)
-
     def _trace_rows(self, rows: List[Dict[str, Any]], full: bool) -> List[Dict[str, Any]]:
         out = []
         for r in rows:
@@ -257,30 +228,19 @@ class EvalStore(DocumentStore):
             out.append(r)
         return out
 
-    def _traces(self, filters: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
-        db = self._db()
-        where = ["id IS NOT NULL"]
-        params: Dict[str, Any] = {}
-        # (:before would be a reserved word, hence :cursor.)
-        simple = {"task": "task = :task", "status": "status = :status", "session": "session = :session",
-                  "tag": "tags CONTAINS :tag", "since": "ts >= :since", "until": "ts <= :until", "before": "ts < :cursor"}
-        for key, clause in simple.items():
-            if filters.get(key) not in (None, ""):
-                where.append(clause)
-                params[clause.rsplit(":", 1)[1]] = filters[key]
-        if filters.get("model"):
-            where.append("model_id ILIKE :model")
-            params["model"] = f"%{filters['model']}%"
-        if filters.get("q"):
-            where.append("text CONTAINSTEXT :q")
-            params["q"] = filters["q"]
-        sql = (f"SELECT id, ts, model_id, task, status, duration_ms, cold, error, tags, session, backend, input_chars, "
-               f"output_chars, text FROM {TRACE} WHERE {' AND '.join(where)} ORDER BY ts DESC LIMIT {int(limit)}")
-        return self._trace_rows(self._rows(db, sql, params), full=False)
-
-    async def traces(self, limit: int = 100, **filters: Any) -> List[Dict[str, Any]]:
+    def _traces(self, limit: int = 100, **filters: Any) -> List[Dict[str, Any]]:
         """Newest first. Filters: since, until, before (a ts cursor), model (substring), task, status, tag, session, q (words)."""
-        return await self._run(self._traces, filters, limit)
+        where = Where("id IS NOT NULL")
+        for column, op, key in (("task", "=", "task"), ("status", "=", "status"), ("session", "=", "session"),
+                                ("tags", "CONTAINS", "tag"), ("ts", ">=", "since"), ("ts", "<=", "until"),
+                                ("ts", "<", "before"), ("text", "CONTAINSTEXT", "q")):
+            where.add(column, op, filters.get(key))
+        where.like(["model_id"], filters.get("model"))
+        sql = (f"SELECT id, ts, model_id, task, status, duration_ms, cold, error, tags, session, backend, input_chars, "
+               f"output_chars, text FROM {TRACE}{where} ORDER BY ts DESC LIMIT {int(limit)}")
+        return self._trace_rows(self._select(sql, where.params), full=False)
+
+    traces = on_pool(_traces)
 
     def _trace(self, trace_id: str) -> Dict[str, Any]:
         rows = self._select(f"SELECT FROM {TRACE} WHERE id = :id", {"id": trace_id})
@@ -288,21 +248,24 @@ class EvalStore(DocumentStore):
             raise NotFound(f"No trace {trace_id!r}")
         return self._trace_rows(rows, full=True)[0]
 
-    async def trace(self, trace_id: str) -> Dict[str, Any]:
-        return await self._run(self._trace, trace_id)
+    trace = on_pool(_trace)
 
     # -------------------------------------------------------------- datasets
     def _dataset_rows(self, db, where: str = "", params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         rows = self._rows(db, f"SELECT FROM {DATASET} {where} ORDER BY created DESC", params)
-        counts = {r["dataset_id"]: r["n"] for r in self._rows(db, f"SELECT dataset_id, count(*) AS n FROM {EXAMPLE} GROUP BY dataset_id")}
-        runs = {r["dataset_id"]: r["n"] for r in self._rows(db, f"SELECT dataset_id, count(*) AS n FROM {RUN} GROUP BY dataset_id")}
+        # Only these datasets' examples and runs are counted: one dataset's lookup comes before every write to it.
+        ids = {"ids": [r["id"] for r in rows]}
+        counts, runs = ({r["dataset_id"]: r["n"] for r in self._rows(
+            db, f"SELECT dataset_id, count(*) AS n FROM {t} WHERE dataset_id IN :ids GROUP BY dataset_id", ids)}
+            for t in (EXAMPLE, RUN))
         for r in rows:
             r["examples"] = counts.get(r["id"], 0)
             r["runs"] = runs.get(r["id"], 0)
         return rows
 
-    async def datasets(self) -> List[Dict[str, Any]]:
-        return await self._run(lambda: self._dataset_rows(self._db()))
+    @on_pool
+    def datasets(self) -> List[Dict[str, Any]]:
+        return self._dataset_rows(self._db())
 
     def _dataset(self, dataset_id: str) -> Dict[str, Any]:
         rows = self._dataset_rows(self._db(), "WHERE id = :id", {"id": dataset_id})
@@ -310,21 +273,19 @@ class EvalStore(DocumentStore):
             raise NotFound(f"No dataset {dataset_id!r}")
         return rows[0]
 
-    async def dataset(self, dataset_id: str) -> Dict[str, Any]:
-        return await self._run(self._dataset, dataset_id)
+    dataset = on_pool(_dataset)
 
-    def _create_dataset(self, name: str, description: str) -> Dict[str, Any]:
+    @on_pool
+    def create_dataset(self, name: str, description: str = "") -> Dict[str, Any]:
         db = self._db()
         if self._rows(db, f"SELECT id FROM {DATASET} WHERE name = :n", {"n": name}):
-            raise EvalError(f"A dataset named {name!r} already exists")
+            raise Refused(f"A dataset named {name!r} already exists")
         doc = {"id": new_id(), "name": name, "description": description, "created": time.time()}
         self._commit(db, lambda: self._insert(db, DATASET, doc))
         return {**doc, "examples": 0, "runs": 0}
 
-    async def create_dataset(self, name: str, description: str = "") -> Dict[str, Any]:
-        return await self._run(self._create_dataset, name, description)
-
-    def _delete_dataset(self, dataset_id: str) -> None:
+    @on_pool
+    def delete_dataset(self, dataset_id: str) -> None:
         db = self._db()
         self._dataset(dataset_id)
         run_ids = [r["id"] for r in self._rows(db, f"SELECT id FROM {RUN} WHERE dataset_id = :d", {"d": dataset_id})]
@@ -338,9 +299,6 @@ class EvalStore(DocumentStore):
             db.command("sql", f"DELETE FROM {DATASET} WHERE id = :d", {"d": dataset_id})
 
         self._commit(db, delete)
-
-    async def delete_dataset(self, dataset_id: str) -> None:
-        await self._run(self._delete_dataset, dataset_id)
 
     # -------------------------------------------------------------- examples
     def _example_doc(self, dataset_id: str, example: Dict[str, Any]) -> Dict[str, Any]:
@@ -356,17 +314,17 @@ class EvalStore(DocumentStore):
         }
 
     def _add_examples(self, dataset_id: str, examples: List[Dict[str, Any]]) -> int:
+        """Each example: input (required), reference, task, tags."""
         db = self._db()
         self._dataset(dataset_id)
         docs = [self._example_doc(dataset_id, e) for e in examples]
         self._commit(db, lambda: [self._insert(db, EXAMPLE, doc) for doc in docs])
         return len(docs)
 
-    async def add_examples(self, dataset_id: str, examples: List[Dict[str, Any]]) -> int:
-        """Each example: input (required), reference, task, tags."""
-        return await self._run(self._add_examples, dataset_id, examples)
+    add_examples = on_pool(_add_examples)
 
-    def _add_from_traces(self, dataset_id: str, trace_ids: List[str]) -> int:
+    @on_pool
+    def add_from_traces(self, dataset_id: str, trace_ids: List[str]) -> int:
         db = self._db()
         self._dataset(dataset_id)
         examples = []
@@ -376,7 +334,7 @@ class EvalStore(DocumentStore):
                 raise NotFound(f"No trace {trace_id!r}")
             t = rows[0]
             if compacted(t["input"]):
-                raise EvalError(f"Trace {trace_id!r}'s input was cut when it was recorded (longer than TRACE_MAX_CHARS, "
+                raise Refused(f"Trace {trace_id!r}'s input was cut when it was recorded (longer than TRACE_MAX_CHARS, "
                                 f"or media): add the example with its whole input instead")
             examples.append({
                 "input": t["input"], "task": t["task"], "tags": t.get("tags") or [], "source_trace_id": trace_id,
@@ -384,22 +342,18 @@ class EvalStore(DocumentStore):
             })
         return self._add_examples(dataset_id, examples)
 
-    async def add_from_traces(self, dataset_id: str, trace_ids: List[str]) -> int:
-        return await self._run(self._add_from_traces, dataset_id, trace_ids)
-
     def _example_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         for r in rows:
             r["reference"] = _loads(r.get("reference"))
             r["preview"] = (r.pop("text", "") or "")[:PREVIEW_CHARS]
         return rows
 
-    def _examples(self, dataset_id: str, limit: int, skip: int) -> List[Dict[str, Any]]:
+    def _examples(self, dataset_id: str, limit: int = 100, skip: int = 0) -> List[Dict[str, Any]]:
         rows = self._select(f"SELECT FROM {EXAMPLE} WHERE dataset_id = :d ORDER BY created ASC, id ASC SKIP {int(skip)} LIMIT {int(limit)}",
                           {"d": dataset_id})
         return self._example_rows(rows)
 
-    async def examples(self, dataset_id: str, limit: int = 100, skip: int = 0) -> List[Dict[str, Any]]:
-        return await self._run(self._examples, dataset_id, limit, skip)
+    examples = on_pool(_examples)
 
     def _all_examples(self, dataset_id: str) -> Iterator[Dict[str, Any]]:
         """Every example of the dataset, a page at a time. Blocking."""
@@ -411,7 +365,8 @@ class EvalStore(DocumentStore):
                 return
             skip += EXAMPLE_PAGE
 
-    def _delete_example(self, dataset_id: str, example_id: str) -> None:
+    @on_pool
+    def delete_example(self, dataset_id: str, example_id: str) -> None:
         db = self._db()
         if not self._rows(db, f"SELECT id FROM {EXAMPLE} WHERE id = :id AND dataset_id = :d", {"id": example_id, "d": dataset_id}):
             raise NotFound(f"No example {example_id!r}")
@@ -423,10 +378,9 @@ class EvalStore(DocumentStore):
 
         self._commit(db, delete)
 
-    async def delete_example(self, dataset_id: str, example_id: str) -> None:
-        await self._run(self._delete_example, dataset_id, example_id)
-
-    def _export(self, dataset_id: str) -> str:
+    @on_pool
+    def export(self, dataset_id: str) -> str:
+        """The examples as JSON Lines, one object per line, as POST .../examples takes them back."""
         self._dataset(dataset_id)
         lines = []
         for e in self._all_examples(dataset_id):
@@ -434,13 +388,11 @@ class EvalStore(DocumentStore):
                                     ensure_ascii=False, default=str))
         return "\n".join(lines) + ("\n" if lines else "")
 
-    async def export(self, dataset_id: str) -> str:
-        """The examples as JSON Lines, one object per line, as POST .../examples takes them back."""
-        return await self._run(self._export, dataset_id)
-
     # ------------------------------------------------------------------ runs
-    def _create_run(self, dataset_id: str, model_id: str, task: Optional[str], params: Dict[str, Any], name: str,
-                    webhook_url: Optional[str]) -> Dict[str, Any]:
+    @on_pool
+    def create_run(self, dataset_id: str, model_id: str, task: Optional[str], params: Dict[str, Any], name: str = "",
+                   webhook_url: Optional[str] = None) -> Dict[str, Any]:
+        """A queued run; ``webhook_url`` is POSTed to when it finishes, besides WEBHOOK_URLS."""
         db = self._db()
         self._dataset(dataset_id)
         doc = {
@@ -451,30 +403,22 @@ class EvalStore(DocumentStore):
         self._commit(db, lambda: self._insert(db, RUN, doc))
         return doc
 
-    async def create_run(self, dataset_id: str, model_id: str, task: Optional[str], params: Dict[str, Any], name: str = "",
-                         webhook_url: Optional[str] = None) -> Dict[str, Any]:
-        """A queued run; ``webhook_url`` is POSTed to when it finishes, besides WEBHOOK_URLS."""
-        return await self._run(self._create_run, dataset_id, model_id, task, params, name, webhook_url)
-
-    def _runs(self, dataset_id: Optional[str]) -> List[Dict[str, Any]]:
-        db = self._db()
+    @on_pool
+    def runs(self, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if dataset_id:
-            return self._rows(db, f"SELECT FROM {RUN} WHERE dataset_id = :d ORDER BY created DESC", {"d": dataset_id})
-        return self._rows(db, f"SELECT FROM {RUN} ORDER BY created DESC")
-
-    async def runs(self, dataset_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        return await self._run(self._runs, dataset_id)
+            return self._select(f"SELECT FROM {RUN} WHERE dataset_id = :d ORDER BY created DESC", {"d": dataset_id})
+        return self._select(f"SELECT FROM {RUN} ORDER BY created DESC")
 
     def _get_run(self, run_id: str) -> Dict[str, Any]:
-        rows = self._select(f"SELECT FROM {RUN} WHERE id = :id", {"id": run_id})
-        if not rows:
+        run = self._one(f"SELECT FROM {RUN} WHERE id = :id", {"id": run_id})
+        if run is None:
             raise NotFound(f"No run {run_id!r}")
-        return rows[0]
+        return run
 
-    async def run(self, run_id: str) -> Dict[str, Any]:
-        return await self._run(self._get_run, run_id)
+    run = on_pool(_get_run)
 
-    def _update_run(self, run_id: str, fields: Dict[str, Any]) -> None:
+    @on_pool
+    def update_run(self, run_id: str, **fields: Any) -> None:
         db = self._db()
         allowed = {k: v for k, v in fields.items() if k in TABLES["runs"].fields}
         if not allowed:
@@ -482,10 +426,8 @@ class EvalStore(DocumentStore):
         sets = ", ".join(f"{k} = :{k}" for k in allowed)
         self._commit(db, lambda: db.command("sql", f"UPDATE {RUN} SET {sets} WHERE id = :id", {**allowed, "id": run_id}))
 
-    async def update_run(self, run_id: str, **fields: Any) -> None:
-        await self._run(self._update_run, run_id, fields)
-
-    def _delete_run(self, run_id: str) -> None:
+    @on_pool
+    def delete_run(self, run_id: str) -> None:
         db = self._db()
         self._get_run(run_id)
 
@@ -496,9 +438,6 @@ class EvalStore(DocumentStore):
 
         self._commit(db, delete)
 
-    async def delete_run(self, run_id: str) -> None:
-        await self._run(self._delete_run, run_id)
-
     def _item(self, run_id: str, example_id: str, output: Any, status: str, duration_ms: float, cold: bool,
               error: Optional[str] = None) -> Dict[str, Any]:
         out = compact(output, self.max_chars) if output is not None else None
@@ -508,30 +447,28 @@ class EvalStore(DocumentStore):
             "status": status, "error": error, "duration_ms": float(duration_ms), "cold": bool(cold),
         }
 
-    def _add_items(self, run_id: str, items: List[Dict[str, Any]]) -> None:
-        db = self._db()
-        docs = [self._item(run_id, **item) for item in items]
-        self._commit(db, lambda: [self._insert(db, ITEM, doc) for doc in docs])
-
     async def add_items(self, run_id: str, items: List[Dict[str, Any]]) -> None:
         """Store a page of the run's answers in one transaction (about 25 times faster than one each); each item is
         ``example_id``, ``output``, ``status``, ``duration_ms``, ``cold`` and ``error``."""
         if items:
             await self._run(self._add_items, run_id, items)
 
-    def _answered(self, run_id: str) -> set:
+    def _add_items(self, run_id: str, items: List[Dict[str, Any]]) -> None:
+        db = self._db()
+        docs = [self._item(run_id, **item) for item in items]
+        self._commit(db, lambda: [self._insert(db, ITEM, doc) for doc in docs])
+
+    @on_pool
+    def answered(self, run_id: str) -> set:
         """The examples the run has an item for (a resumed run skips them)."""
         return {r["example_id"] for r in self._select(f"SELECT example_id FROM {ITEM} WHERE run_id = :r", {"r": run_id})}
 
-    async def answered(self, run_id: str) -> set:
-        return await self._run(self._answered, run_id)
-
-    def _items(self, run_id: str) -> List[Dict[str, Any]]:
+    @on_pool
+    def items(self, run_id: str) -> List[Dict[str, Any]]:
         """The run's items with their example's input and reference, in the examples' order."""
-        db = self._db()
         run = self._get_run(run_id)
         examples = {e["id"]: e for e in self._all_examples(run["dataset_id"])}
-        items = self._rows(db, f"SELECT FROM {ITEM} WHERE run_id = :r", {"r": run_id})
+        items = self._select(f"SELECT FROM {ITEM} WHERE run_id = :r", {"r": run_id})
         by_example = {i["example_id"]: i for i in items}
         rows = []
         for example_id, e in examples.items():
@@ -543,11 +480,9 @@ class EvalStore(DocumentStore):
                          "source_output": e.get("source_output"), "source_model_id": e.get("source_model_id")})
         return rows
 
-    async def items(self, run_id: str) -> List[Dict[str, Any]]:
-        return await self._run(self._items, run_id)
-
     # ---------------------------------------------------------------- scores
-    def _replace_scores(self, run_id: str, metric: str, scores: List[Dict[str, Any]]) -> None:
+    @on_pool
+    def replace_scores(self, run_id: str, metric: str, scores: List[Dict[str, Any]]) -> None:
         """Store ``scores`` for ``metric`` on the run, in place of any it had."""
         db = self._db()
         docs = [{
@@ -562,14 +497,9 @@ class EvalStore(DocumentStore):
 
         self._commit(db, work)
 
-    async def replace_scores(self, run_id: str, metric: str, scores: List[Dict[str, Any]]) -> None:
-        await self._run(self._replace_scores, run_id, metric, scores)
-
-    def _scores(self, run_id: str) -> List[Dict[str, Any]]:
+    @on_pool
+    def scores(self, run_id: str) -> List[Dict[str, Any]]:
         return self._select(f"SELECT FROM {SCORE} WHERE run_id = :r", {"r": run_id})
-
-    async def scores(self, run_id: str) -> List[Dict[str, Any]]:
-        return await self._run(self._scores, run_id)
 
 
 def summarize_scores(scores: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

@@ -47,7 +47,17 @@ describe("tagsOf", () => {
 });
 
 describe("other IDs", () => {
-  const task = (extra: Partial<CatalogTask>): CatalogTask => ({ task: "decision", any_id: false, patterns: [], models: [], ...extra });
+  const task = (extra: Partial<CatalogTask>): CatalogTask => ({
+    task: "decision",
+    category: "decision",
+    label: "Decision",
+    group: "decision",
+    group_label: "Decision",
+    any_id: false,
+    patterns: [],
+    models: [],
+    ...extra,
+  });
 
   it("matches globs like the registry", () => {
     expect(matchesPattern("Vega-Big", "vega-*")).toBe(true);
@@ -122,7 +132,16 @@ describe("memoryBar", () => {
 });
 
 describe("defaultTask", () => {
-  const t = (task: string, n: number): CatalogTask => ({ task, any_id: false, patterns: [], models: Array.from({ length: n }, (_, i) => ({ id: `${i}`, status: "unloaded" })) });
+  const t = (task: string, n: number): CatalogTask => ({
+    task,
+    category: "other",
+    label: task,
+    group: task,
+    group_label: task,
+    any_id: false,
+    patterns: [],
+    models: Array.from({ length: n }, (_, i) => ({ id: `${i}`, status: "unloaded" })),
+  });
 
   it("prefers text-generation, then the first task with models", () => {
     expect(defaultTask([t("custom", 0), t("text-generation", 1)])).toBe("text-generation");

@@ -12,15 +12,15 @@ null (``Optional[x]`` with no default), so the generated types say "always
 there" where it is.
 """
 
-from .common import OPEN, Deleted, Json, ModelStatus, Out, answering  # noqa: F401
+from .common import OPEN, Deleted, Json, ModelStatus, Out, RequestStatus, answering  # noqa: F401
 from .admin import (  # noqa: F401
-    TimelinePoint, ModelStats, Totals, Timeline, LoadedModel, CacheStatus, Gpu, HostMemory, ProcessInfo,
-    MonitoringInfo, Stats, ModelEvent, ModelEvents, RequestRow, RequestRows, LogLine, Logs, AdminConfig,
+    Window, Actor, TimelinePoint, ModelStats, Totals, Timeline, LoadedModel, CacheStatus, Gpu, HostMemory, ProcessInfo,
+    MonitoringInfo, Stats, ModelEvent, ModelEvents, AuditEntry, AuditEntries, RequestRow, RequestRows, LogLine, Logs, AdminConfig,
     LimitsResult,
 )
 from .models import (  # noqa: F401
     SetupStatus, SetupResult, SetupSkipped, ModelMessage, Catalog, TaskInfo, TaskLimits, Tasks, OpenAIModel,
-    OpenAIModels, ModelType, ModelTypes, Limits,
+    OpenAIModels, ModelType, ModelTypes, Limits, CatalogModel, CatalogTask, ModelCatalog, LoadPlan,
 )
 from .playground import (  # noqa: F401
     ConversationSummary, Conversations, Preset, Presets, ExampleAdded,
@@ -42,11 +42,12 @@ from .hub import (  # noqa: F401
     HubSearchResult, HubSearch, HubFile, HubRepo, HubDownload, HubDownloads, HubLocalRepo, HubLocal,
 )
 from .jobs import (  # noqa: F401
-    JobStatus, Job, Jobs, JobType, JobLimits, JobTypes, Priority, Schedule, Schedules, Webhooks, WebhookTestResult,
+    JobStatus, Job, Jobs, JobType, JobLimits, JobTypes, Priority, Schedule, Schedules, WebhookDelivery, Webhooks,
+    WebhookTestResult,
 )
 from .evidence import (  # noqa: F401
     EvidenceWorkspace, EvidenceWorkspaces, WorkspaceCreated, EvidenceCase, EvidenceCases, CaseCreated,
-    CaptureSummary, CaptureSummaries, CaptureTimestamp, TimestampRetry, Capture, AnnotationNote, Annotation,
+    CaptureSummary, CaptureSummaries, SearchHit, EvidenceSearch, CaptureTimestamp, TimestampRetry, Capture, AnnotationNote, Annotation,
     Annotations, Todo, CaseTodos, VerifyIssue, VerifyReport,
 )
 from .tables import (  # noqa: F401

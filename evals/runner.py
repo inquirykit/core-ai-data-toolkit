@@ -1,7 +1,7 @@
 """
 RunExecutor: runs a model over a dataset, and judges runs.
 
-A run is a kind of task (jobs/tasks.py): one runs at a time, and the rest wait,
+A run is a kind of task (tasks/runner.py): one runs at a time, and the rest wait,
 the most urgent first, then one whose model is loaded already, then the
 oldest. Each example goes through the model manager like any request (so
 the model loads, is cached and evicted as usual), at the task's priority, but
@@ -18,7 +18,7 @@ stops there, failed, and resumes like one.
 
 A run that was interrupted, failed or cancelled resumes where it stopped: the
 examples it has items for are skipped. One the service stopped under resumes
-by itself (at most twice after the service died, see jobs/tasks.py); after
+by itself (at most twice after the service died, see tasks/runner.py); after
 that, and for a failed or cancelled one, by POST /admin/runs/{id}/resume.
 Judging a run is a task too, of the "judge" kind (two at a time; scoring.py
 does the work); its API key is kept in memory only, never in the table.
@@ -35,15 +35,16 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
-from errors import Unavailable
-from jobs.store import FAILED, FINISHED
-from jobs.tasks import Kind, TaskCancelled, TaskFailed, TaskRunner
-from jobs.webhooks import Webhooks
-from models.events import NORMAL, PRIORITIES, RequestContext, request_context
+from core.errors import Refused, Unavailable
+from models.events import RequestContext, request_context
+from tasks import NORMAL, PRIORITIES
+from tasks.runner import Kind, TaskCancelled, TaskFailed, TaskRunner
+from tasks.store import FAILED, FINISHED
+from tasks.webhooks import Webhooks
 
 from . import scoring
 from .scoring import Judge
-from .store import EXAMPLE_PAGE, EvalError, EvalStore
+from .store import EXAMPLE_PAGE, EvalStore
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class RunExecutor:
         tasks.add(Kind("run", run=self._run, stop=self._stop, finished=self._finished, on_interrupt="resume",
                        resumed=self._resumed))
         tasks.add(Kind("judge", run=self._judge_task, stop=self._stop_judging, concurrency=2, finished=self._judged))
-        # POSTed to when a run finishes (jobs/webhooks.py), with the run's own webhook_url.
+        # POSTed to when a run finishes (tasks/webhooks.py), with the run's own webhook_url.
         self.webhooks = webhooks
         # Run id -> the scoring under way for it, which a cancel stops.
         self._judging: Dict[str, asyncio.Task] = {}
@@ -118,7 +119,7 @@ class RunExecutor:
             run = await self.store.run(run_id)
         except Exception:
             return
-        self.webhooks.send("run.finished", run, extra_urls=[run.get("webhook_url")])
+        await self.webhooks.send("run.finished", run, extra_urls=[run.get("webhook_url")])
 
     async def cancel(self, run_id: str) -> None:
         """Cancel the run's judging and the run itself, where queued or running (waiting for them to stop)."""
@@ -300,9 +301,9 @@ class RunExecutor:
         """Queue judging ``run_id``: by rubric, or against another run when ``against`` is set."""
         task = await self.tasks.find("judge", run_id)
         if task is not None and task["status"] not in FINISHED:
-            raise EvalError("This run is being judged already")
+            raise Refused("This run is being judged already")
         if not judge.base_url and self.local_client is None:
-            raise EvalError("The judge needs a base URL: this service cannot ask itself here")
+            raise Refused("The judge needs a base URL: this service cannot ask itself here")
         id = uuid.uuid4().hex[:16]
         self._judge_keys[id] = judge.api_key
         params = {"model": judge.model, "base_url": judge.base_url, "rubric": judge.rubric, "against": against,

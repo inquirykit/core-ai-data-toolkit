@@ -21,6 +21,8 @@ export type StatsWindow = Stats["window"];
 /** GET /admin/timeline: the request metrics of GET /admin/stats over any range. */
 export type Timeline = Schemas["Timeline"];
 export type ModelEvent = Schemas["ModelEvent"];
+/** A change made through the API, as the audit log keeps it (GET /admin/audit) */
+export type AuditEntry = Schemas["AuditEntry"];
 export type RequestRow = Schemas["RequestRow"];
 export type LogLine = Schemas["LogLine"];
 export type Logs = Schemas["Logs"];
@@ -106,12 +108,16 @@ export type Schedule = Schemas["Schedule"];
 /** The body of POST /jobs/schedules and PUT /jobs/schedules/{id}: one of ``cron`` and ``interval_s`` */
 export type ScheduleBody = Schemas["ScheduleBody"];
 export type Webhooks = Schemas["Webhooks"];
+/** One event's delivery to one URL, retried with backoff */
+export type WebhookDelivery = Schemas["WebhookDelivery"];
 export type WebhookTest = Schemas["WebhookTestResult"];
 
 // --------------------------------------------------------------- evidence
 export type EvidenceWorkspace = Schemas["EvidenceWorkspace"];
 export type EvidenceCase = Schemas["EvidenceCase"];
 export type CaptureSummary = Schemas["CaptureSummary"];
+/** A capture an evidence search found (GET /evidence/search), from any case of the workspace */
+export type SearchHit = Schemas["SearchHit"];
 export type VerifyReport = Schemas["VerifyReport"];
 export type VerifyIssue = Schemas["VerifyIssue"];
 

@@ -5,6 +5,7 @@ Sources are faked with httpx.MockTransport, so nothing leaves the machine.
 
 import asyncio
 import json
+import os
 import time
 
 import httpx
@@ -120,7 +121,7 @@ REPLIES = ["plain text", [1, "two", {"three": 3}], {"nested": {"deep": [None, 1.
 def test_cache_keeps_a_reply_as_it_came(request, in_database):
     """Text, lists, JSON-LD (a top-level @type) and big integers: what ArcadeDB's maps would refuse or mangle."""
     if in_database:
-        from vectorstore.tables import TableStore
+        from db.tables import TableStore
 
         arcade = request.getfixturevalue("arcade")
         cache = ResultCache(arcade, TableStore(arcade))
@@ -135,7 +136,7 @@ def test_cache_keeps_a_reply_as_it_came(request, in_database):
 @pytest.mark.parametrize("in_database", [True, False])
 def test_cache_expires(request, in_database):
     if in_database:
-        from vectorstore.tables import TableStore
+        from db.tables import TableStore
 
         arcade = request.getfixturevalue("arcade")
         cache = ResultCache(arcade, TableStore(arcade))
@@ -320,6 +321,20 @@ def test_routes_list_and_edit(client):
     assert client.get("/enrichers/geo").status_code == 404
 
 
+def test_a_key_named_from_the_dashboard_stays_out_of_child_processes(client):
+    """An enricher saved while the service runs names its key; jobs and model servers started after do not get it."""
+    from core import procs
+
+    variable = "TK_TEST_ENRICHER_KEY"
+    try:
+        assert client.put("/enrichers/mine", json=spec("mine", secret=variable).model_dump(mode="json")).status_code == 200
+        assert client.put("/enrichers/mine/secret", json={"value": "s3cret"}).status_code == 200
+        assert os.environ.get(variable) == "s3cret"
+        assert variable not in procs.child_env() and variable not in procs.python_env(False)
+    finally:
+        os.environ.pop(variable, None)
+
+
 def _spec_only(info):
     return {k: v for k, v in info.items() if k not in ("builtin", "overridden", "secret_set", "allowed", "usable", "state")}
 
@@ -343,7 +358,7 @@ def test_routes_enrich_and_test(client, monkeypatch):
     monkeypatch.delenv("GEO_TEST_KEY", raising=False)
     assert client.put("/enrichers/geo", json=keyed).json()["usable"] is False
     assert client.put("/enrichers/geo/secret", json={"value": "abc"}).json() == {"secret": "GEO_TEST_KEY", "secret_set": True}
-    from config import Config
+    from core.config import Config
 
     assert "GEO_TEST_KEY=abc" in Config.ENV_FILE.read_text()
     assert client.get("/enrichers/geo").json()["usable"] is True

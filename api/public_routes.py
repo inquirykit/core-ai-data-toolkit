@@ -17,6 +17,7 @@ router = APIRouter()
 
 @router.get("/")
 async def root():
+    """Service status: whether it is running."""
     return {"message": "Core AI & Data toolkit", "status": "running"}
 
 
@@ -28,6 +29,7 @@ async def favicon():
 
 @router.get("/health")
 async def health_check(manager: deps.Manager):
+    """Health check: the device models run on and the model cache's state."""
     return {
         "status": "healthy",
         "device": manager.device,

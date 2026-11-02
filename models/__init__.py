@@ -1,8 +1,9 @@
 """
 Model management: the registry, the LRU cache and the manager.
 
-Model implementations live in the subfolders and are found by
-``registry.discover()``; see models/README.md to add one.
+Model implementations live in the subfolders of families/ and are found by
+``registry.discover()``; see models/README.md to add one. Models served by
+OpenAI-compatible servers are in servers/.
 """
 
 from .base import BaseModel, ModelInfo

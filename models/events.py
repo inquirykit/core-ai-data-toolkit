@@ -18,10 +18,8 @@ import contextvars
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional
 
-# How urgent a request is when models compete for room in the cache (models/cache.py). A request someone waits on is
-# high, the default; the eval runner's and the judge's are normal; low is for bulk work its client marks so.
-LOW, NORMAL, HIGH = 0, 1, 2
-PRIORITIES = {"low": LOW, "normal": NORMAL, "high": HIGH}
+from tasks import HIGH
+
 
 
 @dataclass

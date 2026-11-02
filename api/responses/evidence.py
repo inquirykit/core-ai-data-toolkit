@@ -49,6 +49,22 @@ class CaptureSummaries(Out):
     captures: List[CaptureSummary]
 
 
+class SearchHit(CaptureSummary):
+    """A capture a search found, from any case of the workspace."""
+    caseId: str
+    tags: List[str]
+    # The bit of its text (page, notes, title or address) around the first word searched for; null without words
+    snippet: Optional[str]
+
+
+class EvidenceSearch(Out):
+    captures: List[SearchHit]
+    # How many the search finds in all
+    count: int
+    # The next page's cursor; null on the last
+    next: Optional[str]
+
+
 class CaptureTimestamp(Out):
     genTime: Optional[str]
     error: Optional[str]

@@ -13,10 +13,10 @@ from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 from api import app as app_module  # noqa: E402
-from config import Config  # noqa: E402
+from core.config import Config  # noqa: E402
 from evidence.enrich import hosts_of  # noqa: E402
 from evidence import GENESIS_HASH, verify_uploads  # noqa: E402
-from errors import Refused  # noqa: E402
+from core.errors import Refused  # noqa: E402
 from evidence.record import is_valid_artifact_name  # noqa: E402
 from evidence.store import CAPTURE  # noqa: E402
 from evidence.tsa import SHA256_OID, TsaError, build_request, inspect  # noqa: E402
@@ -553,7 +553,7 @@ def test_a_ledger_from_before_workspaces_carries_on(arcade, tmp_path):
     from evidence import CaptureFiles, EvidenceStore, Signer, VerifiedArtifact, verify_all
     from evidence.record import build_record, canonical, now_iso, sha256_hex
     from evidence.store import CASE, TABLES
-    from vectorstore.tables import TableStore
+    from db.tables import TableStore
 
     signer, files = Signer(tmp_path / "key.pem"), CaptureFiles(tmp_path / "ev")
     artifacts = [VerifiedArtifact("a.txt", "text/plain", sha256_hex(b"a"), b"a")]
@@ -584,3 +584,179 @@ def test_a_ledger_from_before_workspaces_carries_on(arcade, tmp_path):
     assert record["schema"] == "evidence-capture/record/v3" and record["workspaceId"] == "default"
     report = verify_all(ledger)
     assert report["ok"] and report["records"] == 2 and report["workspace"] == "default"
+
+
+# ------------------------------------------------------------------ search
+def test_the_words_of_a_page_are_its_visible_text():
+    from evidence.text import capture_text, html_text, mhtml_text, snippet
+
+    html = ("<html><head><title>Not this</title><style>p {color: red}</style></head><body><h1>Login&nbsp;page</h1>"
+            "<p>Enter your <b>pass</b>word</p><script>var hidden = 1;</script><div>site.example.com</div></body></html>")
+    assert html_text(html) == "Login page\nEnter your password\nsite.example.com"
+    assert html_text("<head><title>x</title><body><p>unclosed head") == "unclosed head"
+    mhtml = ("From: <Saved by Blink>\r\nSubject: x\r\nMIME-Version: 1.0\r\n"
+             'Content-Type: multipart/related; type="text/html"; boundary="B"\r\n\r\n'
+             "--B\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+             "<html><body><p>Caf=C3=A9 wire tr=\r\nansfer</p></body></html>\r\n"
+             "--B\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--B--\r\n").encode()
+    assert mhtml_text(mhtml) == "Café wire transfer"
+    text = capture_text([("shot.png", "image/png", PNG), ("dom.html", "text/html", html.encode()),
+                         ("page.mhtml", "multipart/related", mhtml), ("notes.txt", "", b"  plain  words "), ("x.json", "", b"{}")])
+    assert text.splitlines() == ["Login page", "Enter your password", "site.example.com", "Café wire transfer", "plain words"]
+    # What does not parse gives what it can, never an error.
+    assert mhtml_text(b"not mime at all") == "not mime at all"
+    assert capture_text([("bad.html", "text/html", b"\xff<p>ok")]) == "�\nok"
+    long = "start " + "word " * 100 + "needle in the hay " + "word " * 100
+    cut = snippet(long, ["needle"], width=40)
+    assert cut.startswith("…") and cut.endswith("…") and "needle in the hay" in cut and len(cut) <= 42
+    assert snippet("Needle first", ["needle"]) == "Needle first" and snippet("nothing", ["needle"]) is None
+
+
+SEARCH_WS = "search-ws"
+
+
+def search(client, **params):
+    r = client.get("/evidence/search", params={"workspace": SEARCH_WS, **params})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def found(client, **params):
+    return [c["title"] for c in search(client, **params)["captures"]]
+
+
+@pytest.fixture(scope="module")
+def searchable(client):
+    assert client.post("/evidence/workspaces", json={"id": SEARCH_WS, "name": "Search"}).status_code == 201
+    case = client.post(f"/evidence/cases?workspace={SEARCH_WS}", json={"name": "Fraud"}).json()["case"]["id"]
+    pages = [
+        ("inbox", "Bank login", "https://phishing-site.example.com/login",
+         "<body><h1>Secure bank login</h1><p>Enter your password to verify the wire transfer</p></body>"),
+        (case, "Shop", "https://shop.example.org/", "<body><p>Cheap watches, wire transfer only</p></body>"),
+        (case, "Forum", "https://forum.example.net/t/1", "<body><p>Someone posted the phishing kit here</p></body>"),
+    ]
+    ids = []
+    for case_id, title, url, html in pages:
+        data = html.encode()
+        meta = metadata(case_id, [{"name": "dom.html", "sha256": sha(data), "mediaType": "text/html"}],
+                        page={"documentUrl": url, "title": title})
+        r = upload(client, meta, files={"dom.html": (data, "text/html")}, workspace=SEARCH_WS)
+        assert r.status_code == 200, r.text
+        ids.append(r.json()["captureId"])
+    return {"case": case, "ids": ids}
+
+
+def test_captures_are_found_by_their_pages_words_across_cases(client, searchable):
+    assert sorted(found(client, q="wire transfer")) == ["Bank login", "Shop"]
+    assert found(client, q='"wire transfer" password') == ["Bank login"]
+    assert sorted(found(client, q="phishing")) == ["Bank login", "Forum"]
+    assert found(client, q="site.example.com") == ["Bank login"], "the address is searched too"
+    assert found(client, q="watch*") == ["Shop"] and found(client, q="wire -watches", sort="oldest") == ["Bank login"]
+    hit = search(client, q="kit")["captures"][0]
+    assert hit["title"] == "Forum" and hit["caseId"] == searchable["case"] and hit["tags"] == []
+    assert hit["snippet"] == "Someone posted the phishing kit here" and hit["recordHash"] and hit["seq"] == 3
+    assert search(client, q="nowhere") == {"captures": [], "count": 0, "next": None}
+
+
+def test_without_words_the_captures_are_listed_by_case_tag_and_time(client, searchable):
+    assert found(client) == ["Forum", "Shop", "Bank login"], "newest first"
+    assert found(client, sort="oldest") == ["Bank login", "Shop", "Forum"]
+    assert found(client, case=searchable["case"]) == ["Forum", "Shop"]
+    assert found(client, q="wire", case="inbox") == ["Bank login"]
+    received = search(client, sort="oldest")["captures"][1]["receivedAt"]
+    assert found(client, since=received, sort="oldest") == ["Shop", "Forum"]
+    assert found(client, until=received[:4]) == ["Forum", "Shop", "Bank login"], "a year takes all of it"
+    assert found(client, until="2001-01-01") == [] and found(client, since="2999") == []
+    page = search(client, limit=2)
+    rest = search(client, limit=2, cursor=page["next"])
+    assert [c["title"] for c in page["captures"] + rest["captures"]] == ["Forum", "Shop", "Bank login"]
+    assert page["count"] == 3 and rest["next"] is None
+
+
+def test_pages_go_on_where_the_last_ended_though_captures_come_in_between(client):
+    ws = "paging-ws"
+    assert client.post("/evidence/workspaces", json={"id": ws, "name": "Paging"}).status_code == 201
+
+    def capture(title):
+        data = f"<body><p>{title} wire page</p></body>".encode()
+        meta = metadata("inbox", [{"name": "dom.html", "sha256": sha(data), "mediaType": "text/html"}], page={"title": title})
+        assert upload(client, meta, files={"dom.html": (data, "text/html")}, workspace=ws).status_code == 200
+
+    def page(**params):
+        r = client.get("/evidence/search", params={"workspace": ws, "limit": 2, **params})
+        assert r.status_code == 200, r.text
+        return [c["title"] for c in r.json()["captures"]], r.json()["next"]
+
+    for title in ("one", "two", "three"):
+        capture(title)
+    first, cursor = page()
+    capture("four")
+    assert first + page(cursor=cursor)[0] == ["three", "two", "one"], "newest first goes on after the last seq"
+    first, cursor = page(sort="oldest")
+    capture("five")
+    rest, cursor = page(sort="oldest", cursor=cursor)
+    assert first + rest == ["one", "two", "three", "four"] and page(sort="oldest", cursor=cursor)[0] == ["five"]
+    best, cursor = page(q="wire")
+    assert len(best + page(q="wire", cursor=cursor)[0]) == 4 and cursor is not None
+    # A cursor is for the order it came from.
+    assert client.get("/evidence/search", params={"workspace": ws, "cursor": cursor}).status_code == 400
+    # A Z after a shorter time than the stored ones' (2026-10-31T12:00:00.123Z) takes the whole of it.
+    received = search(client, workspace=ws, sort="oldest")["captures"][0]["receivedAt"]
+    assert len(search(client, workspace=ws, since=received[:10] + "Z")["captures"]) == 5
+    assert len(search(client, workspace=ws, since=received[:19] + "Z")["captures"]) == 5
+
+
+def test_annotations_are_searched_as_soon_as_they_change(client, searchable):
+    shop = searchable["ids"][1]
+    r = client.put(f"/evidence/captures/{shop}/annotations?workspace={SEARCH_WS}",
+                   json={"tags": ["Suspect", "fake shop"], "notes": [{"text": "Same seller as the forum post"}]})
+    assert r.status_code == 200, r.text
+    assert found(client, q="seller") == ["Shop"] and found(client, q="suspect") == ["Shop"]
+    assert found(client, tag="Suspect") == ["Shop"] and found(client, tag="fake shop", q="watches") == ["Shop"]
+    assert search(client, q="seller")["captures"][0]["tags"] == ["Suspect", "fake shop"]
+    assert search(client, q="seller")["captures"][0]["snippet"] == "Same seller as the forum post Suspect fake shop"
+    client.put(f"/evidence/captures/{shop}/annotations?workspace={SEARCH_WS}", json={"tags": [], "notes": []})
+    assert found(client, q="seller") == [] and found(client, tag="Suspect") == []
+    # A search is the workspace's own.
+    assert client.get("/evidence/search", params={"q": "watches"}).json()["captures"] == []
+
+
+@pytest.mark.parametrize("params", [{"q": "-only"}, {"since": "yesterday"}, {"until": "2026-1"}, {"sort": "best"},
+                                    {"limit": 0}, {"cursor": "nope"}])
+def test_bad_searches_are_refused(client, searchable, params):
+    r = client.get("/evidence/search", params={"workspace": SEARCH_WS, **params})
+    assert r.status_code in (400, 422), r.text
+
+
+def test_captures_from_before_the_search_are_indexed_from_their_files(arcade, tmp_path):
+    from evidence import CaptureFiles, EvidenceStore, Signer, VerifiedArtifact
+    from evidence.record import build_record, canonical, now_iso, sha256_hex
+    from evidence.store import CASE, TABLES
+    from db.tables import table_type
+    from db.tables import TableStore
+
+    signer, files = Signer(tmp_path / "key.pem"), CaptureFiles(tmp_path / "ev")
+    page = b"<body><p>An old capture about invoices</p></body>"
+    artifacts = [VerifiedArtifact("dom.html", "text/html", sha256_hex(page), page)]
+    old = build_record(seq=1, capture_id="c-old", workspace_id="default", case_id="inbox", received_at=now_iso(),
+                       prev_hash=GENESIS_HASH, version="0.9", signing_key_sha256=signer.fingerprint,
+                       artifacts=artifacts, client={"caseId": "inbox", "page": {"title": "Old"}}, enrichment={})
+    data = canonical(old)
+    files.write_capture("c-old", data, signer.sign(data), artifacts)
+    tables = TableStore(arcade)
+    tables.manage("evidence", "the ledger, as an earlier version left it", {k: v for k, v in TABLES.items() if k != "search"})
+    tables.ensure_managed("evidence")
+    db = arcade.open()
+    with db.transaction():
+        db.command("sql", f"INSERT INTO {CASE} CONTENT :row", {"row": {"id": "inbox", "name": "Inbox", "created_at": now_iso()}})
+        db.command("sql", f"INSERT INTO {CAPTURE} CONTENT :row", {"row": {
+            "id": "c-old", "seq": 1, "capture_id": "c-old", "case_id": "inbox", "received_at": old["receivedAt"],
+            "record_json": data.decode(), "record_hash": sha256_hex(data), "signature": signer.sign(data).hex(),
+            "title": "Old"}})
+        db.command("sql", f"INSERT INTO {table_type('evidence', 'annotations')} CONTENT :row", {"row": {
+            "id": "c-old", "capture_id": "c-old", "case_id": "inbox", "tags": ["billing"], "notes": [], "updated_at": now_iso()}})
+
+    ledger = EvidenceStore(arcade, TableStore(arcade), files, signer, "1.0")._ledger("default")
+    result = ledger._find("invoices", limit=10)
+    assert [c["captureId"] for c in result["captures"]] == ["c-old"] and result["captures"][0]["tags"] == ["billing"]
+    assert ledger._find("billing", limit=10)["count"] == 1

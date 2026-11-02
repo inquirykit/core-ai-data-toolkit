@@ -20,7 +20,8 @@ CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 @router.get("/metrics", response_class=PlainTextResponse)
 async def metrics(request: Request, counts: deps.Metrics, manager: deps.Manager):
-    """Request counts, latency histogram, token counts, model and memory gauges, in Prometheus format."""
+    """Request counts, latency histogram, token counts, model and memory gauges, in Prometheus format. Counters run from
+    the process's start; gauges are read from the cache and host at each scrape."""
     cache = {"device": manager.device, **manager.get_cache_status()}
     text = counts.render(cache, system.snapshot(), version=request.app.version)
     return PlainTextResponse(text, media_type=CONTENT_TYPE)

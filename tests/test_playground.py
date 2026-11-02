@@ -2,8 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
-from models.generic.transformers_model import TransformersModel
+from core.config import Config
+from models.families.generic.transformers_model import TransformersModel
 from tests.fakes import FakeModel, swapped
 
 

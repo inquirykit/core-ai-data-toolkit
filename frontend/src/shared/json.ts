@@ -1,5 +1,9 @@
-// The one reading of a JSON object typed into a form field, and of JSON Lines.
+// The one reading of a JSON object typed into a form field, and of JSON Lines;
+// and a value written out for a detail pane.
 import { message } from "./errors";
+
+/** A value as it is shown in a detail pane: text as it is, anything else as indented JSON. */
+export const pretty = (value: unknown): string => (typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "");
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 

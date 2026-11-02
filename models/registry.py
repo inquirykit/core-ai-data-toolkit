@@ -2,8 +2,9 @@
 Which model class serves which model ID and task.
 
 Every model file registers its class with ``@register``. On first use,
-``discover()`` imports every ``.py`` file in the subfolders of models/ so
-those decorators run; nothing else has to be edited to add a model.
+``discover()`` imports every ``.py`` file in the subfolders of
+models/families/ so those decorators run; nothing else has to be edited to
+add a model.
 
 Resolution for (model_id, task):
 
@@ -12,7 +13,7 @@ Resolution for (model_id, task):
 3. otherwise ``fallback`` classes (those serve any ID nobody else claims).
 
 Model server entries (MODEL_SERVERS_FILE, and those saved from /admin) are
-registered after every model file (see models/model_server.py), so they win
+registered after every model file (see models/servers/registry.py), so they win
 over a model file claiming the same IDs; an edit registers them again.
 
 Within the first group that applies, the class registered for ``task`` wins
@@ -25,15 +26,16 @@ model browser in /admin and /playground shows (GET /models/catalog).
 
 import fnmatch
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple, Union
+from typing import Any, Dict, Iterable, Iterator, List, Tuple, Union
 
-from discovery import import_files
+from core.discovery import import_files
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = Path(__file__).resolve().parent
+FAMILIES_DIR = Path(__file__).resolve().parent / "families"
 
 
 class UnsupportedModel(ValueError):
@@ -115,18 +117,54 @@ def unregister(cls: type) -> None:
     cls.tasks = ()
 
 
+@contextmanager
+def restored() -> Iterator[None]:
+    """When the block ends, the registrations, and the tasks of the classes registered now, are as they were when it
+    began, whatever was registered, swapped or dropped inside it: tests serve their own classes this way."""
+    discover()
+    saved = list(_entries)
+    tasks = {e.cls: e.cls.__dict__.get("tasks") for e in saved}
+    try:
+        yield
+    finally:
+        _entries[:] = saved
+        for cls, was in tasks.items():
+            if was is None:
+                cls.__dict__.get("tasks") is not None and delattr(cls, "tasks")
+            else:
+                cls.tasks = was
+
+
+def swap(old: type, new: type) -> None:
+    """Serve ``new`` wherever ``old`` is registered, with the same IDs, patterns and place (inside ``restored()``)."""
+    discover()
+    _entries[:] = [replace(e, cls=new) if e.cls is old else e for e in _entries]
+
+
+def classes() -> List[type]:
+    """Every registered class, once each, in the order they were first registered."""
+    discover()
+    return list(dict.fromkeys(e.cls for e in _entries))
+
+
 def discover() -> None:
     """Import every model file once (discovery.import_files), so its @register runs."""
     global _discovered
     if _discovered:
         return
     _discovered = True
-    import_files(MODELS_DIR, __package__, "model")
+    import_files(FAMILIES_DIR, f"{__package__}.families", "model")
     # Last, so a model listed there is served by its server even if a model file also claims it.
-    from .model_server import load_configured
+    from .servers import load_configured
 
     load_configured()
     logger.info("Registered %d model entries", len(_entries))
+    # Every model file is in, so each variant's task can be looked for; a wrong one stands alone, like a file that
+    # fails to import, instead of taking the service down.
+    from . import contracts
+
+    for problem in contracts.verify():
+        logger.error("Task variant: %s; it stands alone", problem)
 
 
 def _candidates(model_id: str) -> Tuple[List[Entry], bool]:
@@ -162,6 +200,13 @@ def claimed_tasks(model_id: str) -> List[str]:
     """Tasks some class claims ``model_id`` for by ID or pattern (not by fallback)."""
     candidates, specific = _candidates(model_id)
     return list(dict.fromkeys(e.task for e in candidates)) if specific else []
+
+
+def operator_chose(model_id: str) -> bool:
+    """Whether a class that claims ``model_id`` by ID or pattern says the operator chose it
+    (``BaseModel.operator_chose``): clients may then use it whatever ALLOWED_MODELS says."""
+    candidates, specific = _candidates(model_id)
+    return specific and any(cls.operator_chose(model_id) for cls in dict.fromkeys(e.cls for e in candidates))
 
 
 def known_tasks() -> List[str]:

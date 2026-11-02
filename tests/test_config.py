@@ -1,11 +1,11 @@
-"""config.py: one table of settings, read from the environment."""
+"""core/config.py: one table of settings, read from the environment."""
 
 import re
 from pathlib import Path
 
 import pytest
 
-from config import SETTINGS, Config, Setting, flag, items
+from core.config import SETTINGS, Config, Setting, flag, items
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,7 +36,7 @@ def test_values_are_parsed_and_defaulted(monkeypatch, raw, parse, default, expec
 def test_apply_reads_the_named_settings_again(monkeypatch):
     monkeypatch.setattr(Config, "MAX_MODELS", Config.MAX_MODELS)
     monkeypatch.setattr(Config, "ALLOWED_MODELS", Config.ALLOWED_MODELS)
-    monkeypatch.setattr("config._FROM_FILE", set())
+    monkeypatch.setattr("core.config._FROM_FILE", set())
     monkeypatch.delenv("MAX_MODELS", raising=False)
     monkeypatch.delenv("ALLOWED_MODELS", raising=False)
     Config.apply({"MAX_MODELS": "9", "ALLOWED_MODELS": "a/b, c/d"})

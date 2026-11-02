@@ -1,5 +1,5 @@
 // What GET /tasks serves: each task's input and output as JSON Schema
-// (from the contracts in models/tasks.py), and the limits schemas cannot
+// (from the contracts in models/contracts.py), and the limits schemas cannot
 // show. The inputs read their caps and defaults from here instead of
 // repeating the server's numbers; tasks without their own input get a form
 // made from the schema (SchemaFormInput, shared/schema-form.tsx).

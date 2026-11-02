@@ -1,12 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from vectorstore.tables import decode_cursor, encode_cursor, merge_patch
+from db.tables import decode_cursor, encode_cursor, merge_patch
 
 pytest.importorskip("arcadedb_embedded")
 
 from api import app as app_module  # noqa: E402
-from config import Config  # noqa: E402
+from core.config import Config  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -208,7 +208,8 @@ def shop(client):
     # Each indexed field adds an index file, so this table is bigger on disk than one with only the id index.
     assert r.json()["size_bytes"] > 65536 + 262144
     assert next(f for f in r.json()["fields"] if f["name"] == "sku") == {
-        "name": "sku", "type": "string", "list": False, "required": False, "indexed": True, "unique": True}
+        "name": "sku", "type": "string", "list": False, "required": False, "indexed": True, "unique": True,
+        "fulltext": False}
     rows = [
         {"id": "1", "title": "Milk", "sku": "30", "price": 2.5, "stock": 4, "tags": ["dairy", "sale"]},
         {"id": "2", "title": "Bread", "sku": "A2", "price": 3, "stock": 0, "tags": ["bakery"], "meta": {"k": 1}},
@@ -334,8 +335,8 @@ def test_a_fresh_database_lists_no_namespaces(client, tmp_path):
     # The dashboard's first call, before any namespace (or the type holding them) exists.
     import asyncio
 
-    from vectorstore import Database
-    from vectorstore.tables import TableStore
+    from db import Database
+    from db.tables import TableStore
 
     db = Database(str(tmp_path / "fresh"))
     try:
@@ -344,6 +345,13 @@ def test_a_fresh_database_lists_no_namespaces(client, tmp_path):
         assert asyncio.run(TableStore(db).namespaces()) == []
     finally:
         db.close()
+
+
+def test_service_tables_declare_full_text_fields_with_a_tilde():
+    from db.tables import schema_of
+
+    fields = schema_of("title:string~", "tags:string[]").fields
+    assert fields["title"].fulltext and not fields["title"].indexed and not fields["tags"].fulltext
 
 
 def test_merge_patch_and_cursor_helpers():
@@ -407,7 +415,7 @@ def test_the_services_namespaces_need_the_admin_key(client, monkeypatch):
 def test_a_namespace_whose_store_is_switched_off_stays_kept(client, monkeypatch):
     """A run with ENRICHERS_DIR (or EVIDENCE_DIR) left empty declares no store for the namespace; the database marks
     it as kept, so it stays admin-only and read-only."""
-    from vectorstore.tables import SWITCHED_OFF
+    from db.tables import SWITCHED_OFF
 
     assert "enrichers" in [n["name"] for n in client.get("/db").json()["namespaces"]]
     monkeypatch.delitem(app_module.app.state.tables.managed, "enrichers")
@@ -449,3 +457,140 @@ def test_rows_do_not_wait_for_a_schema_change(client, app_ns):
     finally:
         done.set()
         thread.join()
+
+
+# ---------------------------------------------------------------- full text
+def test_search_text_becomes_an_index_query():
+    from db.schema import Search, TableError, search_query
+
+    assert search_query("quick dog") == Search('+"quick" +"dog"')
+    # The index finds a phrase's words; the rows it finds are checked for the phrase, which only leaves rows out.
+    assert search_query('"quick  Brown" -lazy -"red fox"') == Search('+"quick Brown" -"lazy"', ("quick brown",), ("red fox",))
+    # A prefix keeps the parser's syntax out of its stem; a phrase needs only its quotes taken out.
+    assert search_query("phish* site.exa* a-b* site.example.com").query == r'+phish* +site.exa* +a\-b* +"site.example.com"'
+    # One the index's words cannot start so: as written.
+    assert search_query('a:b* *x* b2")*').query == '+"a:b" +"*x" +"b2 )"'
+    assert search_query('C++ wo"rd "unclosed phrase') == Search('+"C++" +"wo rd" +"unclosed phrase"', ("unclosed phrase",))
+    assert search_query("!!! dog - *").query == '+"dog"'
+    assert search_query('Phish* "Login  page" -spam dog').terms == ("phish", "login page", "dog")
+    for nothing in ("", "  ", "-only", "* !", '-"two words"'):
+        with pytest.raises(TableError):
+            search_query(nothing)
+    with pytest.raises(TableError):
+        search_query("x" * 501)
+
+
+NOTES = [
+    {"id": "n1", "title": "Phishing report", "body": "A login page at phishing-site.example.com", "status": "open"},
+    {"id": "n2", "title": "Weekly notes", "body": "Nothing about phishing here, only the weather", "status": "done"},
+    {"id": "n3", "title": "Quick brown fox", "body": "jumps over the lazy dog", "status": "open"},
+    {"id": "n4", "title": "Phishing phishing phishing", "body": "Phishing again", "status": "open"},
+    {"id": "n5", "title": "Version notes", "body": "Upgraded to v1.2 on Monday", "status": "done"},
+]
+
+
+@pytest.fixture(scope="module")
+def notes(client):
+    assert client.post("/db", json={"name": "words"}).status_code == 201
+    r = client.post("/db/words", json={"name": "notes", "fields": [
+        {"name": "title", "type": "string", "fulltext": True},
+        {"name": "body", "type": "string", "fulltext": True},
+        {"name": "status", "type": "string", "indexed": True},
+    ]})
+    assert r.status_code == 201, r.text
+    assert [f["name"] for f in r.json()["fields"] if f["fulltext"]] == ["body", "title"]
+    assert client.put("/db/words/notes/_bulk", json={"rows": NOTES}).status_code == 204
+    return "words"
+
+
+def search(client, query, **params):
+    r = client.get("/db/words/notes", params={"_search": query, **params})
+    assert r.status_code == 200, r.text
+    return [row["id"] for row in r.json()["rows"]]
+
+
+def test_a_search_finds_every_word_across_the_full_text_fields_best_first(client, notes):
+    # The most phishing first; n2 holds it once, in a longer text.
+    assert search(client, "phishing") == ["n4", "n1", "n2"]
+    assert search(client, "Phishing LOGIN") == ["n1"], "every word, any case, in any full-text field"
+    assert search(client, "quick dog") == ["n3"], "one word in the title, the other in the body"
+    assert search(client, '"brown fox"') == ["n3"] and search(client, '"fox brown"') == []
+    assert search(client, 'fox -"lazy dog"') == [] and search(client, 'fox -"dog lazy"') == ["n3"]
+    assert search(client, "phishing -weather") == ["n4", "n1"]
+    assert search(client, "phish*") == ["n4", "n1", "n2"] and search(client, "jump*") == ["n3"]
+    assert search(client, "phishing-site.example.com") == ["n1"] and search(client, "v1.2") == ["n5"]
+    assert search(client, "nowhere") == []
+
+
+def test_a_search_goes_with_filters_sorts_pages_and_counts(client, notes):
+    assert search(client, "phishing", status="open") == ["n4", "n1"]
+    assert search(client, "phishing", _sort="-id") == ["n4", "n2", "n1"]
+    first = client.get("/db/words/notes", params={"_search": "phishing", "_limit": 2}).json()
+    rest = client.get("/db/words/notes", params={"_search": "phishing", "_limit": 2, "_cursor": first["next"]}).json()
+    assert [r["id"] for r in first["rows"] + rest["rows"]] == ["n4", "n1", "n2"] and "next" not in rest
+    assert "$score" not in first["rows"][0] and first["rows"][0]["status"] == "open"
+    r = client.get("/db/words/notes/_count", params={"_search": "phishing", "status": "open"})
+    assert r.status_code == 200 and r.json() == {"count": 2}
+
+
+def test_rows_are_searched_as_they_are_now(client, notes):
+    assert client.patch("/db/words/notes/n3", json={"body": "sleeps all day"}).status_code == 200
+    assert search(client, "quick dog") == [] and search(client, "quick sleeps") == ["n3"]
+    assert client.delete("/db/words/notes/n5").status_code == 204
+    assert search(client, "v1.2") == []
+    assert client.put("/db/words/notes/n5", json=NOTES[4]).status_code == 201
+
+
+@pytest.mark.parametrize("query, detail", [
+    ({"_search": "-only"}, "a word to find"),
+    ({"_search": "x" * 501}, "500"),
+])
+def test_bad_searches_are_refused(client, notes, query, detail):
+    r = client.get("/db/words/notes", params=query)
+    assert r.status_code in (400, 422) and detail in r.text
+
+
+def test_a_table_without_full_text_fields_cannot_be_searched(client, notes, app_ns):
+    r = client.get(f"/db/{app_ns}/todo", params={"_search": "milk"})
+    assert r.status_code == 400 and "full-text" in r.json()["detail"]
+    assert client.get(f"/db/{app_ns}/todo/_count", params={"_search": "milk"}).status_code == 400
+
+
+@pytest.mark.parametrize("field, detail", [
+    ({"name": "n", "type": "integer", "fulltext": True}, "only a string field"),
+    ({"name": "t", "type": "string", "list": True, "fulltext": True}, "only a string field"),
+    ({"name": "t", "type": "string", "indexed": True, "fulltext": True}, "not both"),
+    ({"name": "t", "type": "string", "unique": True, "fulltext": True}, "not both"),
+])
+def test_only_plain_string_fields_are_full_text(client, notes, field, detail):
+    r = client.put("/db/words/other/_schema", json={"fields": [field]})
+    assert r.status_code == 400 and detail in r.json()["detail"]
+
+
+def test_full_text_fields_come_and_go_with_the_schema(client, notes):
+    rows = [{"id": "1", "title": "red apple", "note": "crisp"}, {"id": "2", "title": "green pear", "note": "soft apple"}]
+    assert client.put("/db/words/fruit/_bulk", json={"rows": rows}).status_code == 204
+
+    def found(query):
+        r = client.get("/db/words/fruit", params={"_search": query})
+        return [row["id"] for row in r.json()["rows"]] if r.status_code == 200 else r.status_code
+
+    assert found("apple") == 400
+    # Made full-text over rows already there; then a second field joins the same index.
+    assert client.put("/db/words/fruit/_schema", json={"fields": [{"name": "title", "type": "string", "fulltext": True}]}).status_code == 200
+    assert found("apple") == ["1"]
+    fields = [{"name": "title", "type": "string", "fulltext": True}, {"name": "note", "type": "string", "fulltext": True}]
+    assert client.put("/db/words/fruit/_schema", json={"fields": fields}).status_code == 200
+    assert sorted(found("apple")) == ["1", "2"]
+    # From full-text to indexed, and back to nothing: the field keeps its values, the search goes.
+    fields = [{"name": "title", "type": "string", "indexed": True}]
+    assert client.put("/db/words/fruit/_schema", json={"fields": fields}).status_code == 200
+    assert found("apple") == 400
+    assert [r["id"] for r in client.get("/db/words/fruit", params={"title": "green pear"}).json()["rows"]] == ["2"]
+    assert client.put("/db/words/fruit/_schema", json={"fields": []}).status_code == 200
+    assert client.get("/db/words/fruit/2").json()["note"] == "soft apple"
+    # A reload reads the saved schema, full-text included.
+    store = app_module.app.state.tables
+    assert client.put("/db/words/fruit/_schema", json={"fields": [{"name": "note", "type": "string", "fulltext": True}]}).status_code == 200
+    store._schemas, store._loaded = None, False
+    assert found("soft") == ["2"]

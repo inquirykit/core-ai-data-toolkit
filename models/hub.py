@@ -2,7 +2,7 @@
 The Hugging Face Hub for the admin dashboard: search it, look a repo up,
 download its weights ahead of time, and see or delete what is on disk.
 
-A download is a kind of task (jobs/tasks.py): MAX_HUB_DOWNLOADS run at once,
+A download is a kind of task (tasks/runner.py): MAX_HUB_DOWNLOADS run at once,
 the rest wait, the most urgent first, then the oldest; one
 queued or running when the service stops goes on when it is back. Each runs in its own
 process (``snapshot_download`` in a child Python), so cancelling one is
@@ -21,12 +21,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import procs
-from errors import Conflict, NotFound
-from jobs.store import FINISHED, SUCCEEDED
-from jobs.tasks import Kind, TaskFailed, TaskRunner
+from core import procs
+from core.errors import Conflict, NotFound
+from tasks.store import FINISHED, SUCCEEDED
+from tasks.runner import Kind, TaskFailed, TaskRunner
 
-from . import tasks
+from . import contracts
 from .memory import _WEIGHT_SUFFIXES
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def search(query: str, task: Optional[str] = None, limit: int = 30) -> List[Dict
 
     models = HfApi().list_models(
         search=query or None,
-        pipeline_tag=tasks.hub_tags().get(task) if task else None,
+        pipeline_tag=contracts.hub_tags().get(task) if task else None,
         sort="downloads",
         limit=limit,
     )

@@ -15,9 +15,9 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Path, Query, Response
 from pydantic import BaseModel, Field
 
-from models import ModelManager, hub, memory, registry, tasks
-from config import Config
-from errors import Conflict, Forbidden, NotFound, Refused, ServiceError, Unavailable, describe
+from models import ModelManager, hub, memory, registry, contracts
+from core.config import Config
+from core.errors import Conflict, Forbidden, NotFound, Refused, ServiceError, Unavailable, describe
 from . import deps
 from . import responses
 
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/hub", tags=["hub"], dependencies=deps.ADMIN)
 
-# The tasks the Hub search can filter by: those with a pipeline tag (models/tasks.py).
-Task = Literal[tuple(tasks.hub_tags())]
+# The tasks the Hub search can filter by: those with a pipeline tag (models/contracts.py).
+Task = Literal[tuple(contracts.hub_tags())]
 REPO_ID = re.compile(r"^[\w.-]+(/[\w.-]+)?$")
 
 
@@ -102,7 +102,8 @@ class DownloadRequest(BaseModel):
 
 @router.post("/downloads", **responses.answering(responses.HubDownload), status_code=202)
 async def start_download(hub_downloads: deps.HubDownloads, body: DownloadRequest):
-    """Download a repo's files into the Hub cache in the background; 409 if it is already being downloaded."""
+    """Download a repo's files into the Hub cache in the background; 409 if it is already being downloaded. A child
+    process downloads them, and the progress is the cache folder's size against the repo's total."""
     _online()
     repo_id = _repo_id(body.repo_id)
     return await hub_downloads.start(repo_id, body.priority)

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
-import { ChevronRight, CircleAlert, Loader2, Play } from "lucide-react";
+import { CircleAlert, Loader2, Play } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 import { AuthError, type ApiClient, type InferenceResponse } from "../api";
+import { CodeBlock, Disclosure } from "../components";
 import { message } from "../errors";
 import { fmtMs } from "../format";
 import { errorText } from "../query";
@@ -25,6 +24,7 @@ const IO: Record<string, TaskIO> = {
   "text-generation": { Input: inputs.TextGenerationInput, Output: outputs.TextOutput },
   "vision-language": { Input: inputs.VisionInput, Output: outputs.TextOutput },
   "text-classification": { Input: inputs.ClassificationInput, Output: outputs.ClassificationOutput },
+  "zero-shot-classification": { Input: inputs.ZeroShotInput, Output: outputs.ClassificationOutput },
   "question-answering": { Input: inputs.QuestionAnsweringInput, Output: outputs.QuestionAnsweringOutput },
   embedding: { Input: inputs.EmbeddingInput, Output: outputs.EmbeddingOutput },
   "speech-to-text": { Input: inputs.SpeechInput, Output: outputs.TranscriptOutput },
@@ -133,17 +133,9 @@ export function TryPanel(props: { client: ApiClient; modelId: string; task: stri
             )}
           </div>
           <io.Output result={ran.response.result} input={ran.input} />
-          <Collapsible>
-            <CollapsibleTrigger className="group inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
-              <ChevronRight className="size-4 transition-transform duration-200 group-data-[state=open]:rotate-90" aria-hidden="true" />
-              Raw response
-            </CollapsibleTrigger>
-            <CollapsibleContent className="data-[state=open]:animate-in data-[state=open]:fade-in-0">
-              <pre className={cn(outputs.preClass, "mt-2 max-h-80")}>
-                {raw.length > RAW_LIMIT ? `${raw.slice(0, RAW_LIMIT)}\n… ${raw.length - RAW_LIMIT} more characters` : raw}
-              </pre>
-            </CollapsibleContent>
-          </Collapsible>
+          <Disclosure label="Raw response">
+            <CodeBlock className="max-h-80">{raw.length > RAW_LIMIT ? `${raw.slice(0, RAW_LIMIT)}\n… ${raw.length - RAW_LIMIT} more characters` : raw}</CodeBlock>
+          </Disclosure>
         </section>
       )}
     </div>

@@ -5,10 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
-from models.events import HIGH, LOW
-from models.generic.transformers_model import TransformersModel
-from models.vision.fastvlm import FastVLMModel
+from core.config import Config
+from tasks import HIGH, LOW
+from models.families.generic.transformers_model import TransformersModel
+from models.families.vision.fastvlm import FastVLMModel
 from tests.fakes import FakeModel, swapped
 
 IMAGES = Path(os.environ["IMAGE_DIR"])
@@ -87,6 +87,11 @@ def test_tasks_lists_each_contract(client):
     classification = listed["text-classification"]
     assert classification["input"]["required"] == ["text"]
     assert set(classification["output"]["required"]) == {"label", "confidence", "scores"}
+    assert (classification["category"], classification["label"]) == ("text", "Classification")
+    assert classification["variant_of"] is None and listed["zero-shot-classification"]["variant_of"] == "text-classification"
+    assert (listed["zero-shot-classification"]["group"], listed["zero-shot-classification"]["group_label"]) == (
+        "text-classification", "Classification")
+    assert list(listed)[:2] == ["text-generation", "text-classification"]  # as models/contracts.py defines them
 
 
 def test_tasks_list_the_limits_schemas_cannot_show(client):
@@ -244,6 +249,14 @@ def test_catalog_lists_each_task_with_cards_and_status(client):
     assert "chat" in qwen["tags"] and qwen["description"]
     assert qwen["served_by"] == "FakeModel" and qwen["kind"] == "in-process"
     assert tasks["decision"]["patterns"] == ["vega-*", "*/vega-*"] and not tasks["decision"]["any_id"]
+    # Each task's tab and label; rerank is a text task, not Other.
+    assert (tasks["rerank"]["category"], tasks["rerank"]["label"]) == ("text", "Rerank")
+    # A variant shares its task's tab and its entry in the task switch.
+    zero_shot = tasks["zero-shot-classification"]
+    assert (zero_shot["category"], zero_shot["group"], zero_shot["group_label"]) == ("text", "text-classification", "Classification")
+    assert tasks["text-classification"]["group"] == "text-classification"
+    assert tasks["text-generation"]["category"] == "chat" and tasks["vision-language"]["category"] == "vision"
+    assert list(tasks)[:2] == ["text-generation", "text-classification"]
 
     # A model loaded by ID shows up loaded, under its task, though nobody lists it.
     assert client.post("/models/load", json={"model_id": "loaded/one", "task": "text-generation"}).status_code == 200

@@ -265,7 +265,7 @@ def test_graph_tables_survive_a_reload(client):
 
 
 def test_graph_writes_need_the_client_key_and_drops_the_admin_key(client, monkeypatch):
-    from config import Config
+    from core.config import Config
 
     monkeypatch.setattr(Config, "API_KEY", "client-key")
     monkeypatch.setattr(Config, "ADMIN_API_KEY", "admin-key")
@@ -387,7 +387,7 @@ def test_an_edge_type_can_be_made_before_its_first_edge(client):
 
 def test_queries_need_the_admin_key_since_they_can_reach_other_namespaces(client, monkeypatch):
     """A query names tables within its namespace, but SQL and Cypher reach any type, record ID or bucket."""
-    from config import Config
+    from core.config import Config
 
     assert client.post("/db", json={"name": "other"}).status_code == 201
     assert client.put("/db/other/secret/s1", json={"token": "hunter2"}).status_code == 201
@@ -408,7 +408,7 @@ def test_queries_need_the_admin_key_since_they_can_reach_other_namespaces(client
 
 def test_dropping_a_table_deletes_its_edges_a_batch_at_a_time(client, monkeypatch):
     """A graph table's rows go before its type, a batch per transaction, so no edge is left dangling."""
-    from vectorstore import tables as tables_module
+    from db import tables as tables_module
 
     monkeypatch.setattr(tables_module, "SCAN_BATCH", 2)
     assert client.post("/db", json={"name": "dropping"}).status_code == 201

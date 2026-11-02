@@ -13,13 +13,14 @@ from pydantic_ai.retries import RetryConfig  # noqa: E402
 from tenacity import stop_after_attempt  # noqa: E402
 
 from api import app as app_module  # noqa: E402
-from config import Config  # noqa: E402
+from core.config import Config  # noqa: E402
 from evals import scoring  # noqa: E402
 from evals.capture import compact, compacted, input_text, output_text, text_of  # noqa: E402
 from evals.scoring import METRICS, score_items  # noqa: E402
 from evals.store import bucket_for, expired_buckets, summarize_scores  # noqa: E402
-from models.generic.transformers_model import TransformersModel  # noqa: E402
+from models.families.generic.transformers_model import TransformersModel  # noqa: E402
 from tests.fakes import FakeModel, registered, swapped  # noqa: E402
+from tests.waits import until, until_async  # noqa: E402
 
 
 def fake_judge(failing_on: str = ""):
@@ -66,16 +67,6 @@ def flush(client):
 
 def infer(client, text, model_id="ev/model", **headers):
     return client.post("/inference", headers=headers, json={"model_id": model_id, "task": "text-generation", "input": {"text": text}})
-
-
-def wait_for(fn, timeout=30):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        value = fn()
-        if value:
-            return value
-        time.sleep(0.05)
-    raise AssertionError("Timed out")
 
 
 # ------------------------------------------------------------- pure parts
@@ -268,7 +259,7 @@ def dataset(client):
 
 
 def finished(client, run_id):
-    return wait_for(lambda: (lambda r: r if r["status"] in ("done", "failed", "cancelled") else None)(client.get(f"/admin/runs/{run_id}").json()))
+    return until(lambda: (lambda r: r if r["status"] in ("done", "failed", "cancelled") else None)(client.get(f"/admin/runs/{run_id}").json()))
 
 
 def test_runs_execute_score_judge_and_compare(client, dataset, monkeypatch):
@@ -305,7 +296,7 @@ def test_runs_execute_score_judge_and_compare(client, dataset, monkeypatch):
     # A judge call that keeps failing is that item's failure, not the run's: the others are scored.
     r = client.post(f"/admin/runs/{run_a['id']}/judge", json={"model": "judge:v1", "base_url": ""})
     assert r.status_code == 202, r.text
-    judged = wait_for(lambda: (lambda s: s if "judge" in s else None)(client.get(f"/admin/runs/{run_a['id']}").json()["summary"]))
+    judged = until(lambda: (lambda s: s if "judge" in s else None)(client.get(f"/admin/runs/{run_a['id']}").json()["summary"]))
     assert judged["judge"] == {"count": 3, "scored": 2, "mean": 0.75}
     detail = client.get(f"/admin/runs/{run_a['id']}").json()
     assert detail["activity"] is None
@@ -315,12 +306,12 @@ def test_runs_execute_score_judge_and_compare(client, dataset, monkeypatch):
     # With the judge back, judging again replaces the scores.
     monkeypatch.setattr(scoring, "judge_model", lambda judge, local=None: fake_judge())
     client.post(f"/admin/runs/{run_a['id']}/judge", json={"model": "judge:v1", "base_url": ""})
-    wait_for(lambda: client.get(f"/admin/runs/{run_a['id']}").json()["summary"]["judge"]["scored"] == 3)
+    until(lambda: client.get(f"/admin/runs/{run_a['id']}").json()["summary"]["judge"]["scored"] == 3)
 
     r = client.post(f"/admin/runs/{run_a['id']}/judge", json={"model": "judge:v1", "base_url": "", "against": run_b["id"]})
     assert r.status_code == 202, r.text
     metric = f"judge_vs_{run_b['id']}"
-    pairwise = wait_for(lambda: client.get(f"/admin/runs/{run_a['id']}").json()["summary"].get(metric))
+    pairwise = until(lambda: client.get(f"/admin/runs/{run_a['id']}").json()["summary"].get(metric))
     # The wordy model's answers are longer, which this judge prefers, in either order.
     assert (pairwise["wins"], pairwise["ties"], pairwise["losses"]) == (0, 0, 3) and pairwise["mean"] == 0.0
 
@@ -365,12 +356,12 @@ def test_eval_routes_need_the_admin_key(client, monkeypatch):
 
 
 def task_runner(arcade):
-    """The task queue runs wait in (jobs/tasks.py), on a database of its own."""
-    from jobs.store import JobStore
-    from jobs.tasks import TaskRunner
-    from vectorstore.tables import TableStore
+    """The task queue runs wait in (tasks/runner.py), on a database of its own."""
+    from tasks.store import TaskStore
+    from tasks.runner import TaskRunner
+    from db.tables import TableStore
 
-    return TaskRunner(JobStore(arcade, TableStore(arcade)))
+    return TaskRunner(TaskStore(arcade, TableStore(arcade)))
 
 
 def test_a_run_cancelled_while_queued_is_reported_once(arcade):
@@ -392,7 +383,7 @@ def test_a_run_cancelled_while_queued_is_reported_once(arcade):
     class Hooks:
         sent = []
 
-        def send(self, event, data, extra_urls=()):
+        async def send(self, event, data, extra_urls=()):
             self.sent.append((event, data["status"]))
 
     async def scenario():
@@ -458,10 +449,7 @@ def test_a_resumed_run_skips_the_examples_it_answered(arcade):
         store.rows["r1"]["status"] = "queued"  # start() marks a queued run with no task interrupted; resume re-queues
         await runner.submit("r1")
         await tasks.start()
-        for _ in range(100):
-            if store.rows["r1"]["status"] == "done":
-                break
-            await asyncio.sleep(0.02)
+        await until_async(lambda: store.rows["r1"]["status"] == "done", 2, lambda: f"run {store.rows['r1']}")
         await tasks.stop()
         return store
 
@@ -543,10 +531,9 @@ def test_cancelling_a_judge_stops_its_scoring(arcade, monkeypatch):
 
 
 async def until_status(tasks, id, status, timeout=10.0):
-    deadline = time.monotonic() + timeout
-    while (await tasks.get(id))["status"] != status:
-        assert time.monotonic() < deadline, f"task {id} is still {(await tasks.get(id))['status']}"
-        await asyncio.sleep(0.02)
+    async def reached():
+        return (await tasks.get(id))["status"] == status
+    await until_async(reached, timeout, f"task {id} never became {status}")
 
 
 def test_a_run_the_service_stopped_under_goes_on_by_itself(arcade):
@@ -604,10 +591,7 @@ def test_a_run_the_service_stopped_under_goes_on_by_itself(arcade):
         store.rows["r1"]["status"] = "queued"  # as POST /admin/runs leaves it, once the service is up
         await runner.submit("r1")
         await tasks.start()
-        for _ in range(200):
-            if len(first.answered) == 2:
-                break
-            await asyncio.sleep(0.02)
+        await until_async(lambda: len(first.answered) == 2, 4, lambda: f"answered {first.answered}")
         await tasks.stop()
         stopped, items = dict(store.rows["r1"]), list(store.items)
         # The next one goes on from there.
@@ -616,10 +600,7 @@ def test_a_run_the_service_stopped_under_goes_on_by_itself(arcade):
         runner = RunExecutor(store, manager=second, tasks=tasks)
         await runner.start()
         await tasks.start()
-        for _ in range(200):
-            if store.rows["r1"]["status"] == "done":
-                break
-            await asyncio.sleep(0.02)
+        await until_async(lambda: store.rows["r1"]["status"] == "done", 4, lambda: f"run {store.rows['r1']}")
         await tasks.stop()
         return stopped, items, second.answered, store
 
@@ -665,10 +646,7 @@ async def run_to_the_end(runner, tasks, store, run_id="r1", until=("done", "canc
     store.rows[run_id] = {"id": run_id, "status": "queued", "dataset_id": "d", "model_id": "m", "task": "t", "failed": 0}
     await runner.submit(run_id)
     await tasks.start()
-    for _ in range(500):
-        if store.rows[run_id]["status"] in until:
-            break
-        await asyncio.sleep(0.02)
+    await until_async(lambda: store.rows[run_id]["status"] in until, 10, lambda: f"run {store.rows[run_id]}")
     await tasks.stop()
 
 
@@ -713,10 +691,7 @@ def test_cancelling_a_run_drops_the_requests_of_its_page_still_waiting(arcade):
         store.rows["r1"] = {"id": "r1", "status": "queued", "dataset_id": "d", "model_id": "m", "failed": 0}
         await runner.submit("r1")
         await tasks.start()
-        for _ in range(250):
-            if store.rows["r1"]["status"] != "queued":
-                break
-            await asyncio.sleep(0.02)
+        await until_async(lambda: store.rows["r1"]["status"] != "queued", 5, "the run never started")
         assert store.rows["r1"]["status"] == "running"
         await asyncio.sleep(0.05)  # q0 is answered; the rest wait
         started = time.monotonic()

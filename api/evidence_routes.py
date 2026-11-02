@@ -10,6 +10,7 @@ captures (see evidence/), kept by workspace.
     POST /evidence/captures                      multipart: "metadata" JSON and one "file" per artifact
     GET  /evidence/captures/{id}                 the signed record, its hash, signature and time stamp
     GET  /evidence/captures/{id}/artifacts/{name}  one captured file
+    GET  /evidence/search?q=&case=&tag=&since=&until=  captures across the cases, by their words, tag and time
     GET  /evidence/cases/{id}/annotations        tags and notes of the case's captures that have any
     PUT  /evidence/captures/{id}/annotations     {tags?, notes?}: replace the capture's tags, notes or both
     GET  /evidence/cases/{id}/todos              the case's to-do list
@@ -43,7 +44,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -52,11 +53,12 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
-from config import Config
-from errors import Forbidden, NotFound, Refused
+from core.config import Config
+from core.errors import Forbidden, NotFound, Refused
 from evidence import Ledger, timestamp_one, timestamp_pending, verify_all, verify_uploads
 from evidence.enrich import enrichment
 from evidence.record import DEFAULT_WORKSPACE_ID, MAX_WORKSPACE_ID
+from db.tables import MAX_SEARCH
 from . import deps
 from . import responses
 
@@ -169,6 +171,7 @@ class TodosBody(BaseModel):
 # -------------------------------------------------------------- workspaces
 @router.get("/workspaces", **responses.answering(responses.EvidenceWorkspaces))
 async def list_workspaces(store: deps.Evidence) -> Dict[str, Any]:
+    """The workspaces; ``default`` always exists."""
     return {"workspaces": await store.list_workspaces()}
 
 
@@ -182,17 +185,49 @@ async def create_workspace(body: NewWorkspace, store: deps.Evidence) -> Dict[str
 # ------------------------------------------------------------------ cases
 @router.get("/cases", **responses.answering(responses.EvidenceCases))
 async def list_cases(ledger: WorkspaceLedger) -> Dict[str, Any]:
+    """The workspace's cases; ``inbox`` always exists."""
     return {"cases": await ledger.list_cases()}
 
 
 @router.post("/cases", **responses.answering(responses.CaseCreated))
 async def create_case(body: NewCase, ledger: WorkspaceLedger) -> Dict[str, Any]:
+    """Make a case in the workspace."""
     return {"case": await ledger.create_case(body.name)}
 
 
 @router.get("/cases/{case_id}/captures", **responses.answering(responses.CaptureSummaries))
 async def list_captures(case_id: str, ledger: WorkspaceLedger) -> Dict[str, Any]:
+    """The case's captures, newest first."""
     return {"captures": await ledger.list_by_case(case_id)}
+
+
+# A time as an ISO 8601 prefix, UTC: 2026, 2026-10, 2026-10-31, 2026-10-31T12, ... 2026-10-31T12:00:00.123Z.
+TIME_PREFIX = r"^\d{4}(-\d{2}(-\d{2}(T\d{2}(:\d{2}(:\d{2}(\.\d{1,3})?)?)?)?)?)?Z?$"
+
+
+@router.get("/search", **responses.answering(responses.EvidenceSearch))
+async def search_captures(
+    ledger: WorkspaceLedger,
+    q: Optional[str] = Query(None, max_length=MAX_SEARCH,
+                             description='Words the captures must hold, in their pages\' text, address, title, tags or '
+                                         'notes: every word, a "quoted phrase" as written, -word must not, word* for '
+                                         'words starting so'),
+    case: Optional[str] = Query(None, max_length=200, description="Only this case's captures; every case's when left out"),
+    tag: Optional[str] = Query(None, max_length=MAX_TAG, description="Only captures with this tag, as written"),
+    since: Optional[str] = Query(None, pattern=TIME_PREFIX, description="Received at or after this UTC time: 2026-10-31, "
+                                                                         "2026-10-31T12:00"),
+    until: Optional[str] = Query(None, pattern=TIME_PREFIX, description="Received up to the end of this UTC time: "
+                                                                         "2026-10 is all of October"),
+    sort: Optional[Literal["relevance", "newest", "oldest"]] = Query(
+        None, description="The best match first with q (relevance), else the newest first"),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="The previous page's next"),
+) -> Dict[str, Any]:
+    """Search the workspace's captures across its cases, or list them all, newest first, by case, tag and time.
+    Each comes with its case, its tags and, for a search, the bit of text that matched. 400 for ``q`` with no
+    word to find. The words of a page are those of its HTML and MHTML snapshots and plain text files, read when
+    it was captured; a domain such as site.example.com is one word."""
+    return await ledger.find(q, case, tag, since, until, sort, limit, cursor)
 
 
 async def _read_multipart(request: Request) -> Tuple[Any, Dict[str, bytes]]:
@@ -236,7 +271,9 @@ async def _read_multipart(request: Request) -> Tuple[Any, Dict[str, bytes]]:
 async def create_capture(
     request: Request, ledger: WorkspaceLedger, tsa: deps.EvidenceTsa, enrichers: deps.OptionalEnrichers
 ) -> Dict[str, Any]:
-    """Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it."""
+    """Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it. The body is
+    multipart: ``metadata`` (JSON with ``caseId`` and ``artifacts``, each with the SHA-256 the browser computed) and one
+    ``file`` per artifact, named after it."""
     metadata, files = await _read_multipart(request)
     if not isinstance(metadata, dict):
         raise Refused("metadata must be a JSON object")
@@ -258,6 +295,7 @@ async def create_capture(
 
 @router.get("/captures/{capture_id}", **responses.answering(responses.Capture))
 async def get_capture(capture_id: str, ledger: WorkspaceLedger) -> Dict[str, Any]:
+    """The parsed record, with its hash, its signature and its time stamp (when it was granted, or why it failed)."""
     row = await ledger.get(capture_id)
     if row is None:
         raise NotFound("unknown capture")
@@ -319,6 +357,7 @@ async def verify(ledger: WorkspaceLedger) -> Dict[str, Any]:
 
 @router.get("/public-key", response_class=PlainTextResponse)
 async def public_key(store: deps.Evidence):
+    """The signing key's public half (PEM), to check the records' signatures with."""
     pem = await store.database.run(lambda: store.signer.public_pem)
     return PlainTextResponse(pem, media_type="application/x-pem-file")
 

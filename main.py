@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 import uvicorn
-from config import Config
+from core.config import Config
 
 
 def _lock_holder(path: str):
@@ -49,7 +49,7 @@ if __name__ == "__main__":
         sys.exit(1)
     # Before anything starts: a second copy would only fail once its startup reached the database.
     if Config.ARCADEDB_PATH:
-        from vectorstore.engine import open_elsewhere
+        from db.engine import open_elsewhere
 
         if open_elsewhere(Config.ARCADEDB_PATH):
             _warn_running(Config.ARCADEDB_PATH)

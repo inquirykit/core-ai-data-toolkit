@@ -5,22 +5,31 @@ database.
 Only metadata is recorded here (model, task, outcome, duration); a request's
 input and output are its trace in evals/store.py, linked by trace_id and kept
 for fewer days. Recording never blocks: rows go onto a queue that one
-background thread writes in batches (vectorstore.BatchWriter).
+background thread writes in batches (db.BatchWriter).
+
+Each batch also adds its requests to an hourly summary (tk_request_hour: per
+hour, model and task, the counts, tokens and a latency histogram), in the same
+transaction, so it is always current. A range of at most RAW_SPAN_S within the
+request history is summarized from its requests, at any resolution; a longer
+or older one from the hourly summary, in whole hours, which is kept for
+HOURS_KEPT_DAYS. A day's requests are thousands of rows, its hours a few dozen.
 """
 
-import itertools
+import json
 import logging
 import math
 import os
-import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence
+from collections import Counter
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from vectorstore import BatchWriter, Database, DocumentStore, on_pool
+from db import Database, QueuedStore, Where, on_pool
+from db.engine import content
 
 logger = logging.getLogger(__name__)
 
 REQUEST = "tk_request"
+HOUR = "tk_request_hour"
 EVENT = "tk_event"
 SCHEMA: Dict[str, Dict[str, Any]] = {
     REQUEST: {
@@ -36,6 +45,17 @@ SCHEMA: Dict[str, Dict[str, Any]] = {
         },
         "indexes": [("id", True), ("ts", False)],
     },
+    HOUR: {
+        "props": {
+            "hour": "LONG",                # Unix time the hour starts at
+            "model_id": "STRING", "task": "STRING",
+            "ok": "INTEGER", "client_error": "INTEGER", "error": "INTEGER",  # its requests, by status
+            "cold_starts": "INTEGER", "prompt_tokens": "LONG", "completion_tokens": "LONG",
+            "last_request": "DOUBLE",
+            "latency": "STRING",           # the durations' histogram, JSON {bucket: count} (see latency_bucket)
+        },
+        "indexes": [("hour, model_id, task", True), ("hour", False)],
+    },
     EVENT: {
         "props": {
             "id": "LONG", "ts": "DOUBLE",
@@ -45,14 +65,39 @@ SCHEMA: Dict[str, Dict[str, Any]] = {
         "indexes": [("id", True), ("ts", False)],
     },
 }
+REQUEST_COLUMNS = "ts, model_id, task, status, duration_ms, cold, prompt_tokens, completion_tokens"
+# Ranges up to this long are summarized from their requests (when the request history still has them).
+RAW_SPAN_S = 6 * 3600
+# The hourly summary is kept this long, or as long as the requests when that is longer.
+HOURS_KEPT_DAYS = 90
+
+# Latency as a histogram: a duration of ``ms`` falls in bucket ceil(log(ms, GAMMA)), and a bucket reads as a value
+# within ACCURACY of every duration in it (as DDSketch does). Histograms add up, so percentiles over many hours are
+# as close as over the requests themselves.
+ACCURACY = 0.01
+GAMMA = (1 + ACCURACY) / (1 - ACCURACY)
+FASTEST_MS = 0.001  # shorter durations count as this
+
+STATUSES = ("ok", "client_error", "error")
+# What a tally adds up, besides its latency histogram and last request.
+SUMS = (*STATUSES, "cold_starts", "prompt_tokens", "completion_tokens")
 
 
-def percentile(sorted_values: Sequence[float], q: float) -> Optional[float]:
-    """Nearest-rank percentile of an ascending list (None when empty)."""
-    if not sorted_values:
+def latency_bucket(ms: float) -> int:
+    return math.ceil(math.log(max(ms, FASTEST_MS), GAMMA))
+
+
+def percentile(histogram: Dict[int, int], q: float) -> Optional[float]:
+    """Nearest-rank percentile of a latency histogram, within ACCURACY (None when empty)."""
+    total = sum(histogram.values())
+    if not total:
         return None
-    rank = max(1, math.ceil(len(sorted_values) * q / 100))
-    return sorted_values[rank - 1]
+    rank, seen = max(1, math.ceil(total * q / 100)), 0
+    for bucket in sorted(histogram):
+        seen += histogram[bucket]
+        if seen >= rank:
+            return 2 * GAMMA ** bucket / (GAMMA + 1)
+    return None
 
 
 def _column(row: Any, name: str) -> Any:
@@ -63,99 +108,115 @@ def _column(row: Any, name: str) -> Any:
         return None
 
 
-def summarize(rows: Sequence[Any], since: float, until: float, buckets: int = 60) -> Dict[str, Any]:
-    """Totals, per-model stats and a timeline from request rows.
+def tally() -> Dict[str, Any]:
+    """Nothing counted yet."""
+    return {**dict.fromkeys(SUMS, 0), "last_request": None, "latency": Counter()}
 
-    Each row has ts, model_id, task, status, duration_ms and cold, and may
-    have prompt_tokens and completion_tokens.
-    """
-    bucket_s = max((until - since) / buckets, 1.0)
-    timeline = [
-        {"start": since + i * bucket_s, "ok": 0, "client_error": 0, "error": 0, "_durations": []}
-        for i in range(buckets)
-    ]
-    per_model: Dict[str, Dict[str, Any]] = {}
-    durations: List[float] = []
-    counts = {"ok": 0, "client_error": 0, "error": 0}
-    tokens = {"prompt_tokens": 0, "completion_tokens": 0}
 
+def add(into: Dict[str, Any], part: Dict[str, Any]) -> None:
+    """Count ``part`` (a request, an hour or another tally) into ``into``."""
+    for name in SUMS:
+        into[name] += part[name] or 0
+    if part["last_request"] is not None:
+        into["last_request"] = max(into["last_request"] or 0, part["last_request"])
+    into["latency"].update(part["latency"])
+
+
+def of_request(row: Any) -> Dict[str, Any]:
+    """A request row as a tally of one, at its time. Rows from before the token columns existed lack them."""
+    return {
+        "at": row["ts"], "model_id": row["model_id"], "task": row["task"],
+        **{status: int(row["status"] == status) for status in STATUSES},
+        "cold_starts": int(bool(row["cold"])),
+        "prompt_tokens": _column(row, "prompt_tokens"), "completion_tokens": _column(row, "completion_tokens"),
+        "last_request": row["ts"], "latency": {latency_bucket(row["duration_ms"]): 1},
+    }
+
+
+def of_hour(row: Dict[str, Any]) -> Dict[str, Any]:
+    """An hourly summary row as a tally, at its hour's start."""
+    return {**row, "at": row["hour"], "latency": {int(b): n for b, n in json.loads(row["latency"] or "{}").items()}}
+
+
+def hours_of(rows: Iterable[Any]) -> Dict[Tuple[int, str, str], Dict[str, Any]]:
+    """Request rows tallied by (hour, model_id, task)."""
+    hours: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
     for row in rows:
-        counts[row["status"]] = counts.get(row["status"], 0) + 1
-        durations.append(row["duration_ms"])
-        row_tokens = {name: _column(row, name) or 0 for name in tokens}
-        for name, n in row_tokens.items():
-            tokens[name] += n
+        key = (int(row["ts"] // 3600 * 3600), row["model_id"], row["task"])
+        add(hours.setdefault(key, tally()), of_request(row))
+    return hours
 
-        key = f"{row['model_id']}:{row['task']}"
-        model = per_model.setdefault(key, {
-            "model_key": key, "model_id": row["model_id"], "task": row["task"],
-            "requests": 0, "client_errors": 0, "errors": 0, "cold_starts": 0,
-            "prompt_tokens": 0, "completion_tokens": 0,
-            "last_request": None, "_durations": [],
-        })
-        model["requests"] += 1
-        for name, n in row_tokens.items():
-            model[name] += n
-        model["client_errors"] += row["status"] == "client_error"
-        model["errors"] += row["status"] == "error"
-        model["cold_starts"] += bool(row["cold"])
-        model["last_request"] = max(model["last_request"] or 0, row["ts"])
-        model["_durations"].append(row["duration_ms"])
 
-        index = min(int((row["ts"] - since) // bucket_s), buckets - 1)
+def hourly_buckets(since: float, until: float, buckets: int) -> Tuple[float, float, int]:
+    """A timeline of at most ``buckets`` points of whole hours, from the hour ``since`` falls in: where it starts,
+    how long each point is and how many there are."""
+    start = since // 3600 * 3600
+    bucket_s = max(1, math.ceil((until - start) / buckets / 3600)) * 3600
+    return start, bucket_s, math.ceil((until - start) / bucket_s)
+
+
+def summarize(parts: Iterable[Dict[str, Any]], since: float, until: float, buckets: int = 60,
+              bucket_s: Optional[float] = None) -> Dict[str, Any]:
+    """Totals, per-model stats and a timeline of ``buckets`` points from tallies (of_request, of_hour).
+
+    The points start at ``since``, each ``bucket_s`` long (an even share of the range when left out); a part
+    counts in the point its ``at`` falls in.
+    """
+    bucket_s = bucket_s or max((until - since) / buckets, 1.0)
+    timeline = [tally() for _ in range(buckets)]
+    per_model: Dict[str, Dict[str, Any]] = {}
+    total = tally()
+    for part in parts:
+        add(total, part)
+        key = f"{part['model_id']}:{part['task']}"
+        if key not in per_model:
+            per_model[key] = {"model_key": key, "model_id": part["model_id"], "task": part["task"], **tally()}
+        add(per_model[key], part)
+        index = min(int((part["at"] - since) // bucket_s), buckets - 1)
         if index >= 0:
-            timeline[index][row["status"]] += 1
-            timeline[index]["_durations"].append(row["duration_ms"])
+            add(timeline[index], part)
 
-    def latency(values: List[float]) -> Dict[str, Optional[float]]:
-        values.sort()
-        return {"p50_ms": percentile(values, 50), "p95_ms": percentile(values, 95)}
+    def latency(t: Dict[str, Any]) -> Dict[str, Optional[float]]:
+        return {"p50_ms": percentile(t["latency"], 50), "p95_ms": percentile(t["latency"], 95)}
 
-    for model in per_model.values():
-        model.update(latency(model.pop("_durations")))
-    for point in timeline:
-        point.update(latency(point.pop("_durations")))
+    def counts(t: Dict[str, Any]) -> Dict[str, Any]:
+        return {"requests": sum(t[s] for s in STATUSES), "client_errors": t["client_error"], "errors": t["error"],
+                "prompt_tokens": t["prompt_tokens"], "completion_tokens": t["completion_tokens"], **latency(t)}
 
-    total = sum(counts.values())
+    totals = counts(total)
     return {
         "since": since,
         "until": until,
         "bucket_s": bucket_s,
         "totals": {
-            "requests": total,
-            "ok": counts["ok"],
-            "client_errors": counts["client_error"],
-            "errors": counts["error"],
-            "error_rate": counts["error"] / total if total else 0.0,
-            "requests_per_min": total / ((until - since) / 60),
-            **tokens,
-            **latency(durations),
+            **totals,
+            "ok": total["ok"],
+            "error_rate": total["error"] / totals["requests"] if totals["requests"] else 0.0,
+            "requests_per_min": totals["requests"] / ((until - since) / 60),
         },
-        "models": sorted(per_model.values(), key=lambda m: m["requests"], reverse=True),
-        "timeline": timeline,
+        "models": sorted(({"model_key": m["model_key"], "model_id": m["model_id"], "task": m["task"], **counts(m),
+                           "cold_starts": m["cold_starts"], "last_request": m["last_request"]}
+                          for m in per_model.values()), key=lambda m: m["requests"], reverse=True),
+        "timeline": [{"start": since + i * bucket_s, **{s: p[s] for s in STATUSES}, **latency(p)}
+                     for i, p in enumerate(timeline)],
     }
 
 
-class MonitoringStore(DocumentStore):
-    """Records request metrics and model events; see the module docstring."""
+def _hour_row(key: Tuple[int, str, str], counted: Dict[str, Any]) -> Dict[str, Any]:
+    hour, model_id, task = key
+    return {"hour": hour, "model_id": model_id, "task": task, **{name: counted[name] for name in SUMS},
+            "last_request": counted["last_request"], "latency": json.dumps(counted["latency"], separators=(",", ":"))}
+
+
+class MonitoringStore(QueuedStore):
+    """Records request metrics and model events; see the module docstring. The dashboard pages events by id."""
 
     SCHEMA = SCHEMA
+    RETAINED = ((REQUEST, "ts"), (EVENT, "ts"))
+    MIGRATIONS = (("monitoring-hourly-summary", "_summarize_past_hours"),)
 
     def __init__(self, database: Database, retention_days: float = 7.0, max_queue: int = 10_000):
-        super().__init__(database)
-        self.retention_s = retention_days * 86400
-        self.writer = BatchWriter(self._write, "monitoring-writer", max_queue, batch_size=500)
-        # Ids increase in the order rows are recorded (the dashboard pages events by id).
-        self._ids = itertools.count(time.time_ns() // 1000)
-        self._id_lock = threading.Lock()
-
-    @property
-    def dropped(self) -> int:
-        return self.writer.dropped
-
-    def _next_id(self) -> int:
-        with self._id_lock:
-            return next(self._ids)
+        super().__init__(database, "monitoring-writer", retention_days, max_queue, batch_size=500)
 
     # --------------------------------------------------------------- writing
     def record_request(
@@ -176,31 +237,70 @@ class MonitoringStore(DocumentStore):
             "duration_ms": None if duration_ms is None else float(duration_ms), "detail": detail, "pid": os.getpid(),
         }))
 
-    def _write(self, rows: List[tuple]) -> None:
+    def _write(self, items: List[Any]) -> None:
+        hours = hours_of(doc for type_name, doc in items if type_name == REQUEST)
         db = self._db()
-        self._commit(db, lambda: [self._insert(db, type_name, doc) for type_name, doc in rows])
 
-    @on_pool
-    def prune(self) -> int:
-        """Delete rows older than the retention (api/app.py runs this hourly); how many went."""
-        cutoff = time.time() - self.retention_s
-        return sum(self._delete_older(type_name, "ts", cutoff) for type_name in (REQUEST, EVENT))
+        def work() -> None:
+            for type_name, doc in items:
+                self._insert(db, type_name, doc)
+            self._add_hours(db, hours)
 
-    def flush(self) -> None:
-        """Block until everything recorded so far is written."""
-        self.writer.flush()
+        self._commit(db, work)
 
-    def close(self) -> None:
-        """Write what is queued and stop the writer. Recording again restarts it."""
-        self.writer.close(timeout=5)
+    def _add_hours(self, db, hours: Dict[Tuple[int, str, str], Dict[str, Any]]) -> None:
+        """Count ``hours`` (hours_of) into the hourly summary, in the caller's transaction."""
+        if not hours:
+            return
+        rows = self._rows(db, f"SELECT FROM {HOUR} WHERE hour IN :hours", {"hours": sorted({k[0] for k in hours})})
+        kept = {(r["hour"], r["model_id"], r["task"]): r for r in rows}
+        for key, counted in hours.items():
+            if key not in kept:
+                self._insert(db, HOUR, _hour_row(key, counted))
+                continue
+            merged = tally()
+            add(merged, counted)
+            add(merged, of_hour(kept[key]))
+            row = _hour_row(key, merged)
+            db.command("sql", f"UPDATE {HOUR} CONTENT {content(row)} WHERE hour = :hour AND model_id = :model_id "
+                              f"AND task = :task", row)
+
+    def _summarize_past_hours(self, db) -> None:
+        """The hourly summary of the requests recorded before there was one, a day of them at a time."""
+        bounds = self._rows(db, f"SELECT min(ts) AS first, max(ts) AS last FROM {REQUEST}")
+        if not bounds or bounds[0].get("first") is None:
+            return
+        hours: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
+        day = bounds[0]["first"] // 86400 * 86400
+        while day <= bounds[0]["last"]:
+            hours.update(hours_of(self._rows(db, f"SELECT {REQUEST_COLUMNS} FROM {REQUEST} WHERE ts >= :a AND ts < :b",
+                                             {"a": day, "b": day + 86400})))
+            day += 86400
+
+        def work() -> None:
+            db.command("sql", f"DELETE FROM {HOUR}")  # left by a run that failed part way
+            for key, counted in hours.items():
+                self._insert(db, HOUR, _hour_row(key, counted))
+
+        self._commit(db, work)
+
+    def _prune(self) -> int:
+        kept_days = max(self.retention_days, HOURS_KEPT_DAYS)
+        return super()._prune() + self._delete_older(HOUR, "hour", time.time() - kept_days * 86400)
 
     # --------------------------------------------------------------- reading
     @on_pool
     def summary(self, since: float, until: float, buckets: int = 60) -> Dict[str, Any]:
-        rows = self._select(f"SELECT ts, model_id, task, status, duration_ms, cold, prompt_tokens, "
-                                      f"completion_tokens FROM {REQUEST} WHERE ts >= :since AND ts <= :until",
-                          {"since": since, "until": until})
-        return summarize(rows, since, until, buckets)
+        """summarize() over the range: from its requests when it is at most RAW_SPAN_S long and the request
+        history still has them, else from the hourly summary, starting at the hour ``since`` falls in."""
+        if until - since <= RAW_SPAN_S and since >= time.time() - self.retention_days * 86400:
+            rows = self._select(f"SELECT {REQUEST_COLUMNS} FROM {REQUEST} WHERE ts >= :since AND ts <= :until",
+                                {"since": since, "until": until})
+            return summarize(map(of_request, rows), since, until, buckets)
+        start, bucket_s, points = hourly_buckets(since, until, buckets)
+        rows = self._select(f"SELECT FROM {HOUR} WHERE hour >= :start AND hour < :until",
+                            {"start": start, "until": until})
+        return summarize(map(of_hour, rows), start, until, points, bucket_s)
 
     @on_pool
     def events(
@@ -211,8 +311,8 @@ class MonitoringStore(DocumentStore):
         until: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """Newest first; with ``after_id``, only events newer than that one; ``since``/``until`` bound ``ts``."""
-        where, params = _bounds(["id > :after_id"], {"after_id": after_id}, since, until)  # (:after is a reserved word)
-        return self._select(f"SELECT FROM {EVENT} WHERE {where} ORDER BY id DESC LIMIT {int(limit)}", params)
+        where = Where().add("id", ">", after_id).add("ts", ">=", since).add("ts", "<=", until)
+        return self._select(f"SELECT FROM {EVENT}{where} ORDER BY id DESC LIMIT {int(limit)}", where.params)
 
     @on_pool
     def recent_requests(
@@ -224,22 +324,6 @@ class MonitoringStore(DocumentStore):
         model: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Newest first. ``status`` matches exactly; ``model`` is a case-insensitive substring of the model ID or task."""
-        where, params = _bounds(["id IS NOT NULL"], {}, since, until)
-        if status:
-            where += " AND status = :status"
-            params["status"] = status
-        if model:
-            where += " AND (model_id ILIKE :model OR task ILIKE :model)"
-            params["model"] = f"%{model}%"
-        return self._select(f"SELECT FROM {REQUEST} WHERE {where} ORDER BY id DESC LIMIT {int(limit)}", params)
-
-
-def _bounds(clauses: List[str], params: Dict[str, Any], since: Optional[float], until: Optional[float]):
-    """The clauses joined with the ``ts`` bounds that are given."""
-    if since is not None:
-        clauses.append("ts >= :since")
-        params["since"] = since
-    if until is not None:
-        clauses.append("ts <= :until")
-        params["until"] = until
-    return " AND ".join(clauses), params
+        where = (Where("id IS NOT NULL").add("ts", ">=", since).add("ts", "<=", until).add("status", "=", status)
+                 .like(["model_id", "task"], model))
+        return self._select(f"SELECT FROM {REQUEST}{where} ORDER BY id DESC LIMIT {int(limit)}", where.params)

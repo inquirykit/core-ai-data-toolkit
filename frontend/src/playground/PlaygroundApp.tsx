@@ -1,70 +1,56 @@
-import { useEffect, useMemo, useState } from "react";
-import { AudioLines, Image, MessagesSquare, Puzzle, Scale, TrendingUp, Type, type LucideIcon } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClient, type ApiClient } from "../shared/api";
+import { Boundary } from "../shared/boundary";
+import { CATEGORIES, type Category, type CategoryKey } from "../shared/categories";
 import { LoginForm, Notice, type NoticeState } from "../shared/components";
-import type { CatalogTask } from "../shared/model-browser/catalog";
+import { CHAT_TASKS, type CatalogTask } from "../shared/model-browser/catalog";
 import { ADMIN_KEY_STORAGE, useSession } from "../shared/session";
 import { errorText } from "../shared/query";
 import { PageMain, Shell } from "../shared/Shell";
 import { readLocal, readSession, writeLocal } from "../shared/storage";
 import type { Limits } from "../shared/types";
-import { CATEGORIES, categoryOf, modelsOf, shownCategories, tasksIn, type Category, type CategoryKey } from "./categories";
+import { choiceIn, groupFor, groupsIn, modelsOf, shownCategories, tasksIn, withChoice, withLink, type TabPrefs, type TaskLink } from "./categories";
 import { ChatView } from "./ChatView";
 import { TaskView } from "./TaskView";
 
 const KEY_STORAGE = "ai-toolkit-playground-key";
 const TABS_STORAGE = "ai-toolkit-playground-tabs";
 
-const ICONS: Record<CategoryKey, LucideIcon> = {
-  chat: MessagesSquare,
-  vision: Image,
-  text: Type,
-  audio: AudioLines,
-  decision: Scale,
-  prediction: TrendingUp,
-  other: Puzzle,
-};
-
-/** The tab, each category's task, and each task's model (the chat's own choices are ChatView's). */
-interface TabPrefs {
-  category: CategoryKey;
-  tasks: Partial<Record<CategoryKey, string>>;
-  models: Record<string, string>;
-}
-
 const isCategory = (key: unknown): key is CategoryKey => CATEGORIES.some((c) => c.key === key);
 
 // Until /playground/limits answers.
 const DEFAULT_LIMITS: Limits = { max_models: 3, max_generation_length: 512, max_input_chars: 10000 };
 
-/** The tabs to open on, from storage and the address; ``chatLink`` is a model for the chat's column A. */
-function openingPrefs(): { prefs: TabPrefs; chatLink: string | null; linked: boolean } {
+/**
+ * The tabs to open on, from storage and the address; ``chatLink`` is a model for the chat's column A, ``taskLink``
+ * one for another tab, which only the catalog can name (withLink).
+ */
+function openingPrefs(): { prefs: TabPrefs; chatLink: string | null; taskLink: TaskLink | null; linked: boolean } {
   const stored = readLocal<TabPrefs>(TABS_STORAGE);
   const prefs: TabPrefs = {
     category: isCategory(stored.category) ? stored.category : "chat",
     tasks: { ...stored.tasks },
     models: { ...stored.models },
+    groups: { ...stored.groups },
   };
   // /playground?model=ID[&task=TASK] (the admin's model browser links here) opens on that model.
   const params = new URLSearchParams(location.search);
   const model = params.get("model");
   const task = params.get("task") ?? "text-generation";
-  const linkedCategory = model ? categoryOf(task) : null;
   let chatLink: string | null = null;
-  if (model && linkedCategory === "chat") {
+  let taskLink: TaskLink | null = null;
+  if (model && CHAT_TASKS.includes(task)) {
     prefs.category = "chat";
     chatLink = model;
-  } else if (model && linkedCategory) {
-    prefs.category = linkedCategory;
-    prefs.tasks[linkedCategory] = task;
-    prefs.models[task] = model;
+  } else if (model) {
+    taskLink = { model, task };
   }
   // #text and the like name the tab to open on.
   const hashed = location.hash.slice(1);
   if (!model && isCategory(hashed)) prefs.category = hashed;
-  return { prefs, chatLink, linked: Boolean(model) };
+  return { prefs, chatLink, taskLink, linked: Boolean(model) };
 }
 
 export function PlaygroundApp() {
@@ -91,6 +77,15 @@ export function PlaygroundApp() {
   const failure = errorText(limitsLoad.error) || (catalogLoad.data ? "" : errorText(catalogLoad.error));
   const ready = started || Boolean(failure);
   const notice: NoticeState = failure ? { text: `Could not reach the server: ${failure}`, kind: "error" } : { text: "" };
+
+  // A link to a model outside the chat opens in its task's tab once the catalog says which that is: before the
+  // page is first drawn, so the stored tab never shows first.
+  const [taskLink, setTaskLink] = useState(opening.taskLink);
+  useLayoutEffect(() => {
+    if (!started || !taskLink) return;
+    setPrefs((p) => withLink(p, taskLink, catalog));
+    setTaskLink(null);
+  }, [started, taskLink, catalog]);
 
   // Once started, the model the address names is dropped from it.
   useEffect(() => {
@@ -154,25 +149,28 @@ export function PlaygroundApp() {
                       : "pb-6 data-[state=inactive]:hidden"
                   }
                 >
-                  {category.key === "chat" ? (
-                    <ChatView
-                      key={session.generation}
-                      client={client}
-                      quiet={quiet}
-                      limits={limits}
-                      models={modelsOf(tasksIn(category, catalog))}
-                      linked={opening.chatLink}
-                    />
-                  ) : (
-                    <CategoryView
-                      category={category}
-                      catalog={catalog}
-                      prefs={prefs}
-                      setPrefs={setPrefs}
-                      client={client}
-                      onRan={() => void catalogLoad.refetch()}
-                    />
-                  )}
+                  {/* Every tab is drawn, shown or not, so one that throws would take the others with it. */}
+                  <Boundary what={category.label} resetKey={session.generation}>
+                    {category.key === "chat" ? (
+                      <ChatView
+                        key={session.generation}
+                        client={client}
+                        quiet={quiet}
+                        limits={limits}
+                        models={modelsOf(tasksIn(category, catalog))}
+                        linked={opening.chatLink}
+                      />
+                    ) : (
+                      <CategoryView
+                        category={category}
+                        catalog={catalog}
+                        prefs={prefs}
+                        setPrefs={setPrefs}
+                        client={client}
+                        onRan={() => void catalogLoad.refetch()}
+                      />
+                    )}
+                  </Boundary>
                 </TabsContent>
               ))}
             </Tabs>
@@ -193,7 +191,7 @@ function CategoryTabs({ categories }: { categories: Category[] }) {
   return (
     <TabsList aria-label="Category" className="h-10 max-w-full justify-start overflow-x-auto">
       {categories.map((c) => {
-        const Icon = ICONS[c.key];
+        const Icon = c.icon;
         return (
           <TabsTrigger key={c.key} value={c.key} title={c.blurb} className="flex-none px-3">
             <Icon aria-hidden="true" />
@@ -205,7 +203,7 @@ function CategoryTabs({ categories }: { categories: Category[] }) {
   );
 }
 
-/** One category's TaskView, with its task and model choices kept in ``prefs``. */
+/** One tab's TaskView, with its task switch's entry and each entry's model kept in ``prefs``. */
 function CategoryView(props: {
   category: Category;
   catalog: CatalogTask[];
@@ -215,18 +213,16 @@ function CategoryView(props: {
   onRan(): void;
 }) {
   const { category, prefs, setPrefs } = props;
-  const tasks = tasksIn(category, props.catalog);
-  const task = tasks.find((t) => t.task === prefs.tasks[category.key]) ?? tasks[0];
-  // The model last used for the task, else its first listed (loaded first).
-  const model = prefs.models[task.task] ?? modelsOf([task])[0]?.id ?? "";
+  const groups = groupsIn(category, props.catalog);
+  const group = groupFor(groups, prefs.tasks[category.key]);
   return (
     <TaskView
       client={props.client}
-      tasks={tasks}
-      task={task.task}
-      onTask={(next) => setPrefs((p) => ({ ...p, tasks: { ...p.tasks, [category.key]: next } }))}
-      model={model}
-      onModel={(id) => setPrefs((p) => ({ ...p, models: { ...p.models, [task.task]: id } }))}
+      groups={groups}
+      group={group}
+      onGroup={(key) => setPrefs((p) => ({ ...p, tasks: { ...p.tasks, [category.key]: key } }))}
+      choice={choiceIn(group, prefs)}
+      onChoice={(choice) => setPrefs((p) => withChoice(p, group.key, choice))}
       onRan={props.onRan}
     />
   );

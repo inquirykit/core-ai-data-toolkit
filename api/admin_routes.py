@@ -19,27 +19,25 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from config import Config
-from monitoring import summarize, system
-from errors import Refused
+from core.config import Config
+from monitoring import HOURS_KEPT_DAYS, summarize, system
+from core.errors import Refused
 from . import deps
 from . import responses
 from .setup_routes import write_settings
 
-# The largest integer the database takes (a Java long): a query integer past it would otherwise be a 500.
-INT64_MAX = 2**63 - 1
-
 router = APIRouter(prefix="/admin", dependencies=deps.ADMIN)
 
 WINDOWS = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}
-# A timeline covers at most this long, and at this many points at most.
-MAX_SPAN_S = 90 * 86400
+# A timeline covers at most as long as the hourly summary is kept, and at this many points at most.
+MAX_SPAN_S = HOURS_KEPT_DAYS * 86400
 MAX_BUCKETS = 240
 
 
 @router.get("/stats", **responses.answering(responses.Stats))
-async def stats(store: deps.Monitoring, manager: deps.Manager, window: Literal["1h", "24h", "7d"] = "1h"):
-    """Process and cache state now, plus request metrics over ``window``."""
+async def stats(store: deps.Monitoring, manager: deps.Manager, window: responses.Window = "1h"):
+    """Process and cache state now, plus request metrics over ``window`` (1h, 24h or 7d): totals, per-model stats and a
+    timeline of at most 60 points, those of 24h and 7d whole hours from the hourly summary."""
     until = time.time()
     since = until - WINDOWS[window]
     if store is None:
@@ -69,7 +67,9 @@ async def timeline(
     """Request metrics over any range: totals, per-model stats and a timeline of ``buckets`` points.
 
     The Activity & logs page zooms with this: a narrower range gets the same
-    number of points, so each covers less time.
+    number of points, so each covers less time. A range longer than six hours,
+    or older than the request history, is summed up from the hourly summary:
+    its points are whole hours, and it starts at the hour ``since`` falls in.
     """
     until = time.time() if until is None else until
     if until <= since:
@@ -84,7 +84,7 @@ async def timeline(
 @router.get("/events", **responses.answering(responses.ModelEvents))
 async def events(
     store: deps.Monitoring,
-    after_id: int = Query(0, ge=0, le=INT64_MAX),
+    after_id: int = Query(0, ge=0, le=deps.INT64_MAX),
     limit: int = Query(100, ge=1, le=500),
     since: Optional[float] = Query(None, description="Only events at or after this Unix time"),
     until: Optional[float] = Query(None, description="Only events at or before this Unix time"),
@@ -95,13 +95,35 @@ async def events(
     return {"events": await store.events(after_id, limit, since, until)}
 
 
+@router.get("/audit", **responses.answering(responses.AuditEntries))
+async def audit_log(
+    log: deps.Audit,
+    limit: int = Query(100, ge=1, le=500),
+    before_id: Optional[int] = Query(None, ge=0, le=deps.INT64_MAX, description="Only entries older than this one: the last "
+                                                                            "id of the previous page"),
+    method: Optional[Literal["POST", "PUT", "PATCH", "DELETE"]] = Query(None),
+    route: Optional[str] = Query(None, max_length=200, description="Part of the route or the path asked for"),
+    actor: Optional[responses.Actor] = Query(None, description="The key it carried"),
+    outcome: Optional[Literal["ok", "refused", "failed"]] = Query(None, description="2xx and 3xx, 4xx, or 5xx"),
+    since: Optional[float] = Query(None, description="Only entries at or after this Unix time"),
+    until: Optional[float] = Query(None, description="Only entries at or before this Unix time"),
+):
+    """The audit log, newest first: every change made through an admin's route or the setup wizard, and every
+    delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status, never a
+    body."""
+    if log is None:
+        return {"entries": [], "on": False, "retention_days": Config.AUDIT_RETENTION_DAYS}
+    entries = await log.entries(limit, before_id, method, route, actor, outcome, since, until)
+    return {"entries": entries, "on": True, "retention_days": Config.AUDIT_RETENTION_DAYS}
+
+
 @router.get("/requests", **responses.answering(responses.RequestRows))
 async def recent_requests(
     store: deps.Monitoring,
     limit: int = Query(50, ge=1, le=500),
     since: Optional[float] = Query(None, description="Only requests at or after this Unix time"),
     until: Optional[float] = Query(None, description="Only requests at or before this Unix time"),
-    status: Optional[Literal["ok", "client_error", "error"]] = Query(None),
+    status: Optional[responses.RequestStatus] = Query(None),
     model: Optional[str] = Query(None, max_length=200, description="Part of the model ID or task"),
 ):
     """The latest requests' metadata, newest first; each one's input and output are GET /admin/traces/{trace_id}."""
@@ -113,7 +135,7 @@ async def recent_requests(
 @router.get("/logs", **responses.answering(responses.Logs))
 async def logs(
     buffer: deps.Logs,
-    after_id: int = Query(0, ge=0, le=INT64_MAX),
+    after_id: int = Query(0, ge=0, le=deps.INT64_MAX),
     limit: int = Query(500, ge=1, le=2000),
     level: Optional[Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]] = Query(None),
 ):

@@ -1,5 +1,5 @@
 """
-JobRunner: jobs, the kind of task (jobs/tasks.py) that runs a script in its own process.
+JobRunner: jobs, the kind of task (tasks/runner.py) that runs a script in its own process.
 
 Every job runs as ``python -m jobs.worker`` in its environment's interpreter
 (the service's own for env "default", JOB_ENVS_DIR/<env> otherwise), in a new
@@ -8,7 +8,7 @@ or out-of-memory kill takes down only the job, and cancelling it kills the
 whole group, the processes the job started included (Ray's, for example).
 
 Jobs are one kind of the task runner's: at most ``max_running`` run at once,
-and the rest wait, the most urgent first, then the oldest. Their rows live in the JobStore (the
+and the rest wait, the most urgent first, then the oldest. Their rows live in the TaskStore (the
 ArcadeDB database, which only this process opens); the log in
 <workdir>/job.log. A job a stopped service left running (it ends itself when
 the service goes away) is marked failed at the next start. Schedules are the
@@ -27,17 +27,17 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import procs
-from background import every
-from errors import Conflict, Refused
-from procs import PROJECT_ROOT
+from core import procs
+from core.background import every
+from core.errors import Conflict, NotFound, Refused
+from core import PROJECT_ROOT
+from tasks.runner import Kind, TaskFailed, TaskRunner, retry_policy
+from tasks.store import FINISHED, public
+from tasks.webhooks import Webhooks
 
 from . import registry
 from .base import DATA_DIR_ENV
 from .schedule import POLL_S, Scheduler
-from .store import FINISHED, JobNotFound, public
-from .tasks import Kind, TaskFailed, TaskRunner
-from .webhooks import Webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ PROGRESS_EVERY = 0.5
 # Longest line read from a worker's channel (its result).
 CHANNEL_LIMIT = 64 * 1024 * 1024
 
-__all__ = ["JobNotFound", "JobRunner"]
+__all__ = ["JobRunner"]
 
 
 class JobRunner:
@@ -106,20 +106,24 @@ class JobRunner:
         return self.jobs_dir / id
 
     async def get(self, id: str) -> Dict[str, Any]:
-        """The job ``id``; JobNotFound for no task, or a task of another kind."""
+        """The job ``id``; NotFound for no task, or a task of another kind."""
         row = await self.tasks.get(id)
         if row["kind"] != "job":
-            raise JobNotFound("Job not found")
+            raise NotFound("Job not found")
         return row
 
     # ------------------------------------------------------------- commands
     async def submit(self, name: str, params: Any, schedule_id: Optional[str] = None,
-                     webhook_url: Optional[str] = None, priority: str = "normal") -> Dict[str, Any]:
-        """Check and queue a job. Refused for an unknown job, bad params or a missing environment."""
+                     webhook_url: Optional[str] = None, priority: str = "normal", retries: int = 0,
+                     retry_delay_s: Optional[float] = None, timeout_s: Optional[float] = None) -> Dict[str, Any]:
+        """Check and queue a job. Refused for an unknown job, bad params, retries or timeout, or a missing
+        environment. A job that fails is retried ``retries`` times, and one that runs past ``timeout_s`` fails
+        (tasks/runner.py)."""
         job = registry.get(name)
         try:
             checked = job.cls.Params.model_validate(params or {})
-        except ValueError as e:  # the params' ValidationError
+            policy = retry_policy(retries, retry_delay_s, timeout_s)
+        except ValueError as e:  # the params' ValidationError, or the retries
             raise Refused(str(e)) from e
         if not self.env_ready(job.env):
             raise Refused(
@@ -132,7 +136,7 @@ class JobRunner:
         dumped = checked.model_dump(mode="json")
         (workdir / "params.json").write_text(checked.model_dump_json(indent=2))
         row = await self.tasks.submit("job", id=id, job=name, params=dumped, priority=priority,
-                                      schedule_id=schedule_id, webhook_url=webhook_url)
+                                      schedule_id=schedule_id, webhook_url=webhook_url, **policy)
         logger.info("Queued job %s (%s, %s priority)", id, name, priority)
         return row
 
@@ -187,6 +191,8 @@ class JobRunner:
         outcome: Dict[str, Any] = {}
         try:
             with open(workdir / "job.log", "ab") as log:
+                if row["retried"]:  # the same log goes on: mark where this run starts
+                    log.write(f"\n--- retry {row['retried']} of {row['retries']} ---\n".encode())
                 await asyncio.gather(
                     self._read_channel(id, process.stdout, outcome, log),
                     self._copy_log(process.stderr, log),
@@ -215,7 +221,7 @@ class JobRunner:
 
     async def _notify(self, row: Dict[str, Any]) -> None:
         """POST the finished job to the webhooks: WEBHOOK_URLS and the job's own URL."""
-        self.webhooks.send("job.finished", public(row), extra_urls=[row.get("webhook_url")])
+        await self.webhooks.send("job.finished", public(row), extra_urls=[row.get("webhook_url")])
 
     async def _read_channel(self, id: str, stream: asyncio.StreamReader, outcome: Dict[str, Any], log) -> None:
         last_write = 0.0

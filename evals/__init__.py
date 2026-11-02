@@ -7,6 +7,6 @@ database (see evals/store.py).
 
 from .capture import compact
 from .runner import RunExecutor
-from .store import EvalError, EvalStore, NotFound
+from .store import EvalStore
 
-__all__ = ["EvalError", "EvalStore", "NotFound", "RunExecutor", "compact"]
+__all__ = ["EvalStore", "RunExecutor", "compact"]

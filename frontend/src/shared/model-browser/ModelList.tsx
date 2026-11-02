@@ -3,6 +3,7 @@ import { ArrowRight, FilterX, PackageOpen, Search, SearchX } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { taskTitle } from "../categories";
 import { Field, Segmented } from "../components";
 import {
   filterModels,
@@ -13,7 +14,8 @@ import {
   type ModelFilter,
   type StatusFilter,
 } from "./catalog";
-import { diskText, EmptyState, StateBadge, Tags } from "./parts";
+import { EmptyState } from "../components";
+import { diskText, StateBadge, Tags } from "./parts";
 
 const STATUS: [StatusFilter, string][] = [
   ["all", "All"],
@@ -53,7 +55,10 @@ export function ModelList(props: {
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={task.task}>
       <div className="flex flex-none items-start justify-between gap-3 px-5 pt-4 pb-3">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold tracking-tight">{task.task}</h3>
+          <h3 className="text-base font-semibold tracking-tight">
+            {taskTitle(task)}
+            {task.label !== task.task && <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">{task.task}</span>}
+          </h3>
           {task.description && <p className="mt-1 text-sm text-muted-foreground">{task.description}</p>}
         </div>
         <span className="pt-0.5 text-sm whitespace-nowrap text-muted-foreground tabular-nums">
@@ -121,7 +126,7 @@ export function ModelList(props: {
         ) : (
           <EmptyState icon={PackageOpen}>
             <p>
-              No models are listed for {task.task}.{canTypeId ? " Enter an ID below." : ""}
+              No models are listed for this task.{canTypeId ? " Enter an ID below." : ""}
             </p>
           </EmptyState>
         )}

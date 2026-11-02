@@ -34,6 +34,8 @@ class Deleted(Out):
 
 # How the cache knows a model: what the model browser and GET /v1/models show.
 ModelStatus = Literal["loaded", "loading", "unloaded"]
+# How a request to a model went (a trace's, a request row's): answered, refused as the client's fault, or failed.
+RequestStatus = Literal["ok", "client_error", "error"]
 
 
 class ErrorDetail(Out):

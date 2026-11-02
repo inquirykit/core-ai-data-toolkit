@@ -5,9 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from config import Config
-from models import model_server
-from models.server_specs import ServerStore, new_commands, parse_entry
+from core.config import Config
+from models import servers
+from models.servers.entries import ServerStore, new_commands, parse_entry
 from tests.test_model_server import CMD, clean_registry  # noqa: F401  (clean_registry: autouse)
 
 FILE = f"""
@@ -37,7 +37,7 @@ def files(tmp_path, monkeypatch):
 @pytest.fixture
 def client(files):
     with TestClient(app_module.app) as c:
-        model_server.load_configured()
+        servers.load_configured()
         yield c
 
 
@@ -92,12 +92,12 @@ def test_dashboard_adds_a_provider_and_a_model_on_it(client):
     assert model["origin"] == "saved" and model["backends"] == [{"provider": "lmstudio", "upstream_model": "qwen/qwen3.5-4b"}]
     # Served at once: listed for its task, and allowed.
     assert "qwen3.5-4b" in client.get("/models/list").json()["vision-language"]
-    assert model_server.configured("qwen3.5-4b")
+    assert servers.configured("qwen3.5-4b")
     # The provider is in use, so it cannot go.
     assert client.delete("/admin/model-servers/providers/lmstudio").status_code == 409
     assert client.delete("/admin/model-servers/models/qwen3.5-4b").status_code == 200
     assert client.delete("/admin/model-servers/providers/lmstudio").status_code == 200
-    assert not model_server.configured("qwen3.5-4b")
+    assert not servers.configured("qwen3.5-4b")
 
 
 def test_dashboard_cannot_add_commands_unless_allowed(client, monkeypatch):

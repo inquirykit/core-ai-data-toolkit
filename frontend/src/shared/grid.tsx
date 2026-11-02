@@ -1,8 +1,8 @@
-// One table for the lists of /admin: the columns say what each cell holds,
-// DataGrid draws the shadcn Table around them, with the one row that says
-// there is nothing (or that the rows load) and what a click on a row does.
-// The server-side browser of the Data section (TableBrowser.tsx) keeps its
-// own table: its header cells are sort buttons.
+// One table for the lists of /admin and the playground: the columns say what
+// each cell holds, DataGrid draws the shadcn Table around them, with the one
+// row that says there is nothing (or that the rows load) and what a click on
+// a row does. The Data section's grid of rows (DataRows.tsx) keeps its own
+// table: its header cells are sort buttons.
 import { Fragment, type ComponentProps, type ReactNode } from "react";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,8 @@ export interface GridColumn<T> {
   align?: "left" | "right";
   /** On the header cell */
   headClassName?: string;
+  /** The header cell's tooltip: what the column means */
+  headTitle?: string;
   /** On each cell: a text, or one made from the row */
   className?: string | ((row: T) => string | undefined);
   /** A cell's tooltip, from the row */
@@ -51,7 +53,7 @@ export function DataGrid<T>(props: {
       <TableHeader className={props.headerClassName}>
         <TableRow className="hover:bg-transparent">
           {columns.map((c) => (
-            <TableHead key={c.key} className={cn(c.align === "right" && "text-right", c.headClassName)}>
+            <TableHead key={c.key} className={cn(c.align === "right" && "text-right", c.headClassName)} title={c.headTitle}>
               {c.label}
             </TableHead>
           ))}

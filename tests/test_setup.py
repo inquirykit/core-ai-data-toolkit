@@ -1,10 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import envfile
+from core import envfile
 from api import app as app_module
-from config import Config
-from models.generic.transformers_model import TransformersModel
+from core.config import Config
+from models.families.generic.transformers_model import TransformersModel
 from tests.fakes import FakeModel, swapped
 
 ADMIN = "admin-key-0123456789abcdef"

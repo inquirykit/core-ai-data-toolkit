@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import app as app_module
-from api.playground_routes import example_from
-from config import Config
-from errors import Refused
+from playground import example_from
+from core.config import Config
+from core.errors import Refused
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +79,7 @@ def test_saving_needs_the_client_key_and_the_database(client, monkeypatch):
     assert client.get("/playground/presets").status_code == 401
     assert client.get("/playground/presets", headers={"X-API-Key": "secret"}).status_code == 200
     monkeypatch.setattr(Config, "API_KEY", None)
-    monkeypatch.setattr(client.app.state, "tables", None)
+    monkeypatch.setattr(client.app.state, "playground", None)
     assert client.get("/playground/presets").status_code == 503
 
 
@@ -131,3 +131,21 @@ def test_the_playground_namespace_is_kept_by_the_service(client):
     assert client.delete("/db/playground").status_code == 403
     assert client.post("/db", json={"name": "playground"}).status_code == 409
     assert client.get("/playground/conversations").status_code == 200
+
+
+def test_the_store_takes_over_the_namespace_it_made_through_db(arcade):
+    """Until 2026-10 the playground made its namespace through /db; the store adopts that one, rows and all
+    (PlaygroundStore.ADOPT), where it would refuse an admin's."""
+    import asyncio
+
+    from db.tables import SWITCHED_OFF, TableStore
+    from playground import PlaygroundStore
+
+    before = TableStore(arcade)
+    before._create_namespace("playground")
+    asyncio.run(before.upsert("playground", "presets", {"id": "p1", "name": "Old", "system": "Be brief."}))
+    assert asyncio.run(TableStore(arcade).owner("playground")) is None
+    store = PlaygroundStore(arcade, TableStore(arcade))
+    assert [p["name"] for p in asyncio.run(store.presets())] == ["Old"]
+    # The database now marks it as kept: a run that does not declare it still keeps it from clients.
+    assert asyncio.run(TableStore(arcade).owner("playground")) == SWITCHED_OFF

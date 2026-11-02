@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from discovery import import_files
-from errors import Refused
+from core.discovery import import_files
+from core.errors import Refused
 
 logger = logging.getLogger(__name__)
 

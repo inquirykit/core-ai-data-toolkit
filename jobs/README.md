@@ -77,7 +77,7 @@ The service imports every job file to read its name and params, so **import the 
 ## How a job runs
 
 1. `POST /jobs` checks the params, writes them to `JOBS_DIR/<id>/params.json`, records the job as `queued` and returns its ID (202).
-2. Up to `MAX_RUNNING_JOBS` jobs run at once (default 1); the rest wait, the most urgent first (`"priority": "high"`, `"normal"` (the default) or `"low"` in `POST /jobs`, or on a schedule), then the oldest. Jobs are one kind of task in the service's one queue (`jobs/tasks.py`); eval runs are another, with a limit of their own, so a long training job does not hold up an eval run.
+2. Up to `MAX_RUNNING_JOBS` jobs run at once (default 1); the rest wait, the most urgent first (`"priority": "high"`, `"normal"` (the default) or `"low"` in `POST /jobs`, or on a schedule), then the oldest. Jobs are one kind of task in the service's one queue (`tasks/runner.py`); eval runs are another, with a limit of their own, so a long training job does not hold up an eval run.
 3. A job runs as `python -m jobs.worker` in its environment's interpreter, in a new process group, with the project root on `PYTHONPATH`. Its stdout carries progress and the result to the service; whatever it prints is moved to stderr, which becomes `job.log`.
 4. It ends `succeeded` (with `result`, also in `result.json`), `failed` (with `error`: the exception, or how the process died, such as a SIGKILL from running out of memory) or `cancelled`.
 
@@ -101,7 +101,7 @@ curl -X POST localhost:8000/inference -H "X-API-Key: $KEY" -H 'content-type: app
   "input": {"rows": [{"age": 30, "income": 41.5, "city": "oslo"}], "probabilities": true}}'
 ```
 
-A served predictor is a process in the `autogluon` environment (`jobs/autogluon/_serve.py`) that `models/autogluon/predictor.py` starts on first use. The model cache treats it like any other model: it counts its size on disk against `MAX_MEMORY_GB`, evicts it when idle, and starts it again if it crashes. Trained predictors are always allowed, whatever `ALLOWED_MODELS` says, since only an admin can train one. Deleting the job (`DELETE /jobs/{id}`) deletes the predictor.
+A served predictor is a process in the `autogluon` environment (`jobs/autogluon/_serve.py`) that `models/families/autogluon/predictor.py` starts on first use. The model cache treats it like any other model: it counts its size on disk against `MAX_MEMORY_GB`, evicts it when idle, and starts it again if it crashes. Trained predictors are always allowed, whatever `ALLOWED_MODELS` says, since only an admin can train one. Deleting the job (`DELETE /jobs/{id}`) deletes the predictor.
 
 Resources: AutoGluon would take every core and, for multimodal, the GPU. The jobs pass `ctx.num_cpus` to `fit()` (and cap thread pools through `OMP_NUM_THREADS`), and with `JOB_DEVICE=cpu` keep off CUDA and Apple GPUs. `extreme_quality` and the multimodal presets are much faster with a GPU: set `JOB_DEVICE=auto` (or `mps`) to let them use one. A job in its own process does not take turns with the service's models on an Apple GPU.
 
@@ -109,4 +109,4 @@ Resources: AutoGluon would take every core and, for multimodal, the GPU. The job
 
 A schedule (`POST /jobs/schedules`, or the dashboard's Jobs section) submits a job again and again: on a cron expression (`0 3 * * *`, server local time) or every `interval_s` seconds. `jobs/schedule.py` parses the expression and computes the next run; its `Scheduler.tick()` submits the schedules that are due, every 15 seconds, and skips a schedule whose previous job is still queued or running. A run missed while the service was down is made once when it is back; a cron run more than an hour late (`CRON_DEADLINE_S`) is skipped until its next time. Jobs a schedule submitted carry its `schedule_id`.
 
-When a job finishes (succeeded, failed or cancelled) it is POSTed to `WEBHOOK_URLS` and to the `webhook_url` given when it was submitted or on its schedule, as `{"event": "job.finished", "time": ..., "data": <the job as GET /jobs/{id} shows it>}`; eval runs arrive the same way as `run.finished`. With `WEBHOOK_SECRET`, `X-Toolkit-Signature` is `sha256=<HMAC-SHA256 of the body>`. See `jobs/webhooks.py`.
+When a job finishes (succeeded, failed or cancelled) it is POSTed to `WEBHOOK_URLS` and to the `webhook_url` given when it was submitted or on its schedule, as `{"event": "job.finished", "time": ..., "data": <the job as GET /jobs/{id} shows it>}`; eval runs arrive the same way as `run.finished`. With `WEBHOOK_SECRET`, `X-Toolkit-Signature` is `sha256=<HMAC-SHA256 of the body>`. See `tasks/webhooks.py`.

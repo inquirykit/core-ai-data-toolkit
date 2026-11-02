@@ -11,6 +11,7 @@ import {
   Database,
   FlaskConical,
   HardDriveDownload,
+  History,
   LayoutDashboard,
   MessagesSquare,
   ScanSearch,
@@ -47,6 +48,7 @@ const ITEMS = [
   { key: "overview", label: "Overview", href: "/admin#/overview", blurb: "Requests, latency and memory at a glance", icon: LayoutDashboard, group: "monitor" },
   { key: "running", label: "Running", href: "/admin#/running", blurb: "Loaded models, their traffic, and the memory limits", icon: Cpu, group: "monitor" },
   { key: "activity", label: "Activity & logs", href: "/admin#/activity", blurb: "Traffic over time to zoom into, each request with its input and output, model events and the server log", icon: Activity, group: "monitor" },
+  { key: "audit", label: "Audit log", href: "/admin#/audit", blurb: "Every change made through the admin's routes, and every delete: what, with which key, from where, and how it went", icon: History, group: "monitor" },
   { key: "models", label: "Models", href: "/admin#/models", blurb: "Every model by task: load it, see what it needs, and try it", icon: Boxes, group: "models" },
   // Hub is switched off; drop `off` to bring it back.
   { key: "hub", label: "Hub", href: "/admin#/hub", blurb: "Search Hugging Face, download weights ahead of time, and see what is on disk", icon: HardDriveDownload, group: "models", off: true },

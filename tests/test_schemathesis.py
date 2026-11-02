@@ -17,7 +17,7 @@ from schemathesis.python import asgi
 
 from api import app as app_module
 from models import registry
-from models.custom.custom_model import CustomModel
+from models.families.custom.custom_model import CustomModel
 from tests.fakes import FakeModel, sample_result, swapped
 
 CHECKS = [not_a_server_error, status_code_conformance, response_schema_conformance]
@@ -105,7 +105,7 @@ def fake_models():
     registry.discover()
     with contextlib.ExitStack() as stack:
         stack.enter_context(pytest.MonkeyPatch.context()).setattr(app_module.app.state, "enrichers", ENRICHERS)
-        for cls in {entry.cls for entry in registry._entries} - {CustomModel}:
+        for cls in set(registry.classes()) - {CustomModel}:
             stack.enter_context(swapped(cls, ContractFake))
         yield
         # Schemathesis starts the app's lifespan on the first request and keeps it until the process exits; the

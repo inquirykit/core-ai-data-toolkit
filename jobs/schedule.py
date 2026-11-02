@@ -17,11 +17,12 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from errors import Refused
-from models.events import PRIORITIES
+from core.errors import NotFound, Refused
+from tasks import PRIORITIES
+from tasks.runner import retry_policy
+from tasks.store import TaskStore
 
 from . import registry
-from .store import JobNotFound, JobStore
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ def compute_next(cron: str = None, interval_s: float = None, after: float = None
 class Scheduler:
     """The schedules in ``store``; due ones are handed to ``submit`` (JobRunner.submit)."""
 
-    def __init__(self, store: JobStore, submit: Callable[..., Awaitable[Dict[str, Any]]]):
+    def __init__(self, store: TaskStore, submit: Callable[..., Awaitable[Dict[str, Any]]]):
         self.store = store
         self.submit = submit
 
@@ -143,7 +144,8 @@ class Scheduler:
             priority = body.get("priority") or "normal"
             if priority not in PRIORITIES:
                 raise ValueError("priority must be high, normal or low")
-        except ValueError as e:  # the params' ValidationError, or the cadence
+            policy = retry_policy(body.get("retries"), body.get("retry_delay_s"), body.get("timeout_s"))
+        except ValueError as e:  # the params' ValidationError, the cadence, or the retries
             raise Refused(str(e)) from e
         return {
             "name": (body.get("name") or "").strip() or job.name,
@@ -153,8 +155,9 @@ class Scheduler:
             "interval_s": interval_s,
             "enabled": bool(body.get("enabled", True)),
             "webhook_url": (body.get("webhook_url") or "").strip() or None,
-            # The jobs it submits wait among the other jobs by it (jobs/tasks.py).
+            # The jobs it submits wait among the other jobs by it (tasks/runner.py).
             "priority": priority,
+            **policy,
         }
 
     async def _with_status(self, row: Dict[str, Any]) -> Dict[str, Any]:
@@ -171,7 +174,7 @@ class Scheduler:
     async def get(self, id: str) -> Dict[str, Any]:
         row = await self.store.schedule(id)
         if row is None:
-            raise JobNotFound("No such schedule")
+            raise NotFound("No such schedule")
         return await self._with_status(row)
 
     async def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -197,10 +200,15 @@ class Scheduler:
     async def run(self, id: str) -> Dict[str, Any]:
         """Submit the schedule's job now, whatever its cadence; the next run stays as planned."""
         row = await self.get(id)
-        job = await self.submit(row["job"], row["params"], schedule_id=id, webhook_url=row["webhook_url"],
-                                priority=row["priority"])
+        job = await self._submit(row)
         await self.store.mark_schedule_run(id, time.time(), job["id"], row["next_run"])
         return job
+
+    def _submit(self, row: Dict[str, Any]) -> Awaitable[Dict[str, Any]]:
+        """Submit the schedule's job, with its priority, webhook and retries."""
+        return self.submit(row["job"], row["params"], schedule_id=row["id"], webhook_url=row["webhook_url"],
+                           priority=row["priority"], retries=row["retries"], retry_delay_s=row["retry_delay_s"],
+                           timeout_s=row["timeout_s"])
 
     async def tick(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
         """Submit every schedule that is due; returns the jobs submitted. A run missed while the service was down
@@ -226,8 +234,7 @@ class Scheduler:
                 await self.store.mark_schedule_run(row["id"], now, None, next_run)
                 continue
             try:
-                job = await self.submit(row["job"], row["params"], schedule_id=row["id"], webhook_url=row["webhook_url"],
-                                        priority=row["priority"])
+                job = await self._submit(row)
             except ValueError as e:
                 logger.warning("Schedule %s (%s) could not submit its job: %s", row["id"], row["name"], e)
                 await self.store.mark_schedule_run(row["id"], now, None, next_run)

@@ -1,7 +1,7 @@
 # Core AI & Data toolkit
 
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange)
-![version: 0.2alpha22](https://img.shields.io/badge/version-0.2alpha22-blue)
+![version: 0.2alpha23](https://img.shields.io/badge/version-0.2alpha23-blue)
 
 A self-hosted service for small, efficient AI models (text encoders,
 classifiers, question answering, speech, small vision and chat models) and the
@@ -13,7 +13,7 @@ It is built for models that fit beside each other on one machine and for quick
 scripts, not for large LLMs. For those, run a dedicated server (Ollama,
 LM Studio, vLLM) and let the toolkit forward to it.
 
-> **Status: alpha (0.2alpha22).** This is under active development. APIs,
+> **Status: alpha (0.2alpha23).** This is under active development. APIs,
 > settings and stored data change without notice between versions.
 
 ## What it does
@@ -148,8 +148,7 @@ Keys live in `.env`, which git ignores; `env.example` is the template.
 ## Configuration
 
 Settings are environment variables, read from `.env` too. `env.example` lists
-them with their defaults, and the [guide](docs/GUIDE.md#configuration)
-explains them. The ones you are most likely to change: `DEFAULT_DEVICE`
+every one with its default and what it does. The ones you are most likely to change: `DEFAULT_DEVICE`
 (`auto`, `cpu`, `cuda`, `mps`), `MAX_MODELS` and `MAX_MEMORY_GB` (how many
 models stay loaded, and in how much memory), and `PRELOAD_MODELS`.
 

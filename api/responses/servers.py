@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 
 from pydantic import ConfigDict
 
-from models.server_specs import ModelEntry, Provider
+from models.servers.entries import ModelEntry, Provider
 from .common import OPEN, Out
 
 

@@ -4,10 +4,10 @@ import time
 
 import pytest
 
-from config import Config
+from core.config import Config
 from models import BaseModel
-from models.generic.transformers_model import TransformersModel, fold_system
-from models.vision.fastvlm import FastVLMModel
+from models.families.generic.transformers_model import TransformersModel, fold_system
+from models.families.vision.fastvlm import FastVLMModel
 
 
 class Tiny(BaseModel):
@@ -133,7 +133,7 @@ TOOLS = [{"type": "function", "function": {"name": "lookup", "parameters": {"typ
 
 
 def generation(**fields):
-    from models.tasks import TextGenerationInput
+    from models.contracts import TextGenerationInput
 
     return TextGenerationInput(text="x", messages=CHAT, **fields)
 
@@ -183,7 +183,7 @@ def test_earlier_tool_calls_reach_the_template_with_object_arguments():
         ]},
         {"role": "tool", "content": "42", "tool_call_id": "c1"},
     ]
-    from models.tasks import TextGenerationInput
+    from models.contracts import TextGenerationInput
 
     chat_model(tokenizer)._render_chat(TextGenerationInput(text="x", messages=history, tools=TOOLS))
     assert tokenizer.seen[2]["tool_calls"] == [
@@ -233,7 +233,7 @@ def test_weights_are_placed_by_accelerate_only_on_cuda(device):
 
 
 def test_greedy_generation_leaves_out_the_sampling_knobs():
-    from models.tasks import TextGenerationInput
+    from models.contracts import TextGenerationInput
 
     assert TextGenerationInput(text="x", temperature=0.2).sampling() == {"do_sample": True, "temperature": 0.2, "top_p": 0.9}
     assert TextGenerationInput(text="x", do_sample=False).sampling() == {"do_sample": False}
@@ -261,7 +261,7 @@ def test_length_batches_group_similar_lengths_within_size_and_budget():
 def test_a_batch_gets_the_answers_single_requests_get(model_id, task, inputs):
     """Padding several inputs into one pass must not change any input's result."""
     pytest.importorskip("torch")
-    from models import tasks
+    from models import contracts
 
     model = TransformersModel(model_id, task, "cpu")
     try:
@@ -269,7 +269,7 @@ def test_a_batch_gets_the_answers_single_requests_get(model_id, task, inputs):
     except OSError:
         pytest.skip(f"{model_id} is not in the local Hub cache")
     model.batch_size = 2  # several passes, each padded
-    contract = tasks.get(task)
+    contract = contracts.get(task)
     requests = [contract.parse_input(i) for i in inputs]
     singles = [contract.parse_output(model.predict(r)) for r in requests]
     batch = [contract.parse_output(r) for r in model.predict_batch(requests)]

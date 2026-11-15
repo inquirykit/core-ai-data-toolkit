@@ -2,8 +2,8 @@
 What every package may import, itself importing none of them: the settings
 (config.py, from the environment and the .env file, which envfile.py reads
 and writes), the errors a caller can act on (errors.py), periodic work
-(background.py), importing a package's files (discovery.py) and child
-processes (procs.py).
+(background.py), importing a package's files (discovery.py), child
+processes (procs.py) and how a CSV file is written (csvfiles.py).
 
 Nothing is imported here, so importing one of them loads only what it needs
 (config.py reads the .env file when it is imported).

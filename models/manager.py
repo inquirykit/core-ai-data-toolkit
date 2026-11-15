@@ -7,8 +7,9 @@ import logging
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
+from core.config import Config
 from core.errors import Forbidden, NotFound
-from tasks import HIGH
+from core.priorities import HIGH
 from . import memory, registry, contracts
 from .base import BaseModel, NullMonitor, TryNextBackend, resolve_device
 from .cache import CapacityError, Entry, ModelCache
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_TASK = "text-generation"
 # Loads of one model a request tries, moving to the next backend each time one fails to start.
 MAX_BACKEND_TRIES = 8
+# The tasks ``embed`` and ``rerank`` run.
+EMBEDDING = "embedding"
+RERANK = "rerank"
 
 
 def _ms_since(started: float) -> float:
@@ -126,7 +130,7 @@ class ModelManager:
         """Forbidden (403) unless ``allowed`` lets clients use ``model_id``. Every load, run and estimate asked for
         from outside checks it here, so no route needs to; preloading (the operator's own list) does not."""
         if self.allowed is not None and not self.allowed(model_id):
-            raise Forbidden("model_id is not in ALLOWED_MODELS")
+            raise Forbidden("model_id is not allowed: not in ALLOWED_MODELS, or not one of this key's models")
 
     async def load_model(self, model_id: str, task: str, pin: bool = False, **options) -> BaseModel:
         """Load a model with caching. ``options`` (torch_dtype, max_memory) reach the model.
@@ -184,6 +188,42 @@ class ModelManager:
         # The trace of this request (GET /admin/traces/{id}), when tracing is on.
         return {"result": results[0], **info, "trace_id": trace_ids[0]}
 
+    async def embed(self, model_id: str, texts: List[str]) -> Tuple[List[List[float]], int]:
+        """The texts' vectors by ``model_id`` (the embedding task), in requests of as many texts as the task takes
+        (MAX_EMBEDDING_INPUTS), and the tokens they took: what a /db vector field with a model embeds with (api/app.py
+        hands this to the table store)."""
+        vectors: List[List[float]] = []
+        tokens = 0
+        for start in range(0, len(texts), Config.MAX_EMBEDDING_INPUTS):
+            output = await self.run_inference(model_id, EMBEDDING, {"texts": texts[start:start + Config.MAX_EMBEDDING_INPUTS]})
+            vectors.extend(output["result"].embeddings)
+            tokens += output["result"].tokens
+        return vectors, tokens
+
+    async def rerank(self, model_id: str, query: str, documents: List[str]) -> Tuple[List[float], int]:
+        """Each document's relevance to ``query`` by the rerank model ``model_id``, in the documents' order, in requests
+        of as many documents as the task takes (MAX_EMBEDDING_INPUTS; a reranker's scores are comparable across
+        requests), and the tokens they took: what a /db search with a reranker reads its candidates with (api/app.py
+        hands this to the table store)."""
+        scores: List[float] = []
+        tokens = 0
+        for start in range(0, len(documents), Config.MAX_EMBEDDING_INPUTS):
+            part = documents[start:start + Config.MAX_EMBEDDING_INPUTS]
+            output = (await self.run_inference(model_id, RERANK, {"query": query, "documents": part}))["result"]
+            by_index = {r.index: r.score for r in output.results}
+            if set(by_index) != set(range(len(part))):
+                raise contracts.ContractViolation(f"{model_id} scored {len(by_index)} of the {len(part)} documents it "
+                                                  "was given, without top_n: it must score each")
+            scores.extend(by_index[i] for i in range(len(part)))
+            tokens += output.tokens
+        return scores, tokens
+
+    async def prompts(self, model_id: str) -> Dict[str, str]:
+        """``model_id``'s own prompts for embedding, by name (``BaseModel.prompts``): what a /db vector field made
+        without its prompts takes (api/app.py hands this to the table store, which embeds with the model first, so
+        ALLOWED_MODELS has been checked). In a thread: it may fetch a file from the Hub."""
+        return await asyncio.to_thread(registry.prompts, model_id)
+
     async def run_batch(self, model_id: str, task: str, requests: List[Any]) -> Dict[str, Any]:
         """Run several requests on a model at once, loading it first if needed.
 
@@ -220,7 +260,7 @@ class ModelManager:
         trace_ids = [uuid.uuid4().hex for _ in requests]
         context = request_context.get() or RequestContext()
         cold = False
-        backend = None
+        backend = revision = None
         try:
             # Reject a bad request before it loads (or evicts) anything.
             contract = contracts.get(task)
@@ -229,15 +269,15 @@ class ModelManager:
             for attempt in (1, 2):
                 entry, loaded = await self._checkout(model_id, task, priority=context.priority)
                 cold = cold or loaded
-                backend = entry.model.backend
+                backend, revision = entry.model.backend, entry.model.revision
                 try:
                     batched = grouped and entry.batcher is not None
                     # Overloaded (503) if it would wait for the model longer than MODEL_WAIT_TIMEOUT.
-                    entry.admit(batched)
+                    entry.admit(batched, context.priority)
                     if batched:
-                        results = [await entry.batcher.run(requests[0])]
+                        results = [await entry.batcher.run(requests[0], context.priority)]
                     else:
-                        async with entry.slots:
+                        async with entry.slots.take(context.priority):
                             running = time.perf_counter()
                             results = await call(entry.model, requests)
                             entry.note(_ms_since(running))
@@ -252,6 +292,8 @@ class ModelManager:
                     if not entry.model.alive:
                         # Its server died: drop it, so the next request starts a new one.
                         await self.cache.discard(model_key, entry, "crashed")
+            # A model server on another toolkit has heard by now where that one went on to.
+            backend = entry.model.backend
         except Exception as e:
             # A request the client got wrong (a ValueError: a bad input, an unknown model) is theirs; a full cache
             # (errors.Unavailable) or anything else is ours.
@@ -275,6 +317,8 @@ class ModelManager:
             "cold_start": cold,
             # Which backend of a model server answered; None for other models.
             "backend": backend,
+            # The Hub commit of the weights that answered; None when they are not from the Hub cache.
+            "revision": revision,
         }
 
     def _report(self, event: RequestEvent) -> None:
@@ -305,6 +349,11 @@ class ModelManager:
             return None
         return entry.batcher.max_size if entry.batcher is not None else entry.max_concurrency
 
+    def width(self, model_id: str, task: str) -> "Width":
+        """A gate for one caller's many requests to the model: one at a time until the model is loaded, then
+        ``parallelism`` at once (``Width``)."""
+        return Width(self, model_id, task)
+
     def is_loaded(self, model_id: str) -> bool:
         """Whether ``model_id`` is loaded for any task (the task runner starts work on loaded models first)."""
         return any(info.model_id == model_id for info in self.cache.model_info.values())
@@ -331,15 +380,18 @@ class ModelManager:
     def get_available_models(self, allowed_models: Optional[List[str]] = None) -> Dict[str, List[str]]:
         """Registered model IDs by task.
 
-        With ``allowed_models``, only those are listed, including allowed IDs
-        no class lists (filed under the task a class claims them for by
-        pattern, else text-generation).
+        With ``allowed_models``, only those are listed, and those the operator
+        chose here, which clients may use whatever the list says (a model
+        server's entry, a model a job trained); including allowed IDs no class
+        lists (filed under the task a class claims them for by pattern, else
+        text-generation). It reads the jobs' folders, so it blocks.
         """
         models_by_task = registry.catalog()
         if allowed_models:
             listed = {m for ids in models_by_task.values() for m in ids}
             for task in models_by_task:
-                models_by_task[task] = [m for m in models_by_task[task] if m in allowed_models]
+                models_by_task[task] = [m for m in models_by_task[task]
+                                        if m in allowed_models or registry.operator_chose(m)]
             for model_id in allowed_models:
                 if model_id not in listed:
                     task = (registry.claimed_tasks(model_id) or [DEFAULT_TASK])[0]
@@ -357,13 +409,13 @@ class ModelManager:
         with its category and label. Nothing here downloads or reaches the network.
         """
         on_disk = await asyncio.to_thread(memory.cached_weights)
-        by_task = self.get_available_models(allowed_models)
+        by_task = await asyncio.to_thread(self.get_available_models, allowed_models)
         if not allowed_models:
             for info in self.cache.model_info.values():
                 listed = by_task.setdefault(info.task, [])
                 if info.model_id not in listed:
                     listed.append(info.model_id)
-        cards = registry.cards()
+        cards = await asyncio.to_thread(registry.cards)
         defined = contracts.defined()
         return [
             {
@@ -427,3 +479,29 @@ class ModelManager:
     def get_available_model_types(self) -> List[Dict[str, Any]]:
         """Every registered model class with the IDs and patterns it serves"""
         return registry.describe()
+
+
+class Width:
+    """How many of one caller's requests go to a model at once, for a caller with many (an eval run's page):
+    ``async with width:`` around each. While the model is not loaded, one: the first answer loads it, and the rest
+    do not queue up on the load. Then as many as the model gets through best (``ModelManager.parallelism``): a full
+    batch for one that batches, else as many as it runs at once. So the batcher forms full batches, and a request
+    someone waits on finds at most that many of the caller's ahead of it."""
+
+    def __init__(self, manager: ModelManager, model_id: str, task: str):
+        self._manager, self._model_id, self._task = manager, model_id, task
+        width = manager.parallelism(model_id, task)
+        self._gate = asyncio.Semaphore(width or 1)
+        self._widened = width is not None
+
+    async def __aenter__(self) -> None:
+        await self._gate.acquire()
+
+    async def __aexit__(self, *_: Any) -> None:
+        self._gate.release()
+        if not self._widened:
+            width = self._manager.parallelism(self._model_id, self._task)
+            if width is not None:
+                self._widened = True
+                for _ in range(width - 1):
+                    self._gate.release()

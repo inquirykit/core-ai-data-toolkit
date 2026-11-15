@@ -33,9 +33,9 @@ export interface paths {
         };
         /**
          * Audit Log
-         * @description The audit log, newest first: every change made through an admin's route or the setup wizard, and every
-         *     delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status, never a
-         *     body.
+         * @description The audit log, newest first, a page at a time: every change made through an admin's route or the setup wizard,
+         *     and every delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status,
+         *     never a body.
          */
         get: operations["audit_log_admin_audit_get"];
         put?: never;
@@ -111,7 +111,11 @@ export interface paths {
         delete: operations["delete_dataset_admin_datasets__dataset_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Dataset
+         * @description Set the dataset's label choices.
+         */
+        patch: operations["update_dataset_admin_datasets__dataset_id__patch"];
         trace?: never;
     };
     "/admin/datasets/{dataset_id}/examples": {
@@ -123,7 +127,7 @@ export interface paths {
         };
         /**
          * List Examples
-         * @description A page of the dataset's examples (``limit`` of them after ``skip``), and how many it holds.
+         * @description A page of the dataset's examples, oldest first, and how many it holds.
          */
         get: operations["list_examples_admin_datasets__dataset_id__examples_get"];
         put?: never;
@@ -155,7 +159,11 @@ export interface paths {
         delete: operations["delete_example_admin_datasets__dataset_id__examples__example_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Example
+         * @description Label an example: set its reference. A null reference makes it one to label again.
+         */
+        patch: operations["update_example_admin_datasets__dataset_id__examples__example_id__patch"];
         trace?: never;
     };
     "/admin/datasets/{dataset_id}/export": {
@@ -172,6 +180,50 @@ export interface paths {
         get: operations["export_dataset_admin_datasets__dataset_id__export_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/datasets/{dataset_id}/to-label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Examples To Label
+         * @description The examples without a reference, the least confident suggestion first: each with what run ``run_id``
+         *     answered for it, else what the traced model did. A labeled example leaves the queue, so the next page is after
+         *     those passed over (``skip``), not after the page.
+         */
+        get: operations["examples_to_label_admin_datasets__dataset_id__to_label_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/datasets/{dataset_id}/training-file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write Training File
+         * @description Write the dataset's labeled examples (their input's text and their reference, as text and label) to
+         *     DATA_DIR/datasets/evals/<dataset id>.jsonl, in place of what an earlier call wrote: the train_file of the
+         *     text-classifier job.
+         */
+        post: operations["write_training_file_admin_datasets__dataset_id__training_file_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -212,6 +264,77 @@ export interface paths {
         get: operations["events_admin_events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Keys
+         * @description A page of the client keys, newest first, each with its state (live, expired or revoked) and when it was last
+         *     used; never a token. ``clients_need_a_key`` says whether the client routes need a key now: API_KEY is set, or a
+         *     client key was ever made, so revoking every one never opens them again.
+         */
+        get: operations["list_keys_admin_keys_get"];
+        put?: never;
+        /**
+         * Make Key
+         * @description Make a client key. The reply holds its token, ``aitk_<id>_<secret>``, the only time it is shown: only its hash
+         *     is kept. From the first key made, the client routes need a key. 409 while ADMIN_API_KEY is not set, since client
+         *     keys are made under the superadmin key, the one no one can revoke from here.
+         */
+        post: operations["make_key_admin_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change Key
+         * @description Replace a client key's grants: the tables and models it reaches, and whether it manages models. They hold from
+         *     its next request on, under the same token. 404 for an unknown id.
+         */
+        patch: operations["change_key_admin_keys__key_id__patch"];
+        trace?: never;
+    };
+    "/admin/keys/{key_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Key
+         * @description Revoke a client key: from its next request on it gets 401 "API key revoked". It stays in the list, and in the
+         *     audit log, and cannot be made live again: make a new key. Revoking it again changes nothing. 404 for an unknown
+         *     id.
+         */
+        post: operations["revoke_key_admin_keys__key_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -338,16 +461,40 @@ export interface paths {
         get?: never;
         /**
          * Put Provider
-         * @description Create or replace a provider; every backend on it uses the new settings.
+         * @description Create or replace a provider; every backend on it uses the new settings. 409 for a new URL while it has an API
+         *     key, which was given for the old one, and for a new provider whose key is already set, which was given for no URL
+         *     here: such a provider goes in the file.
          */
         put: operations["put_provider_admin_model_servers_providers__name__put"];
         post?: never;
         /**
          * Delete Provider
          * @description Remove a saved provider, or the saved changes to one in the file (which comes back). 409 while a model's backends
-         *     use it.
+         *     use it. Its saved API key goes too, unless the file's version has the same URL.
          */
         delete: operations["delete_provider_admin_model_servers_providers__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/model-servers/providers/{name}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Provider Key
+         * @description Save a provider's API key, encrypted, or with an empty value remove it. It is sent as a bearer token with every
+         *     request to the provider from now on, loaded models included. 409 when the server's environment sets it, 503 without
+         *     a master key (SECRETS_MASTER_KEY).
+         */
+        put: operations["put_provider_key_admin_model_servers_providers__name__key_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -362,7 +509,8 @@ export interface paths {
         };
         /**
          * Recent Requests
-         * @description The latest requests' metadata, newest first; each one's input and output are GET /admin/traces/{trace_id}.
+         * @description The latest requests, newest first, each with the first words of its input and output while they are kept:
+         *     GET /admin/traces/{trace_id} has them whole. ``capture`` says how long they are kept.
          */
         get: operations["recent_requests_admin_requests_get"];
         put?: never;
@@ -382,7 +530,8 @@ export interface paths {
         };
         /**
          * List Runs
-         * @description The runs (of one dataset with ``dataset_id``), each with what it is doing now.
+         * @description The runs (of one dataset with ``dataset_id``), newest first, a page at a time, each with what it is doing
+         *     now.
          */
         get: operations["list_runs_admin_runs_get"];
         put?: never;
@@ -406,7 +555,8 @@ export interface paths {
         };
         /**
          * Compare Runs
-         * @description The two runs' outputs and scores side by side, example by example.
+         * @description The two runs' outputs and scores side by side, example by example, with each run's summary and
+         *     classification report.
          */
         get: operations["compare_runs_admin_runs_compare__run_a___run_b__get"];
         put?: never;
@@ -426,7 +576,9 @@ export interface paths {
         };
         /**
          * Get Run
-         * @description The run, its items (with each example's input and reference), their scores, and a summary per metric.
+         * @description The run, its items (with each example's input and reference), their scores, a summary per metric, and for a
+         *     run whose outputs are labels the classification report (accuracy, per-label precision, recall and F1, the
+         *     confusion matrix) over the items with a reference.
          */
         get: operations["get_run_admin_runs__run_id__get"];
         put?: never;
@@ -492,7 +644,7 @@ export interface paths {
         put?: never;
         /**
          * Resume Run
-         * @description Queue an interrupted, failed or cancelled run again, at its priority; the examples it answered are skipped.
+         * @description Queue a failed or cancelled run again, at its priority; the examples it answered are skipped.
          */
         post: operations["resume_run_admin_runs__run_id__resume_post"];
         delete?: never;
@@ -627,26 +779,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/traces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Traces
-         * @description Traces, newest first, without their inputs and outputs (GET /admin/traces/{id} has them).
-         */
-        get: operations["list_traces_admin_traces_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/traces/{trace_id}": {
         parameters: {
             query?: never;
@@ -656,143 +788,12 @@ export interface paths {
         };
         /**
          * Get Trace
-         * @description One trace, with its input and output.
+         * @description One input of a request with its output, and the request's model, outcome and timing; 404 once it is gone
+         *     (TRACE_RETENTION_DAYS), or while the request history is off.
          */
         get: operations["get_trace_admin_traces__trace_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Collections
-         * @description Every collection, with its model, fields and item count.
-         */
-        get: operations["list_collections_collections_get"];
-        put?: never;
-        /**
-         * Create Collection
-         * @description Create a collection; its vector size comes from embedding a probe text with ``model``.
-         */
-        post: operations["create_collection_collections_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Collection
-         * @description The collection and how many items it holds.
-         */
-        get: operations["get_collection_collections__name__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Drop Collection
-         * @description Delete a collection and all its items.
-         */
-        delete: operations["drop_collection_collections__name__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{name}/items": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add Items
-         * @description Embed and store items; an item with an existing id replaces it.
-         */
-        post: operations["add_items_collections__name__items_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{name}/items/{item_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Item
-         * @description One item of the collection.
-         */
-        get: operations["get_item_collections__name__items__item_id__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete Item
-         * @description Delete one item of the collection.
-         */
-        delete: operations["delete_item_collections__name__items__item_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{name}/query": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Query
-         * @description Items ``where`` selects, without vector search, in pages of ``limit``.
-         */
-        post: operations["query_collections__name__query_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/collections/{name}/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Search
-         * @description The k items nearest to ``query`` (by the collection's model), nearest first; ``distance`` 0 is identical.
-         */
-        post: operations["search_collections__name__search_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -807,23 +808,28 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Namespaces
-         * @description Every namespace, with its tables, their row counts and their size on disk (``size_bytes``).
+         * List Workspaces
+         * @description A page of the workspaces, by name, each with its label and its tables and edge types by name: a table's
+         *     kind (``graph``, ``bucket``, its ``vector`` field), and ``kept`` naming what keeps a kept table (null for the
+         *     others: one kept is read-only here, and needs the admin key). Their row counts,
+         *     sizes and schemas are GET /db/{workspace}'s, so this list costs the same however many tables there are.
+         *     With ``all``, the service's own come too, each with ``managed`` naming what keeps it (null for a workspace).
+         *     ``next`` is the next page's cursor, absent on the last page.
          */
-        get: operations["list_namespaces_db_get"];
+        get: operations["list_workspaces_db_get"];
         put?: never;
         /**
-         * Create Namespace
-         * @description Create an empty namespace; its tables appear as clients write to them.
+         * Create Workspace
+         * @description Create an empty workspace, maybe with a label; its tables appear as clients write to them.
          */
-        post: operations["create_namespace_db_post"];
+        post: operations["create_workspace_db_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}": {
+    "/db/{workspace}": {
         parameters: {
             query?: never;
             header?: never;
@@ -831,27 +837,87 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Namespace
-         * @description The namespace's tables, their row counts and their size on disk (``size_bytes``).
+         * Get Workspace
+         * @description The workspace's label, its tables and edge types, their row counts and their size on disk
+         *     (``size_bytes``); a kept table names what keeps it as ``kept``.
          */
-        get: operations["get_namespace_db__namespace__get"];
+        get: operations["get_workspace_db__workspace__get"];
         put?: never;
         /**
          * Create Table
-         * @description Create an empty table with this schema; 409 if it exists.
+         * @description Create an empty table with this schema; 409 if it exists. A vector field with a model embeds a probe text
+         *     with it now, which takes its dimensions when they are left out (403 for a model outside ALLOWED_MODELS).
+         *     With ``bucket``, a bucket of files, whose fields are fixed (400 for fields given, or graph true); 409 when the
+         *     folder its files would go to holds files already or is another bucket's on a disk that ignores case.
          */
-        post: operations["create_table_db__namespace__post"];
+        post: operations["create_table_db__workspace__post"];
         /**
-         * Drop Namespace
-         * @description Delete the namespace with all its tables and rows.
+         * Drop Workspace
+         * @description Delete the workspace with all its tables and rows, and its buckets' files. ``default`` always exists: 403
+         *     (drop its tables one by one instead), and 403 too for one that holds kept tables (or edge types named like
+         *     them), naming them and what keeps them; nothing is dropped then.
          */
-        delete: operations["drop_namespace_db__namespace__delete"];
+        delete: operations["drop_workspace_db__workspace__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Set Label
+         * @description Change the workspace's label; null clears it.
+         */
+        patch: operations["set_label_db__workspace__patch"];
+        trace?: never;
+    };
+    "/db/{workspace}/_dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dashboards
+         * @description A page of the workspace's dashboards, by name: each its spec, with when it was made and changed.
+         */
+        get: operations["list_dashboards_db__workspace___dashboards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_edges": {
+    "/db/{workspace}/_dashboards/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Dashboard
+         * @description The dashboard's spec, with when it was made and changed.
+         */
+        get: operations["get_dashboard_db__workspace___dashboards__name__get"];
+        /**
+         * Put Dashboard
+         * @description Create or replace a dashboard: its views in order, each ``width`` columns of 12, sharing ``params`` (a JSON
+         *     Schema; each view takes the values of its own params' names), refreshed every ``refresh_s`` seconds (0 for
+         *     none, else at least 5: 422 below). 400 unless every item names a view of the workspace.
+         */
+        put: operations["put_dashboard_db__workspace___dashboards__name__put"];
+        post?: never;
+        /**
+         * Delete Dashboard
+         * @description Delete the dashboard; its views stay. One that is not there is no error.
+         */
+        delete: operations["delete_dashboard_db__workspace___dashboards__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/_edges": {
         parameters: {
             query?: never;
             header?: never;
@@ -860,30 +926,30 @@ export interface paths {
         };
         /**
          * List Edge Types
-         * @description The namespace's edge types, each with how many edges it holds, its size on disk and the tables it joins
+         * @description The workspace's edge types, each with how many edges it holds, its size on disk and the tables it joins
          *     (``joins``: each pair of the table its edges leave and the one they arrive at, with how many edges, most
-         *     first). The joins are counted by reading every edge, which GET /db/{ns} does not do.
+         *     first). The joins are counted by reading every edge, which GET /db/{ws} does not do.
          */
-        get: operations["list_edge_types_db__namespace___edges_get"];
+        get: operations["list_edge_types_db__workspace___edges_get"];
         /**
          * Put Edges
          * @description Store the edges, all or none. Each joins two rows of graph tables (``from`` and ``to``, as ``table/id``),
          *     with the rest of the object as its properties. One edge of a type joins a pair of rows: storing it again
          *     replaces its properties. An edge type appears on its first edge. 400 if an end is not a row of a graph table.
          */
-        put: operations["put_edges_db__namespace___edges_put"];
+        put: operations["put_edges_db__workspace___edges_put"];
         /**
          * Create Edge Type
          * @description Create an empty edge type; 409 if it exists or a table has its name. Its first edge (PUT) makes one too.
          */
-        post: operations["create_edge_type_db__namespace___edges_post"];
+        post: operations["create_edge_type_db__workspace___edges_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_edges/_delete": {
+    "/db/{workspace}/_edges/_delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -896,14 +962,14 @@ export interface paths {
          * Delete Edges
          * @description Delete the edges each ``{type, from, to}`` names, all or none; ones that are not there are ignored.
          */
-        post: operations["delete_edges_db__namespace___edges__delete_post"];
+        post: operations["delete_edges_db__workspace___edges__delete_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_edges/{edge_type}": {
+    "/db/{workspace}/_edges/{edge_type}": {
         parameters: {
             query?: never;
             header?: never;
@@ -917,13 +983,13 @@ export interface paths {
          * Drop Edge Type
          * @description Delete the edge type with every edge of it.
          */
-        delete: operations["drop_edge_type_db__namespace___edges__edge_type__delete"];
+        delete: operations["drop_edge_type_db__workspace___edges__edge_type__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_graph": {
+    "/db/{workspace}/_graph": {
         parameters: {
             query?: never;
             header?: never;
@@ -932,14 +998,15 @@ export interface paths {
         };
         /**
          * Graph View
-         * @description Rows of the namespace's graph tables (the ``_table``s named, repeatable; all of them when none) and the edges
-         *     of the ``_type``s named (all when none) that join two of them: what a view of the graph draws. Each table
+         * @description Rows of the workspace's graph tables (the ``_table``s named, repeatable; all of them when none, but kept
+         *     tables, which are drawn when named, with the admin key) and the edges of the ``_type``s named (all when none)
+         *     that join two of them: what a view of the graph draws. Each table
          *     contributes its first rows by id, the node budget shared evenly. ``nodes`` are ``{table, row}``, ``edges``
          *     ``{type, from, to, ...properties}``; ``outside`` counts edges that lead from a loaded row to one not loaded,
          *     and ``more`` says whether either limit cut the result. 404 for an unknown table or edge type, 400 for a table
          *     that is not a graph table.
          */
-        get: operations["graph_view_db__namespace___graph_get"];
+        get: operations["graph_view_db__workspace___graph_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -948,7 +1015,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_query": {
+    "/db/{workspace}/_query": {
         parameters: {
             query?: never;
             header?: never;
@@ -959,27 +1026,24 @@ export interface paths {
         put?: never;
         /**
          * Graph Query
-         * @description Run a read-only SQL or Cypher query over the namespace's tables and edges and return up to ``limit`` rows.
+         * @description Run one read-only SELECT (DuckDB's SQL) over the workspace's tables and return up to ``limit`` rows.
          *
-         *     Name tables and edge types as the API does: where the query names a type (SQL: after FROM, a MATCH's
-         *     ``type:``, ``out('bought')``, ``@type = 'people'``; Cypher: ``(n:people)``, ``[e:bought]``, ``type(e) = 'bought'``)
-         *     a name of the namespace's becomes the ArcadeDB type, and anywhere else a field, value or alias keeps its name.
-         *     Pass values through ``params``. Rows and edges in the result come back as the API shows
-         *     them (a row as ``{table, row}``; an edge with ``type``, ``from`` and ``to``). A query that would change data is
-         *     refused.
+         *     Tables are named as the API names them: the workspace is the schema a bare name is read in. Its edges, of every
+         *     type, are rows of its ``_edges`` table (type, from_table, from_id, to_table, to_id, props); a table's rows hold
+         *     their declared fields as columns, the others in ``_rest`` (JSON). Pass values through ``params`` as ``$name``.
+         *     Anything but one SELECT (a WITH ... SELECT among them) is refused, and DuckDB here reads no files.
          *
-         *     Needs the admin key: the namespace is where names resolve, not a boundary. SQL and Cypher can still reach any
-         *     type, record ID or bucket in the database (``MATCH (n)`` alone matches every graph table's rows), so a query
-         *     can read everything the service stores.
+         *     Needs the admin key: the workspace is where names resolve, not a boundary. A query can name another schema
+         *     (``evals.datasets``, ``main.tk_audit``), so it can read everything the service stores.
          */
-        post: operations["graph_query_db__namespace___query_post"];
+        post: operations["graph_query_db__workspace___query_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/_transaction": {
+    "/db/{workspace}/_transaction": {
         parameters: {
             query?: never;
             header?: never;
@@ -990,16 +1054,179 @@ export interface paths {
         put?: never;
         /**
          * Transaction
-         * @description Upsert ``puts`` and delete ``deletes`` across the namespace's tables: all of it, or none.
+         * @description Upsert ``puts`` and delete ``deletes`` across the workspace's tables: all of it, or none. Vector fields with
+         *     a model are embedded from the rows' texts first, every row's in one batch per model.
          */
-        post: operations["transaction_db__namespace___transaction_post"];
+        post: operations["transaction_db__workspace___transaction_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}": {
+    "/db/{workspace}/_views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Views
+         * @description A page of the workspace's views, by name: each its spec, with when it was made and changed. 404 for a
+         *     workspace that is not there.
+         */
+        get: operations["list_views_db__workspace___views_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/_views/_try": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Try View
+         * @description Run a view's spec that is not saved, with these params, as a run of it saved would answer (checked as a save
+         *     is): what the editor previews. Never kept, so ``cached`` is false.
+         */
+        post: operations["try_view_db__workspace___views__try_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/_views/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get View
+         * @description The view's spec, with when it was made and changed. Needs the admin key: its SQL may show more than the
+         *     admin means a client to read.
+         */
+        get: operations["get_view_db__workspace___views__name__get"];
+        /**
+         * Put View
+         * @description Create or replace a view. Its params are a JSON Schema of an object; a ``$param`` in a search or rows source
+         *     names one of them (422 otherwise). Its SQL is one SELECT that DuckDB's parser takes, so it changes nothing,
+         *     with no $name its params do not declare (400 otherwise, saying why). ``max_rows`` and ``time_limit_ms`` may lower
+         *     VIEW_MAX_ROWS and VIEW_TIME_LIMIT_MS, not raise them (400). 404 for a workspace that is not there. What was kept
+         *     of its runs is never answered again.
+         */
+        put: operations["put_view_db__workspace___views__name__put"];
+        /**
+         * Run View
+         * @description Run the view with these params (the client key may): its rows (at most its row cap; ``truncated`` when the cap
+         *     cut them), their ``columns`` in the order first seen, when the database was asked (``ran_at``) and whether the
+         *     answer was kept from a run with the same params within the view's ``refresh_s`` (``cached``). 400 for a param
+         *     the view does not declare, a required one missing or one of the wrong type, naming it, and for SQL the database
+         *     refuses, with its message; 503 when the view takes longer than its time limit.
+         */
+        post: operations["run_view_db__workspace___views__name__post"];
+        /**
+         * Delete View
+         * @description Delete the view; 409, naming them, while dashboards show it. One that is not there is no error.
+         */
+        delete: operations["delete_view_db__workspace___views__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/{bucket}/_files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload File
+         * @description Keep the request's body as a new file of the bucket, named ``name``, of the request's Content-Type: its row
+         *     (``id``, ``name``, ``size``, ``sha256``, ``content_type``, ``created``), with its download in Location. The
+         *     bytes are streamed to disk; an empty body is an empty file. 413 past MAX_FILE_BYTES (at once when the
+         *     Content-Length says so), 404 for a bucket that is not there, 400 for a table that is not a bucket.
+         */
+        post: operations["upload_file_db__workspace___bucket___files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/{bucket}/_files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download File
+         * @description The file's bytes, with the media type it was uploaded with, as an attachment named as it was: a Range
+         *     header gets a part of them (206, with Content-Range). Bytes missing from disk are read back from the bucket's
+         *     remote when they were copied there, then answered as usual; 503 when that fails. 404 for a file that is not
+         *     there, or whose bytes are missing from disk and were never copied to a remote (the message says which).
+         */
+        get: operations["download_file_db__workspace___bucket___files__file_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete File
+         * @description Delete the file: its row, then its bytes. Deleting one that is not there is not an error.
+         */
+        delete: operations["delete_file_db__workspace___bucket___files__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/{bucket}/_remote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Bucket Remote
+         * @description The bucket's remote (null for none), its files, how many are copied there and how many wait to be (null
+         *     without a remote), and its latest copy (``task``: its status, progress, and the remote's error when it failed;
+         *     null before the first). 400 for a table that is not a bucket.
+         */
+        get: operations["get_bucket_remote_db__workspace___bucket___remote_get"];
+        /**
+         * Set Bucket Remote
+         * @description Name the bucket's remote, or none (null), and answer as GET does. A new remote gets every file, copied by a
+         *     task queued now; what was copied to the remote before stays there (delete it there). Naming the remote it names
+         *     already copies now what is behind (files waiting, a delete not done there): a copy that gave up, or waits for
+         *     its retry, starts at once. 404 for a remote that is not there, 400 for a table that is not a bucket.
+         */
+        put: operations["set_bucket_remote_db__workspace___bucket___remote_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/{table}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1017,27 +1244,38 @@ export interface paths {
          *     the value. ``_search`` finds the rows whose full-text fields hold its words
          *     (400 for a table without one): words as the index splits them, case aside,
          *     a domain such as site.example.com being one word. ``next`` is the next
-         *     page's cursor, absent on the last page.
+         *     page's cursor, absent on the last page. Rows come without their vector
+         *     field (GET one row for it), and so do the rows they expand to.
+         *
+         *     ``_expand`` follows refs (fields of type ref): ``customer`` puts the row
+         *     the ref field customer names under each row's ``_expand.customer``;
+         *     ``order_items:order`` puts there the rows of order_items whose ref field
+         *     order names the row (the lowest ids, up to the limit the parameter
+         *     says: ``_expand_more`` names a step that held more, which a filter on
+         *     that field pages); ``order_items:order.product`` goes on to each item's
+         *     product. 400 for a step that is not a ref; 413 when it would read too
+         *     many rows, saying how many it reads at most.
          */
-        get: operations["list_rows_db__namespace___table__get"];
+        get: operations["list_rows_db__workspace___table__get"];
         put?: never;
         /**
          * Insert Row
          * @description Add a row; 409 if its id is taken. Without an id it gets a UUIDv7 (32 hex digits): unique, and
          *     in creation order, so the default sort by id lists rows oldest first and the id index grows at its end.
+         *     A vector field with a model is embedded from the row's text (a row does not send it: 400).
          */
-        post: operations["insert_row_db__namespace___table__post"];
+        post: operations["insert_row_db__workspace___table__post"];
         /**
          * Drop Table
-         * @description Delete the table and its rows. Writing to it again makes it anew.
+         * @description Delete the table and its rows (a bucket's files too). Writing to it again makes it anew.
          */
-        delete: operations["drop_table_db__namespace___table__delete"];
+        delete: operations["drop_table_db__workspace___table__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/_bulk": {
+    "/db/{workspace}/{table}/_bulk": {
         parameters: {
             query?: never;
             header?: never;
@@ -1047,9 +1285,10 @@ export interface paths {
         get?: never;
         /**
          * Bulk Put
-         * @description Upsert every row (each replaces the row with its id), all or none.
+         * @description Upsert every row (each replaces the row with its id), all or none. A vector field with a model is embedded
+         *     from the rows' texts first, in one batch; 413 if the table would pass VECTOR_MAX_ROWS.
          */
-        put: operations["bulk_put_db__namespace___table___bulk_put"];
+        put: operations["bulk_put_db__workspace___table___bulk_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1057,7 +1296,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/_bulk-delete": {
+    "/db/{workspace}/{table}/_bulk-delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -1070,14 +1309,14 @@ export interface paths {
          * Bulk Delete
          * @description Delete the rows with these ids, all or none; ids with no row are ignored.
          */
-        post: operations["bulk_delete_db__namespace___table___bulk_delete_post"];
+        post: operations["bulk_delete_db__workspace___table___bulk_delete_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/_bulk-get": {
+    "/db/{workspace}/{table}/_bulk-get": {
         parameters: {
             query?: never;
             header?: never;
@@ -1090,14 +1329,14 @@ export interface paths {
          * Bulk Get
          * @description The rows with these ids, in the order asked; ids with no row are left out.
          */
-        post: operations["bulk_get_db__namespace___table___bulk_get_post"];
+        post: operations["bulk_get_db__workspace___table___bulk_get_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/_count": {
+    "/db/{workspace}/{table}/_count": {
         parameters: {
             query?: never;
             header?: never;
@@ -1108,7 +1347,7 @@ export interface paths {
          * Count Rows
          * @description How many rows the filters (``field=value``) and the search (``_search``), as in the list, select.
          */
-        get: operations["count_rows_db__namespace___table___count_get"];
+        get: operations["count_rows_db__workspace___table___count_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1117,7 +1356,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/_schema": {
+    "/db/{workspace}/{table}/_schema": {
         parameters: {
             query?: never;
             header?: never;
@@ -1129,14 +1368,17 @@ export interface paths {
          * @description The declared fields, ``strict``, and ``observed``: which fields the newest rows hold, how often, with
          *     which types. ``id`` is built in: a string, indexed and unique.
          */
-        get: operations["get_schema_db__namespace___table___schema_get"];
+        get: operations["get_schema_db__workspace___table___schema_get"];
         /**
          * Put Schema
          * @description Replace the schema (making the table if needed). 400, naming a few rows, if rows there now break
          *     what it adds (a type, required, strict), or a unique field finds two alike; nothing changes then.
-         *     Fields left out lose their rules and indexes, never their values.
+         *     Fields left out lose their rules and indexes, never their values, but for a vector field, whose vectors go
+         *     with it. A vector field's options never change (400): remove it and add it again, and rows get new vectors
+         *     as they are written again. Adding one to a table past VECTOR_MAX_ROWS rows is refused (413). A bucket's
+         *     fields are fixed (400).
          */
-        put: operations["put_schema_db__namespace___table___schema_put"];
+        put: operations["put_schema_db__workspace___table___schema_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1144,7 +1386,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/{row_id}": {
+    "/db/{workspace}/{table}/_search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Vector Search
+         * @description The ``k`` rows nearest ``vector``, or ``text`` embedded with the table's vector field's model, nearest first:
+         *     each ``{row, distance}``, the row without its vector, the distance by the field's similarity, lower nearer:
+         *     for COSINE 1 minus the cosine, for EUCLIDEAN the squared distance (0 for both is the same vector), for
+         *     DOT_PRODUCT -(1 + the dot product) / 2 (-1 to 0 for unit vectors). Only rows ``filters`` (field: value, as the
+         *     list's field=value) and ``q`` (words of the full-text fields, as the list's _search) select are searched, so
+         *     ``k`` of them come back when there are. ``tokens`` says what the text took to embed.
+         *
+         *     With ``hybrid``, the text's words rank the rows as well as its meaning: the nearest rows and the rows whose
+         *     full-text fields hold the most and rarest of the text's words (any of them, its first 64) are fused by
+         *     reciprocal rank, best first, each with its ``score``; a row only the words found has no ``distance``. A text of
+         *     common words over a table near VECTOR_MAX_ROWS takes about half a second, as every row holding one is scored.
+         *
+         *     With a ``rerank`` model (the rerank task's: a cross-encoder), four times ``k`` rows found so (at most 100) are
+         *     read by it, the text against each row's embedded text, and the ``k`` it scores best come back, best first, each
+         *     with its ``score`` (0 to 1, comparable across searches); ``tokens`` counts its tokens too.
+         *
+         *     400 for a table without a vector field, a text for one without a model, a vector of the wrong size, hybrid
+         *     with a vector or on a table without full-text fields, or a reranker with a vector; 403 for a model outside
+         *     ALLOWED_MODELS.
+         */
+        post: operations["vector_search_db__workspace___table___search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/db/{workspace}/{table}/{row_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1153,30 +1433,33 @@ export interface paths {
         };
         /**
          * Get Row
-         * @description One row.
+         * @description One row, whole: its vector field too, which lists and searches leave out (and the rows it expands to).
+         *     ``_expand`` follows its refs, as the list's does.
          */
-        get: operations["get_row_db__namespace___table___row_id__get"];
+        get: operations["get_row_db__workspace___table___row_id__get"];
         /**
          * Put Row
-         * @description Store the row under this id: 201 when new, 200 when it replaced one.
+         * @description Store the row under this id: 201 when new, 200 when it replaced one. A vector field with a model is
+         *     embedded from the row's text.
          */
-        put: operations["put_row_db__namespace___table___row_id__put"];
+        put: operations["put_row_db__workspace___table___row_id__put"];
         post?: never;
         /**
          * Delete Row
          * @description Delete the row; deleting one that is not there is not an error.
          */
-        delete: operations["delete_row_db__namespace___table___row_id__delete"];
+        delete: operations["delete_row_db__workspace___table___row_id__delete"];
         options?: never;
         head?: never;
         /**
          * Patch Row
-         * @description Merge into the row by JSON Merge Patch (RFC 7396): null removes a field, objects merge. 404 if no row.
+         * @description Merge into the row by JSON Merge Patch (RFC 7396): null removes a field, objects merge. 404 if no row. A
+         *     patch that sets the text a vector field is embedded from gets that text's vector.
          */
-        patch: operations["patch_row_db__namespace___table___row_id__patch"];
+        patch: operations["patch_row_db__workspace___table___row_id__patch"];
         trace?: never;
     };
-    "/db/{namespace}/{table}/{row_id}/_edges": {
+    "/db/{workspace}/{table}/{row_id}/_edges": {
         parameters: {
             query?: never;
             header?: never;
@@ -1188,7 +1471,7 @@ export interface paths {
          * @description A page of the row's edges, of the ``_type``s named (repeatable; all when none), each
          *     ``{type, from, to, ...properties}``. 404 unless the row is in a graph table.
          */
-        get: operations["row_edges_db__namespace___table___row_id___edges_get"];
+        get: operations["row_edges_db__workspace___table___row_id___edges_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1197,7 +1480,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/{row_id}/_neighbors": {
+    "/db/{workspace}/{table}/{row_id}/_neighbors": {
         parameters: {
             query?: never;
             header?: never;
@@ -1210,7 +1493,7 @@ export interface paths {
          *     ``{table, row, edge}``, the edge being the one it is reached by. A row joined by several edges appears once
          *     per edge.
          */
-        get: operations["row_neighbors_db__namespace___table___row_id___neighbors_get"];
+        get: operations["row_neighbors_db__workspace___table___row_id___neighbors_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1219,7 +1502,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/db/{namespace}/{table}/{row_id}/_traverse": {
+    "/db/{workspace}/{table}/{row_id}/_traverse": {
         parameters: {
             query?: never;
             header?: never;
@@ -1231,7 +1514,7 @@ export interface paths {
          * @description The rows reachable within ``_depth`` edges of the ``_type``s named (repeatable; all when none), nearest
          *     first and each once: ``{table, depth, row}``, the depth being the fewest edges to it.
          */
-        get: operations["row_traverse_db__namespace___table___row_id___traverse_get"];
+        get: operations["row_traverse_db__workspace___table___row_id___traverse_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1314,7 +1597,8 @@ export interface paths {
         get: operations["get_enricher_enrichers__name__get"];
         /**
          * Put Enricher
-         * @description Create or replace an enricher. A built-in's name keeps the built-in, changed.
+         * @description Create or replace an enricher. A built-in's name keeps the built-in, changed. 400 for a ``secret`` that is one of
+         *     the service's settings, a provider's key or a variable its child processes get.
          */
         put: operations["put_enricher_enrichers__name__put"];
         post?: never;
@@ -1338,7 +1622,9 @@ export interface paths {
         get?: never;
         /**
          * Put Secret
-         * @description Save the enricher's API key to the .env file; it takes effect at once.
+         * @description Save the enricher's API key, encrypted; it takes effect at once. 400 when the enricher names a setting of
+         *     the service, a provider's key or a variable its child processes get, 503 without a master key
+         *     (SECRETS_MASTER_KEY).
          */
         put: operations["put_secret_enrichers__name__secret_put"];
         post?: never;
@@ -1381,7 +1667,8 @@ export interface paths {
          * Create Capture
          * @description Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it. The body is
          *     multipart: ``metadata`` (JSON with ``caseId`` and ``artifacts``, each with the SHA-256 the browser computed) and one
-         *     ``file`` per artifact, named after it.
+         *     ``file`` per artifact, named after it. In a workspace other than the default one that holds no evidence yet, the
+         *     admin key alone writes (403), as the write makes its ledger.
          */
         post: operations["create_capture_evidence_captures_post"];
         delete?: never;
@@ -1459,13 +1746,14 @@ export interface paths {
         };
         /**
          * List Cases
-         * @description The workspace's cases; ``inbox`` always exists.
+         * @description The workspace's cases; ``inbox`` always exists (before the workspace's first evidence write, alone).
          */
         get: operations["list_cases_evidence_cases_get"];
         put?: never;
         /**
          * Create Case
-         * @description Make a case in the workspace.
+         * @description Make a case in the workspace. In a workspace other than the default one that holds no evidence yet, the
+         *     admin key alone writes (403), as the write makes its ledger.
          */
         post: operations["create_case_evidence_cases_post"];
         delete?: never;
@@ -1528,7 +1816,8 @@ export interface paths {
         get: operations["list_todos_evidence_cases__case_id__todos_get"];
         /**
          * Set Todos
-         * @description Replace the case's to-do list (a todo left out is deleted). Never touches a record.
+         * @description Replace the case's to-do list (a todo left out is deleted). Never touches a record. In a workspace other than
+         *     the default one that holds no evidence yet, the admin key alone writes (403), as the write makes its ledger.
          */
         put: operations["set_todos_evidence_cases__case_id__todos_put"];
         post?: never;
@@ -1621,31 +1910,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/evidence/workspaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Workspaces
-         * @description The workspaces; ``default`` always exists.
-         */
-        get: operations["list_workspaces_evidence_workspaces_get"];
-        put?: never;
-        /**
-         * Create Workspace
-         * @description Make a workspace, with its own ledger: give the id of the workspace it stands for (your application's), or let
-         *     one be made. 409 if the id is taken.
-         */
-        post: operations["create_workspace_evidence_workspaces_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/health": {
         parameters: {
             query?: never;
@@ -1655,134 +1919,10 @@ export interface paths {
         };
         /**
          * Health Check
-         * @description Health check: the device models run on and the model cache's state.
+         * @description Health check: the service answers, and the device models run on. Anyone may ask, so it says nothing of the
+         *     models loaded or where they are served (GET /models/status does, with the admin key).
          */
         get: operations["health_check_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/downloads": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Downloads
-         * @description Downloads queued, running and finished (until dismissed), newest first.
-         */
-        get: operations["downloads_hub_downloads_get"];
-        put?: never;
-        /**
-         * Start Download
-         * @description Download a repo's files into the Hub cache in the background; 409 if it is already being downloaded. A child
-         *     process downloads them, and the progress is the cache folder's size against the repo's total.
-         */
-        post: operations["start_download_hub_downloads_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/downloads/{download_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Cancel Download
-         * @description Cancel a queued or running download (the partial files stay and resume next time), or dismiss a finished one.
-         */
-        delete: operations["cancel_download_hub_downloads__download_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/local": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Local
-         * @description Model repos in the Hub cache, with their size, whether a model loaded from them now, and the tasks that claim them.
-         */
-        get: operations["local_hub_local_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/local/{repo_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Local
-         * @description Delete a repo's files from the Hub cache; 409 while a model is loaded from it or it is being downloaded.
-         */
-        delete: operations["delete_local_hub_local__repo_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/repos/{repo_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Repo
-         * @description A repo's files with their sizes, its total and weight bytes, license and whether it is gated.
-         */
-        get: operations["repo_hub_repos__repo_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/hub/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search
-         * @description Models on the Hub, most downloaded first, each with whether its weights are already on disk.
-         */
-        get: operations["search_hub_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1842,7 +1982,7 @@ export interface paths {
         };
         /**
          * List Jobs
-         * @description Jobs, newest first.
+         * @description Jobs, newest first, a page at a time. Jobs are kept until deleted, so the list only grows.
          */
         get: operations["list_jobs_jobs_get"];
         put?: never;
@@ -1866,13 +2006,13 @@ export interface paths {
         };
         /**
          * List Data
-         * @description The files in JOB_DATA_DIR, which job params name by these paths.
+         * @description The files in DATA_DIR/datasets, which job params name by these paths.
          */
         get: operations["list_data_jobs_data_get"];
         put?: never;
         /**
          * Upload Data
-         * @description Upload a file (CSV, Parquet, ...) to JOB_DATA_DIR under its own name; a file of that name is replaced.
+         * @description Upload a file (CSV, Parquet, ...) to DATA_DIR/datasets under its own name; a file of that name is replaced.
          */
         post: operations["upload_data_jobs_data_post"];
         delete?: never;
@@ -1893,9 +2033,31 @@ export interface paths {
         post?: never;
         /**
          * Delete Data
-         * @description Delete an input file from JOB_DATA_DIR.
+         * @description Delete an input file from DATA_DIR/datasets.
          */
         delete: operations["delete_data_jobs_data__path__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/data/{path}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize Data
+         * @description A CSV, TSV, Parquet or JSON Lines file's row count, each column's type, min, max, approximate distinct count,
+         *     mean and share missing, and its first 20 rows: what choosing a column to train on needs. 400 for a file that cannot
+         *     be read as a table.
+         */
+        get: operations["summarize_data_jobs_data__path__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1910,7 +2072,7 @@ export interface paths {
         };
         /**
          * List Schedules
-         * @description Every schedule with its next and last run (and the last job's status).
+         * @description Every job's schedule with its next and last run (and the last job's status).
          */
         get: operations["list_schedules_jobs_schedules_get"];
         put?: never;
@@ -1934,12 +2096,13 @@ export interface paths {
         };
         /**
          * Get Schedule
-         * @description One schedule.
+         * @description One job's schedule.
          */
         get: operations["get_schedule_jobs_schedules__id__get"];
         /**
          * Update Schedule
-         * @description Replace a schedule's fields; its next run is recomputed from now.
+         * @description Replace a schedule's fields; its next run is recomputed from now when its cadence changed or it was switched
+         *     on or off, and stays as planned otherwise.
          */
         put: operations["update_schedule_jobs_schedules__id__put"];
         post?: never;
@@ -1982,54 +2145,12 @@ export interface paths {
         };
         /**
          * Job Types
-         * @description Every job: its environment (and whether that is set up), and the JSON Schema of its params and result.
+         * @description Every job: its environment (whether it is set up, and from its requirements file as it is now), and the JSON
+         *     Schema of its params and result.
          */
         get: operations["job_types_jobs_types_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Webhooks
-         * @description The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, the event names, and the latest
-         *     deliveries with how each went (those still retried are queued, with the last try's error).
-         *
-         *     Eval runs post to them too, so these work with jobs off.
-         */
-        get: operations["webhooks_jobs_webhooks_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/webhooks/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test Webhook
-         * @description Send a ``test`` event to the URL now and report what it answered.
-         */
-        post: operations["test_webhook_jobs_webhooks_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2052,7 +2173,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Job
-         * @description Delete a finished job and its files (a trained predictor too).
+         * @description Delete a finished job and its files. A model it trained goes too, and is unloaded if it was loaded.
          */
         delete: operations["delete_job_jobs__id__delete"];
         options?: never;
@@ -2252,7 +2373,8 @@ export interface paths {
         };
         /**
          * List Available Models
-         * @description List available models for different tasks (only those in ALLOWED_MODELS when it is set).
+         * @description List available models for different tasks (only those in ALLOWED_MODELS when it is set, and those the operator
+         *     chose here: model servers' entries, models jobs here trained).
          */
         get: operations["list_available_models_models_list_get"];
         put?: never;
@@ -2427,7 +2549,7 @@ export interface paths {
         put?: never;
         /**
          * Conversation To Example
-         * @description Add one column's chat to an eval dataset as an example (admin key).
+         * @description Add one column's chat to an eval dataset as an example.
          */
         post: operations["conversation_to_example_playground_conversations__conversation_id__example_post"];
         delete?: never;
@@ -2499,6 +2621,170 @@ export interface paths {
          * @description Delete a saved preset.
          */
         delete: operations["delete_preset_playground_presets__preset_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tasks
+         * @description The tasks of every kind, newest first, a page at a time; ``status`` given more than once takes any of them
+         *     (``?status=queued&status=running``: the work not done yet). Ended ones are kept as their kind says (a job until
+         *     it is deleted, a webhook delivery for days).
+         */
+        get: operations["list_tasks_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Webhooks
+         * @description The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, the event names, and the latest
+         *     deliveries with how each went (those still retried are queued, with the last try's error). Finished jobs and eval
+         *     runs are posted to them, each delivery a task of its own.
+         */
+        get: operations["webhooks_queue_webhooks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/webhooks/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Webhook
+         * @description Send a ``test`` event to the URL now and report what it answered.
+         */
+        post: operations["test_webhook_queue_webhooks_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Task
+         * @description Cancel a queued task, or stop a running one and wait for it to end; one that ended is left as it is. A kind's
+         *     own cancel may do more (an eval run's stops its judging too). A webhook delivery under way is let finish, and a
+         *     bucket's copy is asked for again at the next upload or hourly check while its files wait.
+         */
+        post: operations["cancel_task_queue__id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/remotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Remotes
+         * @description Every remote: its spec, the buckets that name it (``workspace/bucket``), and ``missing``, the environment
+         *     variables its secrets name that the service's environment does not set (the remote fails until they are).
+         */
+        get: operations["list_remotes_remotes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/remotes/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Remote
+         * @description One remote, as GET /remotes lists it.
+         */
+        get: operations["get_remote_remotes__name__get"];
+        /**
+         * Put Remote
+         * @description Create or replace a remote. 400 for an option in ``options`` whose name looks like a secret's (key, secret,
+         *     password, token, credential, connection_string) or whose value is a URL with a password in it: name the
+         *     environment variable that holds it in ``secrets`` instead. 400 too for a variable in ``secrets`` that is one of the
+         *     service's settings, a provider's key or a variable its child processes get, and for a folder (``fs``) whose root is the buckets' folder (DATA_DIR/files), inside it or above it.
+         *     While a bucket names the remote, what says where the copies are (its scheme, its options, and the variables its
+         *     options that are not secrets are read from) cannot change (409): make another remote and name that on the bucket.
+         *     Its label and the variables of its secrets can (a key rotated); then the copies of the buckets that name it that
+         *     are behind are queued, in case it works now.
+         */
+        put: operations["put_remote_remotes__name__put"];
+        post?: never;
+        /**
+         * Delete Remote
+         * @description Delete a remote; 409 while a bucket names it. What was copied there stays there.
+         */
+        delete: operations["delete_remote_remotes__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/remotes/{name}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Remote
+         * @description Try the remote now: write a small probe object under ``.toolkit-probe/`` at its root, read it back, find it in
+         *     a list and delete it, answering each step with its time. 503 for the first step that fails, with the remote's
+         *     own message and the steps that worked before it, or naming a variable its secrets name that is not set.
+         */
+        post: operations["test_remote_remotes__name__test_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2715,6 +3001,230 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflows
+         * @description A page of the workflows, by name: each its spec, with its id and when it was made and changed.
+         */
+        get: operations["list_workflows_workflows_get"];
+        put?: never;
+        /**
+         * Create Workflow
+         * @description Make a workflow. 400, saying what, for a spec whose nodes, edges or JMESPaths are wrong, a task that is not
+         *     known or inputs it does not take; 403 for a model outside ALLOWED_MODELS; 404 for a workspace that is not there.
+         *     A trigger makes its schedule.
+         */
+        post: operations["create_workflow_workflows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry Run
+         * @description Take the source's first ``limit`` rows through a spec, saved or not, writing nothing: the rows along each edge,
+         *     each node's rows in, out and failed (with its first error) and a few rows as they left it. Checked as a save is
+         *     (400, 403, 404).
+         */
+        post: operations["dry_run_workflows_dry_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Node Types
+         * @description The node types a workflow is made of, each with the JSON Schema of its settings and its outputs.
+         */
+        get: operations["list_node_types_workflows_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description A run: its status, when it was queued, started and finished, its error, and its rows along each edge and
+         *     through each node so far.
+         */
+        get: operations["get_run_workflows_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Run
+         * @description Cancel a queued run, or stop a running one after the rows it is on; a finished one is left as it is.
+         */
+        post: operations["cancel_run_workflows_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow
+         * @description The workflow's spec, with its id and when it was made and changed.
+         */
+        get: operations["get_workflow_workflows__id__get"];
+        /**
+         * Update Workflow
+         * @description Replace the workflow's spec, checked as when it was made; its trigger's schedule is made, changed or deleted to
+         *     match. A run under way keeps the spec it started with.
+         */
+        put: operations["update_workflow_workflows__id__put"];
+        post?: never;
+        /**
+         * Delete Workflow
+         * @description Delete the workflow, its schedule and its runs; runs under way are cancelled first.
+         */
+        delete: operations["delete_workflow_workflows__id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/invoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invoke Workflow
+         * @description Take ``rows`` through the saved workflow at once, in place of its table's, writing nothing: each row as it came
+         *     out, in the order given, with every node's result it got under the node's id and ``_error`` where a node failed
+         *     it, and the rows along each edge and through each node. A client's: composite inference in one call, of a
+         *     workflow the admin made ``invokable`` (403 otherwise). Checked as a run is (400, 403 for a model outside
+         *     ALLOWED_MODELS, 404).
+         */
+        post: operations["invoke_workflow_workflows__id__invoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Workflow
+         * @description Forget how far runs that read only new rows have read: the next reads the whole table.
+         */
+        post: operations["reset_workflow_workflows__id__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Queue a run of the workflow, which runs it as it is saved when the run starts. Runs of a workflow never
+         *     overlap: one may wait while one runs, and while one waits, this answers with it. Checked again first (a model may have left ALLOWED_MODELS since:
+         *     403).
+         */
+        post: operations["start_run_workflows__id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description The workflow's runs, newest first, each with its counts, a page at a time.
+         */
+        get: operations["list_runs_workflows__id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2733,11 +3243,6 @@ export interface components {
              * @description Traces to copy in as examples
              */
             trace_ids?: string[];
-        };
-        /** AddItems */
-        AddItems: {
-            /** Items */
-            items: components["schemas"]["Item"][];
         };
         /** AdminConfig */
         AdminConfig: {
@@ -2801,6 +3306,8 @@ export interface components {
         AuditEntries: {
             /** Entries */
             entries: components["schemas"]["AuditEntry"][];
+            /** Next */
+            next?: string | null;
             /** On */
             on: boolean;
             /** Retention Days */
@@ -2826,6 +3333,8 @@ export interface components {
             id: number;
             /** Ip */
             ip: string | null;
+            /** Key Id */
+            key_id: string | null;
             /** Method */
             method: string;
             /** Path */
@@ -2880,6 +3389,11 @@ export interface components {
              */
             max_concurrency?: number;
             /**
+             * Max Length
+             * @description Tokens the hub model reads of each text or pair, at most its own length; the rest is cut
+             */
+            max_length?: number | null;
+            /**
              * Memory Gb
              * @description Counted against MAX_MEMORY_GB. 0: estimated from the weights (cmd, hub), none for a server elsewhere
              * @default 0
@@ -2903,6 +3417,11 @@ export interface components {
              * @default 600
              */
             request_timeout?: number;
+            /**
+             * Revision
+             * @description The hub model's branch, tag or commit to load (default: main)
+             */
+            revision?: string | null;
             /**
              * Startup Timeout
              * @description Seconds a started server has to answer
@@ -2939,6 +3458,28 @@ export interface components {
              */
             state: "ok" | "unlisted" | "unavailable";
         };
+        /**
+         * BarDisplay
+         * @description Bars per x: one per y field, or with ``series`` one per value of that field; side by side, or stacked.
+         */
+        BarDisplay: {
+            /** Series */
+            series?: string | null;
+            /**
+             * Stacked
+             * @default false
+             */
+            stacked?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "bar";
+            /** X */
+            x: string;
+            /** Y */
+            y: string[];
+        };
         /** Body_transcriptions_v1_audio_transcriptions_post */
         Body_transcriptions_v1_audio_transcriptions_post: {
             /**
@@ -2968,6 +3509,41 @@ export interface components {
         Body_upload_data_jobs_data_post: {
             /** File */
             file: string;
+        };
+        /**
+         * BucketFile
+         * @description A file of a bucket: its row, the same as GET /db/{workspace}/{bucket} lists (its bytes are downloaded).
+         */
+        BucketFile: {
+            /** Content Type */
+            content_type: string;
+            /** Copied */
+            copied?: number | null;
+            /** Created */
+            created: number;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /**
+         * BucketRemote
+         * @description A bucket's remote and how its copy stands.
+         */
+        BucketRemote: {
+            /** Copied */
+            copied: number | null;
+            /** Count */
+            count: number;
+            /** Remote */
+            remote: string | null;
+            task: components["schemas"]["Task"] | null;
+            /** Waiting */
+            waiting: number | null;
         };
         /** CacheStatus */
         CacheStatus: {
@@ -3203,6 +3779,101 @@ export interface components {
             /** Tool Calls */
             tool_calls?: components["schemas"]["ToolCall"][] | null;
         };
+        /**
+         * ClassificationReport
+         * @description A run whose outputs are labels, over its items with a reference.
+         */
+        ClassificationReport: {
+            /** Accuracy */
+            accuracy: number;
+            /** Confusion */
+            confusion: number[][] | null;
+            /** Count */
+            count: number;
+            /** Labels */
+            labels: components["schemas"]["LabelScores"][];
+            /** Macro F1 */
+            macro_f1: number;
+        };
+        /**
+         * ClientKeyInfo
+         * @description A client key as the list shows it. Never its token, which only the reply that makes it holds.
+         */
+        ClientKeyInfo: {
+            /** Created At */
+            created_at: number;
+            /** Expires At */
+            expires_at: number | null;
+            grants: components["schemas"]["Grants"];
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: number | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "live" | "expired" | "revoked";
+        };
+        /**
+         * ClientKeyList
+         * @description A page of the client keys, newest first; ``next`` is the next page's cursor, absent on the last.
+         */
+        ClientKeyList: {
+            /** Clients Need A Key */
+            clients_need_a_key: boolean;
+            /** Keys */
+            keys: components["schemas"]["ClientKeyInfo"][];
+            /** Next */
+            next?: string | null;
+        };
+        /** ClientKeyMade */
+        ClientKeyMade: {
+            /** Created At */
+            created_at: number;
+            /** Expires At */
+            expires_at: number | null;
+            grants: components["schemas"]["Grants"];
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: number | null;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "live" | "expired" | "revoked";
+            /** Token */
+            token: string;
+        };
+        /**
+         * ColumnSummary
+         * @description One column of a data file, as DuckDB reads it.
+         */
+        ColumnSummary: {
+            /** Distinct */
+            distinct: number | null;
+            /** Max */
+            max: string | null;
+            /** Mean */
+            mean: number | null;
+            /** Min */
+            min: string | null;
+            /** Missing */
+            missing: number;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+        };
         /** CompareRow */
         CompareRow: {
             a: components["schemas"]["CompareSide"];
@@ -3329,27 +4000,6 @@ export interface components {
             /** Conversations */
             conversations: components["schemas"]["ConversationSummary"][];
         };
-        /** CreateCollection */
-        CreateCollection: {
-            /** Fields */
-            fields?: {
-                [key: string]: "STRING" | "INTEGER" | "LONG" | "FLOAT" | "DOUBLE" | "BOOLEAN" | "LIST";
-            };
-            /**
-             * Model
-             * @description The embedding model for items and queries
-             */
-            model: string;
-            /** Name */
-            name: string;
-            /**
-             * Quantization
-             * @description INT8 stores vectors in a quarter of the memory
-             * @default NONE
-             * @enum {string}
-             */
-            quantization?: "NONE" | "INT8";
-        };
         /** CreateDataset */
         CreateDataset: {
             /**
@@ -3362,14 +4012,6 @@ export interface components {
         };
         /** CreateEdgeType */
         CreateEdgeType: {
-            /**
-             * Name
-             * @description Letters, digits and single underscores
-             */
-            name: string;
-        };
-        /** CreateNamespace */
-        CreateNamespace: {
             /**
              * Name
              * @description Letters, digits and single underscores
@@ -3414,6 +4056,12 @@ export interface components {
         };
         /** CreateTable */
         CreateTable: {
+            /**
+             * Bucket
+             * @description A bucket of files: a plain table whose fields are fixed (name, size, sha256, content_type, created), a row per file, written only by its file routes (.../_files). Give no fields, and graph unset or false
+             * @default false
+             */
+            bucket?: boolean;
             /** Fields */
             fields?: components["schemas"]["FieldSpec"][];
             /**
@@ -3433,6 +4081,19 @@ export interface components {
              * @default false
              */
             strict?: boolean;
+        };
+        /** CreateWorkspace */
+        CreateWorkspace: {
+            /**
+             * Label
+             * @description What it holds, in words: free text, 1 to 200 characters
+             */
+            label?: string | null;
+            /**
+             * Name
+             * @description Letters, digits and single underscores
+             */
+            name: string;
         };
         /**
          * CustomBatchInferenceRequest
@@ -3474,6 +4135,11 @@ export interface components {
              * @description One result per input, in the same order
              */
             results: components["schemas"]["EchoOutput"][];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -3518,6 +4184,11 @@ export interface components {
             processing_time: number;
             result: components["schemas"]["EchoOutput"];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -3527,6 +4198,101 @@ export interface components {
              * @description This request's trace (GET /admin/traces/{id}), when tracing is on
              */
             trace_id?: string | null;
+        };
+        /**
+         * DashboardInfo
+         * @description A dashboard: its spec, as PUT takes it, with when it was made and last changed (Unix time).
+         */
+        DashboardInfo: {
+            /** Created */
+            created: number | null;
+            /** Description */
+            description: string | null;
+            /**
+             * Items
+             * @description Its views, in order
+             */
+            items: components["schemas"]["DashboardItem"][];
+            /**
+             * Name
+             * @description Letters, digits and single underscores, starting with a letter
+             */
+            name: string;
+            /**
+             * Params
+             * @description A JSON Schema of an object, shared: each view takes the values of its own params' names
+             */
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Refresh S
+             * @description Seconds between refreshes: 0 for none, else at least 5
+             * @default 0
+             */
+            refresh_s: number;
+            /** Title */
+            title: string;
+            /** Updated */
+            updated: number | null;
+        };
+        /** DashboardItem */
+        DashboardItem: {
+            /**
+             * View
+             * @description A view of the workspace
+             */
+            view: string;
+            /**
+             * Width
+             * @description Columns of the 12-column grid it takes
+             * @default 6
+             */
+            width?: number;
+        };
+        /**
+         * DashboardList
+         * @description A page of a workspace's dashboards, by name; ``next`` is the next page's cursor, absent on the last.
+         */
+        DashboardList: {
+            /** Dashboards */
+            dashboards: components["schemas"]["DashboardInfo"][];
+            /** Next */
+            next?: string | null;
+        };
+        /**
+         * DashboardSpec
+         * @description A dashboard: a page of a workspace's views in order on a 12-column grid, sharing their parameters, refreshed
+         *     every ``refresh_s`` seconds.
+         */
+        DashboardSpec: {
+            /** Description */
+            description?: string | null;
+            /**
+             * Items
+             * @description Its views, in order
+             */
+            items?: components["schemas"]["DashboardItem"][];
+            /**
+             * Name
+             * @description Letters, digits and single underscores, starting with a letter
+             */
+            name: string;
+            /**
+             * Params
+             * @description A JSON Schema of an object, shared: each view takes the values of its own params' names
+             */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Refresh S
+             * @description Seconds between refreshes: 0 for none, else at least 5
+             * @default 0
+             */
+            refresh_s?: number;
+            /** Title */
+            title: string;
         };
         /** Dataset */
         Dataset: {
@@ -3538,6 +4304,8 @@ export interface components {
             examples: number;
             /** Id */
             id: string;
+            /** Labels */
+            labels: string[];
             /** Name */
             name: string;
             /** Runs */
@@ -3553,6 +4321,8 @@ export interface components {
             examples: number;
             /** Id */
             id: string;
+            /** Labels */
+            labels: string[];
             /** Name */
             name: string;
             /** Run List */
@@ -3593,6 +4363,8 @@ export interface components {
         DatasetExamples: {
             /** Examples */
             examples: components["schemas"]["DatasetExample"][];
+            /** Next */
+            next?: string | null;
             /** Total */
             total: number;
         };
@@ -3642,6 +4414,11 @@ export interface components {
              */
             results: components["schemas"]["DecisionOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -3684,6 +4461,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["DecisionOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -3766,17 +4548,15 @@ export interface components {
             /** Deleted */
             deleted: string;
         };
-        /** DownloadRequest */
-        DownloadRequest: {
+        /** DryRun */
+        DryRun: {
             /**
-             * Priority
-             * @description Queued downloads start the most urgent first, then the oldest
-             * @default normal
-             * @enum {string}
+             * Limit
+             * @description The source's first rows to take through
+             * @default 20
              */
-            priority?: "high" | "normal" | "low";
-            /** Repo Id */
-            repo_id: string;
+            limit?: number;
+            spec: components["schemas"]["WorkflowSpec"];
         };
         /** EchoInput */
         EchoInput: {
@@ -3787,6 +4567,19 @@ export interface components {
         EchoOutput: {
             /** Text */
             text: string;
+        };
+        /** Edge */
+        Edge: {
+            /**
+             * Output
+             * @description Which output of the source node
+             * @default out
+             */
+            output?: string;
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
         };
         /**
          * EdgeJoin
@@ -3810,6 +4603,11 @@ export interface components {
             name: string;
             /** Size Bytes */
             size_bytes: number;
+        };
+        /** EdgeTypeEntry */
+        EdgeTypeEntry: {
+            /** Name */
+            name: string;
         };
         /** EdgeTypeInfo */
         EdgeTypeInfo: {
@@ -3883,6 +4681,11 @@ export interface components {
              */
             results: components["schemas"]["EmbeddingOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -3925,6 +4728,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["EmbeddingOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -4077,13 +4885,6 @@ export interface components {
              */
             inputs: components["schemas"]["EntityType"][];
             /**
-             * Kind
-             * @description The only kind: one HTTP request (kept so saved files load)
-             * @default http
-             * @constant
-             */
-            kind: "http";
-            /**
              * Name
              * @description Lower case letters, digits and _
              */
@@ -4105,7 +4906,7 @@ export interface components {
             request: components["schemas"]["RequestSpec-Output"];
             /**
              * Secret
-             * @description Environment variable holding the API key
+             * @description Environment variable holding the API key, ending in _KEY, _TOKEN or _SECRET
              */
             secret: string | null;
             /**
@@ -4184,13 +4985,6 @@ export interface components {
              */
             inputs: components["schemas"]["EntityType"][];
             /**
-             * Kind
-             * @description The only kind: one HTTP request (kept so saved files load)
-             * @default http
-             * @constant
-             */
-            kind?: "http";
-            /**
              * Name
              * @description Lower case letters, digits and _
              */
@@ -4210,7 +5004,7 @@ export interface components {
             request: components["schemas"]["RequestSpec-Input"];
             /**
              * Secret
-             * @description Environment variable holding the API key
+             * @description Environment variable holding the API key, ending in _KEY, _TOKEN or _SECRET
              */
             secret?: string | null;
             /**
@@ -4298,20 +5092,6 @@ export interface components {
             /** Next */
             next: string | null;
         };
-        /** EvidenceWorkspace */
-        EvidenceWorkspace: {
-            /** Createdat */
-            createdAt: string;
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-        };
-        /** EvidenceWorkspaces */
-        EvidenceWorkspaces: {
-            /** Workspaces */
-            workspaces: components["schemas"]["EvidenceWorkspace"][];
-        };
         /** Example */
         Example: {
             /**
@@ -4358,36 +5138,114 @@ export interface components {
              */
             reference?: string | null;
         };
+        /** ExampleToLabel */
+        ExampleToLabel: {
+            /** Created */
+            created: number;
+            /** Dataset Id */
+            dataset_id: string;
+            /** Id */
+            id: string;
+            /** Input */
+            input: {
+                [key: string]: unknown;
+            };
+            /** Preview */
+            preview: string;
+            /** Reference */
+            reference: unknown;
+            /** Source Model Id */
+            source_model_id: string | null;
+            /** Source Output */
+            source_output: {
+                [key: string]: unknown;
+            } | null;
+            /** Source Trace Id */
+            source_trace_id: string | null;
+            /** Suggestion */
+            suggestion: {
+                [key: string]: unknown;
+            } | null;
+            /** Tags */
+            tags: string[];
+            /** Task */
+            task: string | null;
+        };
         /** ExamplesAdded */
         ExamplesAdded: {
             /** Added */
             added: number;
         };
+        /** ExamplesToLabel */
+        ExamplesToLabel: {
+            /** Examples */
+            examples: components["schemas"]["ExampleToLabel"][];
+            /** Left */
+            left: number;
+        };
         /**
          * FieldInfo
          * @description A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``.
+         *     A vector field also has its options; ``model`` and ``from`` only when it is embedded. A ref field has ``to`` and
+         *     ``on_delete``.
          */
         FieldInfo: {
+            /** Dimensions */
+            dimensions?: number | null;
+            /** Document Prompt */
+            document_prompt?: string | null;
+            /**
+             * From
+             * @description The string field a vector is embedded from
+             */
+            from?: string | null;
             /** Fulltext */
             fulltext: boolean;
             /** Indexed */
             indexed: boolean;
             /** List */
             list: boolean;
+            /** Model */
+            model?: string | null;
             /** Name */
             name: string;
+            /** On Delete */
+            on_delete?: ("restrict" | "unset" | "cascade") | null;
+            /** Quantization */
+            quantization?: "NONE" | null;
+            /** Query Prompt */
+            query_prompt?: string | null;
             /** Required */
             required: boolean;
+            /** Similarity */
+            similarity?: ("COSINE" | "DOT_PRODUCT" | "EUCLIDEAN") | null;
+            /** To */
+            to?: string | null;
             /**
              * Type
              * @enum {string}
              */
-            type: "string" | "integer" | "number" | "boolean" | "object" | "any";
+            type: "string" | "integer" | "number" | "boolean" | "object" | "any" | "ref" | "vector";
             /** Unique */
             unique: boolean;
         };
         /** FieldSpec */
         FieldSpec: {
+            /**
+             * Dimensions
+             * @description A vector field's numbers; with a model, left out to take the model's
+             */
+            dimensions?: number | null;
+            /**
+             * Document Prompt
+             * @description With a model: the text put before each row's text ("" for none); left out, the model's own prompt named document
+             */
+            document_prompt?: string | null;
+            /**
+             * From
+             * @description The string field of the table a vector field with a model embeds
+             */
+            from?: string | null;
             /**
              * Fulltext
              * @description Its words are searchable with _search (a string field, not a list, and not also indexed)
@@ -4407,10 +5265,30 @@ export interface components {
              */
             list?: boolean;
             /**
+             * Model
+             * @description A vector field's embedding model, which embeds ``from`` on every write
+             */
+            model?: string | null;
+            /**
              * Name
              * @description A top-level field
              */
             name: string;
+            /**
+             * On Delete
+             * @description A ref field's: what deleting a row it names does to the rows naming it. restrict (the default) refuses the delete, unset takes the id out, cascade deletes them too (not for a list)
+             */
+            on_delete?: ("restrict" | "unset" | "cascade") | null;
+            /**
+             * Quantization
+             * @description A vector field's storage: NONE, its numbers as 4-byte floats (NONE when unset)
+             */
+            quantization?: "NONE" | null;
+            /**
+             * Query Prompt
+             * @description With a model: the text put before a search's text ("" for none); left out, the model's own prompt named query, and may change
+             */
+            query_prompt?: string | null;
             /**
              * Required
              * @description Every row has it, not null
@@ -4418,18 +5296,70 @@ export interface components {
              */
             required?: boolean;
             /**
+             * Similarity
+             * @description A vector field's comparison (COSINE when unset)
+             */
+            similarity?: ("COSINE" | "DOT_PRODUCT" | "EUCLIDEAN") | null;
+            /**
+             * To
+             * @description A ref field's table, another of the same workspace: every id written must be one of its rows
+             */
+            to?: string | null;
+            /**
              * Type
-             * @description What it holds; object is a JSON object, any is anything
+             * @description What it holds; object is a JSON object, any is anything, ref the id of a row of the table ``to``, vector a list of numbers searched by nearness (one field a table)
              * @default any
              * @enum {string}
              */
-            type?: "string" | "integer" | "number" | "boolean" | "object" | "any";
+            type?: "string" | "integer" | "number" | "boolean" | "object" | "any" | "ref" | "vector";
             /**
              * Unique
              * @description No two rows with the same value (rows without one are fine); indexed
              * @default false
              */
             unique?: boolean;
+        };
+        /**
+         * FileEntry
+         * @description A file in DATA_DIR/datasets or in a job's folder: its path there, and its size.
+         */
+        FileEntry: {
+            /** Bytes */
+            bytes: number;
+            /** Path */
+            path: string;
+        };
+        /** FileSummary */
+        FileSummary: {
+            /** Columns */
+            columns: components["schemas"]["ColumnSummary"][];
+            /** Head */
+            head: {
+                [key: string]: unknown;
+            }[];
+            /** Rows */
+            rows: number;
+        };
+        /** Files */
+        Files: {
+            /** Files */
+            files: components["schemas"]["FileEntry"][];
+        };
+        /**
+         * FilesDisplay
+         * @description A bucket's files (rows with id, name, size, content_type), each with its download; images as thumbnails.
+         */
+        FilesDisplay: {
+            /**
+             * Bucket
+             * @description The bucket the rows are files of: a rows or search source's table when left out
+             */
+            bucket?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "files";
         };
         /** ForecastInput */
         ForecastInput: {
@@ -4519,6 +5449,42 @@ export interface components {
             total_gb: number;
         };
         /**
+         * Grants
+         * @description What a client key may reach, as it is made or changed with and as the list shows it.
+         */
+        Grants: {
+            /**
+             * Manage Models
+             * @description The key may load, unload and pin models (its own, with models)
+             * @default false
+             */
+            manage_models?: boolean;
+            /**
+             * Models
+             * @description The only models the key may use, within ALLOWED_MODELS. Null: any it allows
+             */
+            models?: string[] | null;
+            /**
+             * Tables
+             * @description workspace.table, workspace.* or *.* (workspace._evidence for its evidence) to the actions the key may take there; entries add up, and a table no entry names is shut. Null: every table
+             */
+            tables?: {
+                [key: string]: ("read" | "write" | "delete")[];
+            } | null;
+        };
+        /**
+         * GraphDisplay
+         * @description The edges the SQL returns (rows with from_table, from_id, to_table and to_id, maybe type), drawn with the rows
+         *     they join as the Data section's graph.
+         */
+        GraphDisplay: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "graph";
+        };
+        /**
          * GraphEdge
          * @description An edge: its type, both ends as ``table/id``, and its properties (as further fields).
          */
@@ -4548,13 +5514,6 @@ export interface components {
         /** GraphQuery */
         GraphQuery: {
             /**
-             * Language
-             * @description ArcadeDB SQL (MATCH, TRAVERSE, out()...) or Cypher
-             * @default sql
-             * @enum {string}
-             */
-            language?: "sql" | "cypher";
-            /**
              * Limit
              * @description Rows returned at most
              * @default 100
@@ -4562,14 +5521,14 @@ export interface components {
             limit?: number;
             /**
              * Params
-             * @description Values for the query's :name placeholders
+             * @description Values for the query's $name placeholders
              */
             params?: {
                 [key: string]: unknown;
             };
             /**
              * Query
-             * @description Names tables and edge types as the API does
+             * @description One SELECT in DuckDB's SQL, naming the workspace's tables as the API does
              */
             query: string;
         };
@@ -4585,11 +5544,6 @@ export interface components {
             /** Tables */
             tables: string[];
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
         /** HostMemory */
         HostMemory: {
             /** Available Gb */
@@ -4598,122 +5552,6 @@ export interface components {
             percent: number;
             /** Total Gb */
             total_gb: number;
-        };
-        /** HubDownload */
-        HubDownload: {
-            /** Done Bytes */
-            done_bytes: number;
-            /** Error */
-            error: string | null;
-            /** Finished */
-            finished: number | null;
-            /** Id */
-            id: string;
-            /** Repo Id */
-            repo_id: string;
-            /** Started */
-            started: number | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "queued" | "running" | "done" | "failed" | "cancelled";
-            /** Total Bytes */
-            total_bytes: number | null;
-        };
-        /** HubDownloads */
-        HubDownloads: {
-            /** Downloads */
-            downloads: components["schemas"]["HubDownload"][];
-        };
-        /** HubFile */
-        HubFile: {
-            /** Path */
-            path: string;
-            /** Size */
-            size: number | null;
-        };
-        /** HubLocal */
-        HubLocal: {
-            /** Repos */
-            repos: components["schemas"]["HubLocalRepo"][];
-            /** Total Bytes */
-            total_bytes: number;
-        };
-        /** HubLocalRepo */
-        HubLocalRepo: {
-            /** Files */
-            files: number;
-            /** Id */
-            id: string;
-            /** Last Accessed */
-            last_accessed: number | null;
-            /** Last Modified */
-            last_modified: number | null;
-            /** Loaded */
-            loaded: boolean;
-            /** Loaded Tasks */
-            loaded_tasks: string[];
-            /** Size Bytes */
-            size_bytes: number;
-            /** Tasks */
-            tasks: string[];
-            /** Weight Bytes */
-            weight_bytes: number;
-        };
-        /**
-         * HubRepo
-         * @description What a download would fetch.
-         */
-        HubRepo: {
-            /** Files */
-            files: components["schemas"]["HubFile"][];
-            /** Gated */
-            gated: boolean;
-            /** Id */
-            id: string;
-            /** License */
-            license: string | null;
-            /** On Disk */
-            on_disk: boolean;
-            /** Pipeline Tag */
-            pipeline_tag: string | null;
-            /** Sha */
-            sha: string | null;
-            /** Total Bytes */
-            total_bytes: number;
-            /** Weight Bytes */
-            weight_bytes: number;
-        };
-        /** HubSearch */
-        HubSearch: {
-            /** Query */
-            query: string;
-            /** Results */
-            results: components["schemas"]["HubSearchResult"][];
-            /** Task */
-            task: string | null;
-        };
-        /** HubSearchResult */
-        HubSearchResult: {
-            /** Downloads */
-            downloads: number;
-            /** Gated */
-            gated: boolean;
-            /** Id */
-            id: string;
-            /** Last Modified */
-            last_modified: string | null;
-            /** Library Name */
-            library_name: string | null;
-            /** Likes */
-            likes: number;
-            /** On Disk */
-            on_disk: boolean;
-            /** Pipeline Tag */
-            pipeline_tag: string | null;
-            /** Tags */
-            tags: string[];
         };
         /** Ids */
         Ids: {
@@ -4750,17 +5588,15 @@ export interface components {
              */
             format: "wav" | "mp3";
         };
-        /** Item */
-        Item: {
+        /** Invoke */
+        Invoke: {
             /**
-             * Id
-             * @description Unset: one is made. Same id: replaced
+             * Rows
+             * @description The rows, each a JSON object as a row of the workflow's table is
              */
-            id?: string | null;
-            /** Text */
-            text: string;
-        } & {
-            [key: string]: unknown;
+            rows: {
+                [key: string]: unknown;
+            }[];
         };
         /** JSONSchemaFormat */
         JSONSchemaFormat: {
@@ -4773,55 +5609,6 @@ export interface components {
             schema?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** Job */
-        Job: {
-            /** Created */
-            created: number;
-            /** Error */
-            error: string | null;
-            /** Finished */
-            finished: number | null;
-            /** Id */
-            id: string;
-            /** Job */
-            job: string;
-            /** Message */
-            message: string | null;
-            /** Not Before */
-            not_before: number | null;
-            /** Params */
-            params: {
-                [key: string]: unknown;
-            };
-            /**
-             * Priority
-             * @enum {string}
-             */
-            priority: "high" | "normal" | "low";
-            /** Progress */
-            progress: number | null;
-            /** Result */
-            result: unknown;
-            /** Retried */
-            retried: number;
-            /** Retries */
-            retries: number;
-            /** Retry Delay S */
-            retry_delay_s: number;
-            /** Schedule Id */
-            schedule_id: string | null;
-            /** Started */
-            started: number | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
-            /** Timeout S */
-            timeout_s: number | null;
-            /** Webhook Url */
-            webhook_url: string | null;
         };
         /** JobLimits */
         JobLimits: {
@@ -4840,6 +5627,8 @@ export interface components {
             description: string;
             /** Env */
             env: string;
+            /** Env Current */
+            env_current: boolean;
             /** Env Ready */
             env_ready: boolean;
             /** Name */
@@ -4862,14 +5651,12 @@ export interface components {
         /** Jobs */
         Jobs: {
             /** Jobs */
-            jobs: components["schemas"]["Job"][];
+            jobs: components["schemas"]["Task"][];
+            /** Next */
+            next?: string | null;
         };
         /** JudgeDefaults */
         JudgeDefaults: {
-            /** Base Url */
-            base_url: string;
-            /** Has Api Key */
-            has_api_key: boolean;
             /** Model */
             model: string;
             /** Rubric */
@@ -4883,16 +5670,6 @@ export interface components {
              */
             against?: string | null;
             /**
-             * Api Key
-             * @description Unset: JUDGE_API_KEY for JUDGE_BASE_URL, this service's key for its own /v1, none elsewhere
-             */
-            api_key?: string | null;
-            /**
-             * Base Url
-             * @description An OpenAI-compatible endpoint; unset: JUDGE_BASE_URL; empty: this service's own /v1
-             */
-            base_url?: string | null;
-            /**
              * Concurrency
              * @description Items judged at once
              * @default 4
@@ -4900,7 +5677,7 @@ export interface components {
             concurrency?: number;
             /**
              * Model
-             * @description The judge model; unset: JUDGE_MODEL
+             * @description The judge model, as /v1 names it (a model server entry's for one on another server); unset: JUDGE_MODEL
              * @default
              */
             model?: string;
@@ -4925,6 +5702,23 @@ export interface components {
             judge: string;
             /** Started */
             started: string;
+        };
+        /** KeyChange */
+        KeyChange: {
+            grants: components["schemas"]["Grants"];
+        };
+        /** LabelScores */
+        LabelScores: {
+            /** F1 */
+            f1: number;
+            /** Label */
+            label: string;
+            /** Precision */
+            precision: number;
+            /** Recall */
+            recall: number;
+            /** Support */
+            support: number;
         };
         /**
          * Limits
@@ -4960,6 +5754,23 @@ export interface components {
             max_models: number;
             /** Notes */
             notes: string[];
+        };
+        /**
+         * LineDisplay
+         * @description A line per y field over x, or with ``series``, a line per value of that field (one y field then).
+         */
+        LineDisplay: {
+            /** Series */
+            series?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "line";
+            /** X */
+            x: string;
+            /** Y */
+            y: string[];
         };
         /**
          * LoadPlan
@@ -5001,10 +5812,16 @@ export interface components {
         };
         /** LoadedModel */
         LoadedModel: {
+            /** Avg Request Ms */
+            avg_request_ms: number | null;
             /** Backend */
             backend?: string | null;
+            /** Batch Size */
+            batch_size?: number | null;
             /** Device */
             device: string;
+            /** Estimated Wait Ms */
+            estimated_wait_ms: number | null;
             /** In Use */
             in_use: number;
             /** Kind */
@@ -5013,14 +5830,29 @@ export interface components {
             last_used: number | null;
             /** Loaded At */
             loaded_at: number | null;
+            /** Max Concurrency */
+            max_concurrency: number;
             /** Memory Usage */
             memory_usage: number | null;
             /** Model Id */
             model_id: string;
+            /**
+             * Peer
+             * @default false
+             */
+            peer?: boolean;
+            /** Pinned */
+            pinned: boolean;
+            /** Revision */
+            revision?: string | null;
             /** Task */
             task: string;
             /** Torch Dtype */
             torch_dtype: string;
+            /** Upstream */
+            upstream?: string | null;
+            /** Waiting */
+            waiting: number;
         };
         /** LogLine */
         LogLine: {
@@ -5054,7 +5886,7 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "exact_match" | "contains" | "json_valid";
+            name: "exact_match" | "contains" | "json_valid" | "wer" | "mrr" | "ndcg_at_10";
         };
         /** MetricSummary */
         MetricSummary: {
@@ -5062,6 +5894,8 @@ export interface components {
             count: number;
             /** Losses */
             losses?: number | null;
+            /** Lower Is Better */
+            lower_is_better?: boolean | null;
             /** Mean */
             mean: number | null;
             /** Scored */
@@ -5217,8 +6051,6 @@ export interface components {
         ModelServers: {
             /** Commands Allowed */
             commands_allowed: boolean;
-            /** Editable */
-            editable: boolean;
             /** File */
             file: string;
             /** File Exists */
@@ -5232,7 +6064,7 @@ export interface components {
             /** Providers */
             providers: components["schemas"]["ProviderInfo"][];
             /** Saved File */
-            saved_file: string | null;
+            saved_file: string;
             /** Tasks */
             tasks: string[];
         };
@@ -5286,145 +6118,12 @@ export interface components {
             /** Retention Days */
             retention_days: number;
         };
-        /**
-         * MultimodalPredictionBatchInferenceRequest
-         * @description Predict from text, image and tabular columns with a predictor trained by the autogluon-multimodal job
-         */
-        MultimodalPredictionBatchInferenceRequest: {
-            /**
-             * Inputs
-             * @description Run together; results come back in this order
-             */
-            inputs: components["schemas"]["MultimodalPredictionInput"][];
-            /** Model Id */
-            model_id: string;
-            /**
-             * Task
-             * @constant
-             */
-            task: "multimodal-prediction";
-        };
-        /** MultimodalPredictionBatchInferenceResponse */
-        MultimodalPredictionBatchInferenceResponse: {
-            /**
-             * Backend
-             * @description Which backend of a model server answered, e.g. "ollama: qwen3.5:4b"
-             */
-            backend?: string | null;
-            /**
-             * Cold Start
-             * @description True when this request had to load the model first
-             * @default false
-             */
-            cold_start?: boolean;
-            /** Model Used */
-            model_used: string;
-            /** Processing Time */
-            processing_time: number;
-            /**
-             * Results
-             * @description One result per input, in the same order
-             */
-            results: components["schemas"]["PredictionOutput"][];
-            /**
-             * Task
-             * @constant
-             */
-            task: "multimodal-prediction";
-            /**
-             * Trace Ids
-             * @description Each input's trace (GET /admin/traces/{id}), in order, when tracing is on
-             */
-            trace_ids?: string[];
-        };
-        /**
-         * MultimodalPredictionInferenceRequest
-         * @description Predict from text, image and tabular columns with a predictor trained by the autogluon-multimodal job
-         */
-        MultimodalPredictionInferenceRequest: {
-            input: components["schemas"]["MultimodalPredictionInput"];
-            /** Model Id */
-            model_id: string;
-            /**
-             * Task
-             * @constant
-             */
-            task: "multimodal-prediction";
-        };
-        /** MultimodalPredictionInferenceResponse */
-        MultimodalPredictionInferenceResponse: {
-            /**
-             * Backend
-             * @description Which backend of a model server answered, e.g. "ollama: qwen3.5:4b"
-             */
-            backend?: string | null;
-            /**
-             * Cold Start
-             * @description True when this request had to load the model first
-             * @default false
-             */
-            cold_start?: boolean;
-            /** Model Used */
-            model_used: string;
-            /** Processing Time */
-            processing_time: number;
-            result: components["schemas"]["PredictionOutput"];
-            /**
-             * Task
-             * @constant
-             */
-            task: "multimodal-prediction";
-            /**
-             * Trace Id
-             * @description This request's trace (GET /admin/traces/{id}), when tracing is on
-             */
-            trace_id?: string | null;
-        };
-        /**
-         * MultimodalPredictionInput
-         * @description Image columns hold image paths inside IMAGE_DIR.
-         */
-        MultimodalPredictionInput: {
-            /**
-             * Probabilities
-             * @description Also return every class's probability (classification only)
-             * @default false
-             */
-            probabilities?: boolean;
-            /**
-             * Rows
-             * @description One object per row, keyed by column name
-             */
-            rows: {
-                [key: string]: unknown;
-            }[];
-        };
         /** MultimodalTurn */
         MultimodalTurn: {
             /** Content */
             content: string | (components["schemas"]["TextPart"] | components["schemas"]["ImagePart"] | components["schemas"]["AudioPart"])[];
             /** Role */
             role: string;
-        };
-        /** Namespace */
-        Namespace: {
-            /** Created */
-            created?: number | null;
-            /** Edges */
-            edges: components["schemas"]["EdgeTypeInfo"][];
-            /** Managed */
-            managed: string | null;
-            /** Name */
-            name: string;
-            /** Size Bytes */
-            size_bytes: number;
-            /** Tables */
-            tables: components["schemas"]["TableInfo"][];
-        };
-        /** Namespaces */
-        Namespaces: {
-            /** Namespaces */
-            namespaces: components["schemas"]["Namespace"][];
         };
         /** Neighbor */
         Neighbor: {
@@ -5445,15 +6144,47 @@ export interface components {
             /** Name */
             name: string;
         };
-        /** NewWorkspace */
-        NewWorkspace: {
+        /** NewKey */
+        NewKey: {
+            /**
+             * Expires In Days
+             * @description Unset: the key never expires
+             */
+            expires_in_days?: number | null;
+            /** @description Unset: every table and model a client key reaches, and no managing of models */
+            grants?: components["schemas"]["Grants"];
+            /**
+             * Name
+             * @description What the key is for: the machine that holds it
+             */
+            name: string;
+        };
+        /** Node */
+        Node: {
             /**
              * Id
-             * @description Your application's id for it; unset: one is made
+             * @description Unique in the workflow; the key its result goes under
              */
-            id?: string | null;
-            /** Name */
-            name: string;
+            id: string;
+            /**
+             * Settings
+             * @description As the node type's settings schema says
+             */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "table.read" | "task" | "enrich" | "if" | "switch" | "set" | "merge" | "sql" | "table.write";
+            /**
+             * Ui
+             * @description The editor's: where the node is drawn
+             */
+            ui?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** Note */
         Note: {
@@ -5464,6 +6195,23 @@ export interface components {
             id?: string | null;
             /** Text */
             text: string;
+        };
+        /**
+         * NumberDisplay
+         * @description One figure: a field of the first row, large, with what it is.
+         */
+        NumberDisplay: {
+            /** Field */
+            field: string;
+            /** Label */
+            label?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "number";
+            /** Unit */
+            unit?: string | null;
         };
         /** Observed */
         Observed: {
@@ -5519,6 +6267,32 @@ export interface components {
              * @constant
              */
             object: "list";
+        };
+        /**
+         * ParamRef
+         * @description A value given by a parameter of the view when it runs: ``{"$param": "region"}``.
+         */
+        ParamRef: {
+            /**
+             * $Param
+             * @description The name of one of the view's params
+             */
+            $param: string;
+        };
+        /**
+         * PieDisplay
+         * @description A slice per value of ``label``, as large as the sum of ``value``; past seven, the rest are one slice.
+         */
+        PieDisplay: {
+            /** Label */
+            label: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pie";
+            /** Value */
+            value: string;
         };
         /** PinRequest */
         PinRequest: {
@@ -5673,6 +6447,8 @@ export interface components {
              * @default /v1/models
              */
             health_path: string;
+            /** Key Set */
+            key_set: boolean;
             /**
              * Max Concurrency
              * @description Requests sent at once
@@ -5706,28 +6482,6 @@ export interface components {
             url: string;
             /** Used By */
             used_by: string[];
-        };
-        /** Query */
-        Query: {
-            /**
-             * Limit
-             * @default 100
-             */
-            limit?: number;
-            /** Params */
-            params?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Skip
-             * @default 0
-             */
-            skip?: number;
-            /**
-             * Where
-             * @description ArcadeDB SQL condition on the fields, e.g. tenant = :t AND year >= 2024
-             */
-            where?: string | null;
         };
         /**
          * QuestionAnsweringBatchInferenceRequest
@@ -5769,6 +6523,11 @@ export interface components {
              * @description One result per input, in the same order
              */
             results: components["schemas"]["QuestionAnsweringOutput"][];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -5813,6 +6572,11 @@ export interface components {
             processing_time: number;
             result: components["schemas"]["QuestionAnsweringOutput"];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -5853,8 +6617,124 @@ export interface components {
              */
             start_position: number;
         };
+        /** Queue */
+        Queue: {
+            /** Next */
+            next?: string | null;
+            /** Tasks */
+            tasks: components["schemas"]["Task"][];
+        };
+        /**
+         * RemoteInfo
+         * @description A remote: its spec, as PUT /remotes/{name} takes it, the buckets that name it, and the environment variables
+         *     its secrets name that the service's environment does not set now. No secret's value is ever in it.
+         */
+        RemoteInfo: {
+            /** Buckets */
+            buckets: string[];
+            /** Created */
+            created: number | null;
+            /**
+             * Label
+             * @description What it is, in words
+             */
+            label: string | null;
+            /** Missing */
+            missing: string[];
+            /**
+             * Name
+             * @description Lower case letters, digits and _, starting with a letter
+             */
+            name: string;
+            /**
+             * Options
+             * @description OpenDAL's options for the scheme, as text: bucket, endpoint, region, root (the folder the copies go under)... Never a secret: name its variable in secrets
+             */
+            options: {
+                [key: string]: string;
+            };
+            /**
+             * Scheme
+             * @description OpenDAL's service: s3 (also R2, B2's S3 API, MinIO), b2, gcs, azblob, fs (a folder), memory (gone with the process: for trying it out)...
+             */
+            scheme: string;
+            /**
+             * Secrets
+             * @description Each secret option, by the name of the environment variable of the service that holds its value: read when the remote is used, never stored or shown, and kept from jobs and model servers
+             */
+            secrets: {
+                [key: string]: string;
+            };
+            /** Updated */
+            updated: number | null;
+        };
+        /** RemoteList */
+        RemoteList: {
+            /** Remotes */
+            remotes: components["schemas"]["RemoteInfo"][];
+        };
+        /**
+         * RemoteSpec
+         * @description A remote, as the admin writes it and the API answers it: OpenDAL's scheme and options, and the environment
+         *     variables its secret options are read from.
+         */
+        RemoteSpec: {
+            /**
+             * Label
+             * @description What it is, in words
+             */
+            label?: string | null;
+            /**
+             * Name
+             * @description Lower case letters, digits and _, starting with a letter
+             */
+            name: string;
+            /**
+             * Options
+             * @description OpenDAL's options for the scheme, as text: bucket, endpoint, region, root (the folder the copies go under)... Never a secret: name its variable in secrets
+             */
+            options?: {
+                [key: string]: string;
+            };
+            /**
+             * Scheme
+             * @description OpenDAL's service: s3 (also R2, B2's S3 API, MinIO), b2, gcs, azblob, fs (a folder), memory (gone with the process: for trying it out)...
+             */
+            scheme: string;
+            /**
+             * Secrets
+             * @description Each secret option, by the name of the environment variable of the service that holds its value: read when the remote is used, never stored or shown, and kept from jobs and model servers
+             */
+            secrets?: {
+                [key: string]: string;
+            };
+        };
+        /** RemoteStep */
+        RemoteStep: {
+            /** Ms */
+            ms: number;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "write" | "read" | "list" | "delete";
+        };
+        /**
+         * RemoteTest
+         * @description A test of a remote that worked: each step with its time (one that fails answers 503 with the remote's error).
+         */
+        RemoteTest: {
+            /** Name */
+            name: string;
+            /** Scheme */
+            scheme: string;
+            /** Steps */
+            steps: components["schemas"]["RemoteStep"][];
+        };
         /** RequestRow */
         RequestRow: {
+            /** Backend */
+            backend: string | null;
             /** Cold */
             cold: boolean;
             /** Duration Ms */
@@ -5865,17 +6745,26 @@ export interface components {
             id: number;
             /** Model Id */
             model_id: string;
+            /** Preview */
+            preview: string | null;
+            /** Session */
+            session: string | null;
+            /** Source */
+            source?: string | null;
             /** Status */
             status: string;
+            /** Tags */
+            tags: string[];
             /** Task */
             task: string;
             /** Trace Id */
-            trace_id?: string | null;
+            trace_id: string | null;
             /** Ts */
             ts: number;
         };
         /** RequestRows */
         RequestRows: {
+            capture: components["schemas"]["TraceCapture"];
             /** Requests */
             requests: components["schemas"]["RequestRow"][];
         };
@@ -6000,6 +6889,11 @@ export interface components {
              */
             results: components["schemas"]["RerankOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -6042,6 +6936,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["RerankOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -6161,6 +7060,41 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["Row"][];
         };
+        /**
+         * RowsSource
+         * @description A table's rows, as GET /db/{ws}/{table} gives them: filtered, sorted, searched, the first ``limit``.
+         */
+        RowsSource: {
+            /**
+             * Filters
+             * @description field: value, all of which hold; each value matched as the JSON it is (the text "null" is that text, null a field with no value); one whose $param has no value is left out
+             */
+            filters?: {
+                [key: string]: string | number | boolean | components["schemas"]["ParamRef"] | null;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "rows";
+            /**
+             * Limit
+             * @description Rows at most, 1 to 1000; the view's row cap when left out
+             */
+            limit?: number | components["schemas"]["ParamRef"] | null;
+            /**
+             * Search
+             * @description Words the full-text fields hold, as _search
+             */
+            search?: string | components["schemas"]["ParamRef"] | null;
+            /**
+             * Sort
+             * @description As the list's _sort: fields, comma-separated, -field descending
+             */
+            sort?: string | components["schemas"]["ParamRef"] | null;
+            /** Table */
+            table: string;
+        };
         /** Run */
         Run: {
             activity?: components["schemas"]["RunActivity"] | null;
@@ -6192,7 +7126,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Task */
             task: string | null;
             /** Total */
@@ -6215,6 +7149,7 @@ export interface components {
         /** RunDetail */
         RunDetail: {
             activity?: components["schemas"]["RunActivity"] | null;
+            classification?: components["schemas"]["ClassificationReport"] | null;
             /** Created */
             created: number;
             /** Dataset Id */
@@ -6245,7 +7180,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Summary */
             summary: {
                 [key: string]: components["schemas"]["MetricSummary"];
@@ -6297,6 +7232,7 @@ export interface components {
         /** RunSummary */
         RunSummary: {
             activity?: components["schemas"]["RunActivity"] | null;
+            classification?: components["schemas"]["ClassificationReport"] | null;
             /** Created */
             created: number;
             /** Dataset Id */
@@ -6325,7 +7261,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Summary */
             summary: {
                 [key: string]: components["schemas"]["MetricSummary"];
@@ -6335,8 +7271,20 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** RunView */
+        RunView: {
+            /**
+             * Params
+             * @description The view's parameters by name; one it does not declare is refused, defaults fill the rest
+             */
+            params?: {
+                [key: string]: unknown;
+            };
+        };
         /** Runs */
         Runs: {
+            /** Next */
+            next?: string | null;
             /** Runs */
             runs: components["schemas"]["Run"][];
         };
@@ -6426,27 +7374,49 @@ export interface components {
              */
             temperature: number;
         };
-        /** Schedule */
+        /**
+         * Schedule
+         * @description A schedule: its spec, as POST and PUT take it, with its kind and id, when it was made and changed, its next and
+         *     last run, and the last task's id and status.
+         */
         Schedule: {
             /** Created */
             created: number;
-            /** Cron */
+            /**
+             * Cron
+             * @description minute hour day-of-month month day-of-week, local time
+             */
             cron: string | null;
-            /** Enabled */
+            /**
+             * Enabled
+             * @default true
+             */
             enabled: boolean;
             /** Id */
             id: string;
-            /** Interval S */
+            /**
+             * Interval S
+             * @description Seconds between runs (at least 60), instead of cron
+             */
             interval_s: number | null;
-            /** Job */
+            /**
+             * Job
+             * @description What it runs: a job's name, for a job
+             */
             job: string;
-            /** Last Job Id */
-            last_job_id: string | null;
+            /** Kind */
+            kind: string;
             /** Last Run */
             last_run: number | null;
             /** Last Status */
             last_status: string | null;
-            /** Name */
+            /** Last Task Id */
+            last_task_id: string | null;
+            /**
+             * Name
+             * @description Shown in the dashboard; what it runs when empty
+             * @default
+             */
             name: string;
             /** Next Run */
             next_run: number | null;
@@ -6456,26 +7426,43 @@ export interface components {
             };
             /**
              * Priority
+             * @description The priority of what it submits
+             * @default normal
              * @enum {string}
              */
             priority: "high" | "normal" | "low";
-            /** Retries */
+            /**
+             * Retries
+             * @description Times a task that fails (a timeout too) is queued again
+             * @default 0
+             */
             retries: number;
-            /** Retry Delay S */
+            /**
+             * Retry Delay S
+             * @description Seconds before the first retry; doubled before each next one, up to an hour
+             * @default 30
+             */
             retry_delay_s: number;
-            /** Timeout S */
+            /**
+             * Timeout S
+             * @description Seconds a run may take; past them it is stopped and fails. Unset: no limit
+             */
             timeout_s: number | null;
             /** Updated */
             updated: number;
-            /** Webhook Url */
+            /**
+             * Webhook Url
+             * @description POSTed to when what it submits finishes
+             */
             webhook_url: string | null;
         };
         /**
-         * ScheduleBody
-         * @description A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds, and the retries
-         *     and timeout of the jobs it submits.
+         * ScheduleSpec
+         * @description A schedule as it is given: what it submits (``job``, the name its kind knows it by, with its ``params``), on a
+         *     cron expression or every ``interval_s`` seconds, and the priority, webhook, retries and timeout of what it submits.
+         *     Its kind says the rest (Schedulable.check).
          */
-        ScheduleBody: {
+        ScheduleSpec: {
             /**
              * Cron
              * @description minute hour day-of-month month day-of-week, local time
@@ -6491,11 +7478,14 @@ export interface components {
              * @description Seconds between runs (at least 60), instead of cron
              */
             interval_s?: number | null;
-            /** Job */
+            /**
+             * Job
+             * @description What it runs: a job's name, for a job
+             */
             job: string;
             /**
              * Name
-             * @description Shown in the dashboard; the job's name when empty
+             * @description Shown in the dashboard; what it runs when empty
              * @default
              */
             name?: string;
@@ -6505,14 +7495,14 @@ export interface components {
             };
             /**
              * Priority
-             * @description The priority of the jobs it submits
+             * @description The priority of what it submits
              * @default normal
              * @enum {string}
              */
             priority?: "high" | "normal" | "low";
             /**
              * Retries
-             * @description Times a job that fails (a timeout too) is queued again
+             * @description Times a task that fails (a timeout too) is queued again
              * @default 0
              */
             retries?: number;
@@ -6527,7 +7517,10 @@ export interface components {
              * @description Seconds a run may take; past them it is stopped and fails. Unset: no limit
              */
             timeout_s?: number | null;
-            /** Webhook Url */
+            /**
+             * Webhook Url
+             * @description POSTed to when what it submits finishes
+             */
             webhook_url?: string | null;
         };
         /** Schedules */
@@ -6548,6 +7541,8 @@ export interface components {
         };
         /** SchemaInfo */
         SchemaInfo: {
+            /** Bucket */
+            bucket: boolean;
             /** Fields */
             fields: components["schemas"]["FieldInfo"][];
             /** Graph */
@@ -6582,7 +7577,7 @@ export interface components {
         /** ScoreRequest */
         ScoreRequest: {
             /** Metrics */
-            metrics: ("exact_match" | "contains" | "json_valid")[];
+            metrics: ("exact_match" | "contains" | "json_valid" | "wer" | "mrr" | "ndcg_at_10")[];
         };
         /**
          * Scored
@@ -6593,25 +7588,6 @@ export interface components {
             summary: {
                 [key: string]: components["schemas"]["MetricSummary"];
             };
-        };
-        /** Search */
-        Search: {
-            /**
-             * K
-             * @default 10
-             */
-            k?: number;
-            /** Params */
-            params?: {
-                [key: string]: unknown;
-            };
-            /** Query */
-            query: string;
-            /**
-             * Where
-             * @description ArcadeDB SQL condition on the fields, e.g. tenant = :t AND year >= 2024
-             */
-            where?: string | null;
         };
         /**
          * SearchHit
@@ -6639,6 +7615,60 @@ export interface components {
             /** Url */
             url: string | null;
         };
+        /**
+         * SearchSource
+         * @description A table's nearest rows to a vector, or a text its vector field's model embeds, as POST
+         *     /db/{ws}/{table}/_search takes them; each row gets its distance as ``_distance``, and with ``hybrid`` or a
+         *     ``rerank`` model its score as ``_score``.
+         */
+        SearchSource: {
+            /**
+             * Filters
+             * @description field: value, all of which hold; each value matched as the JSON it is (the text "null" is that text, null a field with no value); one whose $param has no value is left out
+             */
+            filters?: {
+                [key: string]: string | number | boolean | components["schemas"]["ParamRef"] | null;
+            };
+            /**
+             * Hybrid
+             * @description Rank by the text's words too, as POST .../_search does; each row gets its fused score as _score
+             * @default false
+             */
+            hybrid?: boolean;
+            /**
+             * K
+             * @description How many rows, nearest first: 1 to 100
+             * @default 10
+             */
+            k?: number | components["schemas"]["ParamRef"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "search";
+            /**
+             * Q
+             * @description Words the full-text fields hold, as the list's _search
+             */
+            q?: string | components["schemas"]["ParamRef"] | null;
+            /**
+             * Rerank
+             * @description A rerank model that reads the rows found, as POST .../_search does; each row gets its score as _score
+             */
+            rerank?: string | null;
+            /** Table */
+            table: string;
+            /**
+             * Text
+             * @description A text the field's model embeds, in place of a vector
+             */
+            text?: string | components["schemas"]["ParamRef"] | null;
+            /**
+             * Vector
+             * @description The vector to find the rows nearest to
+             */
+            vector?: number[] | components["schemas"]["ParamRef"] | null;
+        };
         /** SecretRequest */
         SecretRequest: {
             /**
@@ -6665,6 +7695,22 @@ export interface components {
             method: string;
             /** Url */
             url: string;
+        };
+        /** SetLabel */
+        SetLabel: {
+            /**
+             * Label
+             * @description Free text, 1 to 200 characters; null clears it
+             */
+            label: string | null;
+        };
+        /** SetRemote */
+        SetRemote: {
+            /**
+             * Remote
+             * @description A remote's name (GET /remotes), or null for none
+             */
+            remote: string | null;
         };
         /** SetupCode */
         SetupCode: {
@@ -6744,6 +7790,11 @@ export interface components {
              */
             results: components["schemas"]["Transcript"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -6787,6 +7838,11 @@ export interface components {
             processing_time: number;
             result: components["schemas"]["Transcript"];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -6826,6 +7882,38 @@ export interface components {
              * @default 0
              */
             temperature?: number;
+        };
+        /**
+         * SqlSource
+         * @description A read-only SQL statement over the workspace, as POST /db/{ws}/_query takes it: tables named as the API
+         *     names them, the view's params as $name. Held to a time limit and a number of rows.
+         */
+        SqlSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sql";
+            /**
+             * Query
+             * @description One SELECT in DuckDB's SQL; the params are $name, bound, never written in
+             */
+            query: string;
+            /**
+             * Time Limit Ms
+             * @description Stopped past this many milliseconds: at most VIEW_TIME_LIMIT_MS, which it is when left out
+             */
+            time_limit_ms?: number | null;
+        };
+        /** StartRun */
+        StartRun: {
+            /**
+             * Priority
+             * @description Among the other work for the models: a request someone waits on is high
+             * @default low
+             * @enum {string}
+             */
+            priority?: "high" | "normal" | "low";
         };
         /**
          * Stats
@@ -6875,7 +7963,7 @@ export interface components {
             priority?: "high" | "normal" | "low";
             /**
              * Retries
-             * @description Times a job that fails (a timeout too) is queued again
+             * @description Times a task that fails (a timeout too) is queued again
              * @default 0
              */
             retries?: number;
@@ -6896,26 +7984,69 @@ export interface components {
              */
             webhook_url?: string | null;
         };
-        /** TableInfo */
+        /**
+         * TableDisplay
+         * @description The rows as a table.
+         */
+        TableDisplay: {
+            /**
+             * Columns
+             * @description The fields shown, in this order; all, as first seen, when left out
+             */
+            columns?: string[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "table";
+        };
+        /**
+         * TableEntry
+         * @description A table as the workspaces' list (GET /db) names it: its kind and what keeps it.
+         */
+        TableEntry: {
+            /** Bucket */
+            bucket: boolean;
+            /** Graph */
+            graph: boolean;
+            /** Kept */
+            kept: string | null;
+            /** Name */
+            name: string;
+            /** Vector */
+            vector: string | null;
+        };
+        /**
+         * TableInfo
+         * @description A table with its rows' count, its size and its schema (GET /db/{workspace}).
+         */
         TableInfo: {
+            /** Bucket */
+            bucket: boolean;
             /** Count */
             count: number;
             /** Fields */
             fields: components["schemas"]["FieldInfo"][];
             /** Graph */
             graph: boolean;
+            /** Kept */
+            kept: string | null;
             /** Name */
             name: string;
             /** Size Bytes */
             size_bytes: number;
             /** Strict */
             strict: boolean;
+            /** Vector */
+            vector: string | null;
         };
         /**
          * TableSchemaOut
          * @description A table's schema, as PUT .../_schema saved it.
          */
         TableSchemaOut: {
+            /** Bucket */
+            bucket: boolean;
             /** Fields */
             fields: components["schemas"]["FieldInfo"][];
             /** Graph */
@@ -6964,6 +8095,11 @@ export interface components {
              */
             results: components["schemas"]["PredictionOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -7007,6 +8143,11 @@ export interface components {
             processing_time: number;
             result: components["schemas"]["PredictionOutput"];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -7032,6 +8173,61 @@ export interface components {
             rows: {
                 [key: string]: unknown;
             }[];
+        };
+        /** Task */
+        Task: {
+            /** Created */
+            created: number;
+            /** Error */
+            error: string | null;
+            /** Finished */
+            finished: number | null;
+            /** Id */
+            id: string;
+            /** Job */
+            job: string | null;
+            /** Kind */
+            kind: string;
+            /** Message */
+            message: string | null;
+            /** Model Id */
+            model_id: string | null;
+            /** Not Before */
+            not_before: number | null;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Priority
+             * @enum {string}
+             */
+            priority: "high" | "normal" | "low";
+            /** Progress */
+            progress: number | null;
+            /** Ref */
+            ref: string | null;
+            /** Result */
+            result: unknown;
+            /** Retried */
+            retried: number;
+            /** Retries */
+            retries: number;
+            /** Retry Delay S */
+            retry_delay_s: number;
+            /** Schedule Id */
+            schedule_id: string | null;
+            /** Started */
+            started: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** Timeout S */
+            timeout_s: number | null;
+            /** Webhook Url */
+            webhook_url: string | null;
         };
         /** TaskInfo */
         TaskInfo: {
@@ -7132,6 +8328,11 @@ export interface components {
              */
             results: components["schemas"]["TextClassificationOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -7174,6 +8375,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["TextClassificationOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -7248,6 +8454,11 @@ export interface components {
              */
             results: components["schemas"]["GeneratedText"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -7290,6 +8501,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["GeneratedText"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -7458,6 +8674,11 @@ export interface components {
              */
             results: components["schemas"]["ForecastOutput"][];
             /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
+            /**
              * Task
              * @constant
              */
@@ -7500,6 +8721,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["ForecastOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -7629,11 +8855,18 @@ export interface components {
             requests: number;
             /** Requests Per Min */
             requests_per_min: number;
+            /** Sources */
+            sources: {
+                [key: string]: number;
+            };
         };
-        /** Trace */
+        /**
+         * Trace
+         * @description One input of a request with its output, and the request's model, outcome and timing.
+         */
         Trace: {
             /** Backend */
-            backend?: string | null;
+            backend: string | null;
             /** Cold */
             cold: boolean;
             /** Duration Ms */
@@ -7669,7 +8902,11 @@ export interface components {
             /** Ts */
             ts: number;
         };
-        /** TraceCapture */
+        /**
+         * TraceCapture
+         * @description Whether requests' inputs and outputs are kept, how long, cut to how many characters, and how many requests
+         *     were not kept because the queue was full.
+         */
         TraceCapture: {
             /** Dropped */
             dropped: number;
@@ -7680,42 +8917,19 @@ export interface components {
             /** Retention Days */
             retention_days: number;
         };
-        /** TraceSummary */
-        TraceSummary: {
-            /** Backend */
-            backend?: string | null;
-            /** Cold */
-            cold: boolean;
-            /** Duration Ms */
-            duration_ms: number;
-            /** Error */
-            error: string | null;
-            /** Id */
-            id: string;
-            /** Input Chars */
-            input_chars: number;
-            /** Model Id */
-            model_id: string;
-            /** Output Chars */
-            output_chars: number;
-            /** Preview */
-            preview: string;
-            /** Session */
-            session: string | null;
-            /** Status */
-            status: string;
-            /** Tags */
-            tags: string[];
-            /** Task */
-            task: string;
-            /** Ts */
-            ts: number;
-        };
-        /** Traces */
-        Traces: {
-            capture: components["schemas"]["TraceCapture"];
-            /** Traces */
-            traces: components["schemas"]["TraceSummary"][];
+        /**
+         * TrainingFile
+         * @description POST /admin/datasets/{id}/training-file: what it wrote.
+         */
+        TrainingFile: {
+            /** Labels */
+            labels: {
+                [key: string]: number;
+            };
+            /** Path */
+            path: string;
+            /** Rows */
+            rows: number;
         };
         /** Transaction */
         Transaction: {
@@ -7757,6 +8971,30 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** Trigger */
+        Trigger: {
+            /**
+             * Cron
+             * @description Five fields, server local time
+             */
+            cron?: string | null;
+            /**
+             * Interval S
+             * @description Seconds between runs, at least 60
+             */
+            interval_s?: number | null;
+        };
+        /** TryView */
+        TryView: {
+            /**
+             * Params
+             * @description Its parameters, as a run takes them
+             */
+            params?: {
+                [key: string]: unknown;
+            };
+            spec: components["schemas"]["ViewSpec"];
+        };
         /** UntypedBatchInferenceRequest */
         UntypedBatchInferenceRequest: {
             /**
@@ -7791,6 +9029,11 @@ export interface components {
              * @description One result per input, in the same order
              */
             results: unknown[];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /** Task */
             task: string;
             /**
@@ -7827,6 +9070,11 @@ export interface components {
             processing_time: number;
             /** Result */
             result: unknown;
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /** Task */
             task: string;
             /**
@@ -7835,18 +9083,98 @@ export interface components {
              */
             trace_id?: string | null;
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
+        /** UpdateDataset */
+        UpdateDataset: {
+            /**
+             * Labels
+             * @description The choices a reference is picked from when labeling; empty: typed
+             */
+            labels: string[];
+        };
+        /** UpdateExample */
+        UpdateExample: {
+            /**
+             * Reference
+             * @description The expected answer, as a label or text, or the expected result; null takes it away, so the example is to label again
+             */
+            reference: unknown;
+        };
+        /**
+         * ValidationIssue
+         * @description What is wrong with one part of a request: where (``loc``, the body's or a parameter's path), and why.
+         */
+        ValidationIssue: {
+            /** Loc */
+            loc: unknown[];
+            /** Msg */
             msg: string;
-            /** Error Type */
+            /** Type */
             type: string;
+        };
+        /**
+         * ValidationProblem
+         * @description A body or parameter that does not fit its route (FastAPI's 422): each thing wrong with it.
+         */
+        ValidationProblem: {
+            /** Detail */
+            detail: components["schemas"]["ValidationIssue"][];
+        };
+        /** VectorHit */
+        VectorHit: {
+            /** Distance */
+            distance?: number | null;
+            row: components["schemas"]["Row"];
+            /** Score */
+            score?: number | null;
+        };
+        /** VectorQuery */
+        VectorQuery: {
+            /**
+             * Filters
+             * @description field: value, all of which must hold, as the list's field=value: a declared field's value is read as its type, a list field matches when it holds the value
+             */
+            filters?: {
+                [key: string]: string | number | boolean | null;
+            };
+            /**
+             * Hybrid
+             * @description Rank by the text's words too: the nearest rows and those the full-text fields hold the text's words best, fused by rank, each with a score
+             * @default false
+             */
+            hybrid?: boolean;
+            /**
+             * K
+             * @description How many rows, nearest first
+             * @default 10
+             */
+            k?: number;
+            /**
+             * Q
+             * @description Words the full-text fields must hold, as the list's _search
+             */
+            q?: string | null;
+            /**
+             * Rerank
+             * @description A rerank model that reads the text against four times k rows found, each row's embedded text, and keeps the k it scores best
+             */
+            rerank?: string | null;
+            /**
+             * Text
+             * @description A text to embed with the vector field's model, in place of a vector
+             */
+            text?: string | null;
+            /**
+             * Vector
+             * @description The vector to find the nearest rows to: as many numbers as the table's vector field holds
+             */
+            vector?: number[] | null;
+        };
+        /** VectorSearch */
+        VectorSearch: {
+            /** Results */
+            results: components["schemas"]["VectorHit"][];
+            /** Tokens */
+            tokens?: number | null;
         };
         /**
          * VegaQuestion
@@ -7900,6 +9228,117 @@ export interface components {
             workspace: string;
         };
         /**
+         * ViewInfo
+         * @description A view: its spec, as PUT takes it, with when it was made and last changed (Unix time).
+         */
+        ViewInfo: {
+            /** Created */
+            created: number | null;
+            /** Description */
+            description: string | null;
+            /** Display */
+            display: components["schemas"]["TableDisplay"] | components["schemas"]["NumberDisplay"] | components["schemas"]["LineDisplay"] | components["schemas"]["BarDisplay"] | components["schemas"]["PieDisplay"] | components["schemas"]["GraphDisplay"] | components["schemas"]["FilesDisplay"];
+            /**
+             * Label
+             * @description What it shows, in words
+             */
+            label: string | null;
+            /**
+             * Max Rows
+             * @description Rows at most: VIEW_MAX_ROWS, or fewer
+             */
+            max_rows: number | null;
+            /**
+             * Name
+             * @description Letters, digits and single underscores, starting with a letter
+             */
+            name: string;
+            /**
+             * Params
+             * @description A JSON Schema of an object: the parameters a run gives, with their types, defaults, enums and bounds
+             */
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Refresh S
+             * @description Seconds an answer is kept for runs with the same parameters (30 when left out)
+             */
+            refresh_s: number | null;
+            /** Source */
+            source: components["schemas"]["SqlSource"] | components["schemas"]["SearchSource"] | components["schemas"]["RowsSource"];
+            /** Updated */
+            updated: number | null;
+        };
+        /**
+         * ViewList
+         * @description A page of a workspace's views, by name; ``next`` is the next page's cursor, absent on the last.
+         */
+        ViewList: {
+            /** Next */
+            next?: string | null;
+            /** Views */
+            views: components["schemas"]["ViewInfo"][];
+        };
+        /**
+         * ViewResult
+         * @description A view's answer: at most its row cap of rows (for a graph, rows and edges as _query answers them).
+         */
+        ViewResult: {
+            /** Cached */
+            cached: boolean;
+            /** Columns */
+            columns: string[];
+            /** Ran At */
+            ran_at: number;
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * ViewSpec
+         * @description A view: a saved read over a workspace's data (``source``), its parameters (``params``, a JSON Schema) and
+         *     how its rows are drawn (``display``). The admin writes it; a client key runs it.
+         */
+        ViewSpec: {
+            /** Description */
+            description?: string | null;
+            /** Display */
+            display?: components["schemas"]["TableDisplay"] | components["schemas"]["NumberDisplay"] | components["schemas"]["LineDisplay"] | components["schemas"]["BarDisplay"] | components["schemas"]["PieDisplay"] | components["schemas"]["GraphDisplay"] | components["schemas"]["FilesDisplay"];
+            /**
+             * Label
+             * @description What it shows, in words
+             */
+            label?: string | null;
+            /**
+             * Max Rows
+             * @description Rows at most: VIEW_MAX_ROWS, or fewer
+             */
+            max_rows?: number | null;
+            /**
+             * Name
+             * @description Letters, digits and single underscores, starting with a letter
+             */
+            name: string;
+            /**
+             * Params
+             * @description A JSON Schema of an object: the parameters a run gives, with their types, defaults, enums and bounds
+             */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Refresh S
+             * @description Seconds an answer is kept for runs with the same parameters (30 when left out)
+             */
+            refresh_s?: number | null;
+            /** Source */
+            source: components["schemas"]["SqlSource"] | components["schemas"]["SearchSource"] | components["schemas"]["RowsSource"];
+        };
+        /**
          * VisionLanguageBatchInferenceRequest
          * @description Answer a prompt or a chat about images (and, for models that take it, audio)
          */
@@ -7939,6 +9378,11 @@ export interface components {
              * @description One result per input, in the same order
              */
             results: components["schemas"]["GeneratedText"][];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -7982,6 +9426,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["GeneratedText"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -8127,9 +9576,276 @@ export interface components {
             /** Urls */
             urls: string[];
         };
-        /** WorkspaceCreated */
-        WorkspaceCreated: {
-            workspace: components["schemas"]["EvidenceWorkspace"];
+        /**
+         * WorkflowDryRun
+         * @description The first rows of the source through a spec, nothing written.
+         */
+        WorkflowDryRun: {
+            /** Edges */
+            edges: components["schemas"]["WorkflowEdgeCount"][];
+            /** Nodes */
+            nodes: {
+                [key: string]: components["schemas"]["WorkflowNodeCount"];
+            };
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * WorkflowEdgeCount
+         * @description The rows that went along an edge.
+         */
+        WorkflowEdgeCount: {
+            /** Output */
+            output: string;
+            /** Rows */
+            rows: number;
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+        };
+        /**
+         * WorkflowInfo
+         * @description A workflow: its spec, as PUT takes it, with its id, the schedule its trigger made, how far runs that read only
+         *     new rows have read, and when it was made and last changed (Unix time).
+         */
+        WorkflowInfo: {
+            /** Created */
+            created: number;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Edges */
+            edges: components["schemas"]["Edge"][];
+            /** Id */
+            id: string;
+            /**
+             * Invokable
+             * @description A client key may take rows through it at once (POST /workflows/{id}/invoke), reading what its nodes read as the admin
+             * @default false
+             */
+            invokable: boolean;
+            /** Last Read */
+            last_read: number;
+            /** Name */
+            name: string;
+            /** Nodes */
+            nodes: components["schemas"]["Node"][];
+            /**
+             * Page Size
+             * @description Rows read and taken through the graph at a time
+             * @default 100
+             */
+            page_size: number;
+            /** Schedule Id */
+            schedule_id: string | null;
+            /** @description Runs it on a cron expression or every interval_s seconds */
+            trigger: components["schemas"]["Trigger"] | null;
+            /** Updated */
+            updated: number;
+        };
+        /**
+         * WorkflowInvoke
+         * @description A caller's rows through a workflow, nothing written: each as it came out, with every node's result it got under
+         *     the node's id (and ``_error`` where one failed it), in the order given; and the counts.
+         */
+        WorkflowInvoke: {
+            /** Edges */
+            edges: components["schemas"]["WorkflowEdgeCount"][];
+            /** Nodes */
+            nodes: {
+                [key: string]: components["schemas"]["WorkflowNodeCount"];
+            };
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * WorkflowList
+         * @description A page of the workflows, by name; ``next`` is the next page's cursor, absent on the last.
+         */
+        WorkflowList: {
+            /** Next */
+            next?: string | null;
+            /** Workflows */
+            workflows: components["schemas"]["WorkflowInfo"][];
+        };
+        /**
+         * WorkflowNodeCount
+         * @description A node's rows: in, out (along its outputs but error), failed (to its error output) with the first error.
+         */
+        WorkflowNodeCount: {
+            /** Error */
+            error: string | null;
+            /** Failed */
+            failed: number;
+            /** Revisions */
+            revisions?: string[] | null;
+            /** Rows In */
+            rows_in: number;
+            /** Rows Out */
+            rows_out: number;
+            /** Samples */
+            samples?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Written */
+            written?: number | null;
+        };
+        /**
+         * WorkflowNodeType
+         * @description A node type of the editor's palette.
+         */
+        WorkflowNodeType: {
+            /** Description */
+            description: string;
+            /** Label */
+            label: string;
+            /** Outputs */
+            outputs: string[] | null;
+            /** Result */
+            result: boolean;
+            /** Settings */
+            settings: {
+                [key: string]: unknown;
+            };
+            /** Source */
+            source: boolean;
+            /** Type */
+            type: string;
+        };
+        /** WorkflowNodeTypes */
+        WorkflowNodeTypes: {
+            /** Nodes */
+            nodes: components["schemas"]["WorkflowNodeType"][];
+        };
+        /**
+         * WorkflowRun
+         * @description A run: its task's status and times, and how far it got.
+         */
+        WorkflowRun: {
+            /** Created */
+            created: number;
+            /** Edges */
+            edges: components["schemas"]["WorkflowEdgeCount"][];
+            /** Error */
+            error: string | null;
+            /** Finished */
+            finished: number | null;
+            /** Id */
+            id: string;
+            /** Nodes */
+            nodes: {
+                [key: string]: components["schemas"]["WorkflowNodeCount"];
+            };
+            /** Pages */
+            pages: number;
+            /** Priority */
+            priority: string;
+            /** Rows */
+            rows: number;
+            /** Schedule Id */
+            schedule_id: string | null;
+            spec?: components["schemas"]["WorkflowSpec"] | null;
+            /** Started */
+            started: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /** Workflow Id */
+            workflow_id: string;
+        };
+        /**
+         * WorkflowRuns
+         * @description A page of a workflow's runs, newest first; ``next`` is the next page's cursor.
+         */
+        WorkflowRuns: {
+            /** Next */
+            next?: string | null;
+            /** Runs */
+            runs: components["schemas"]["WorkflowRun"][];
+        };
+        /**
+         * WorkflowSpec
+         * @description A workflow, as it is saved: what the editor sends and gets back.
+         */
+        WorkflowSpec: {
+            /**
+             * Description
+             * @default
+             */
+            description?: string;
+            /** Edges */
+            edges?: components["schemas"]["Edge"][];
+            /**
+             * Invokable
+             * @description A client key may take rows through it at once (POST /workflows/{id}/invoke), reading what its nodes read as the admin
+             * @default false
+             */
+            invokable?: boolean;
+            /** Name */
+            name: string;
+            /** Nodes */
+            nodes: components["schemas"]["Node"][];
+            /**
+             * Page Size
+             * @description Rows read and taken through the graph at a time
+             * @default 100
+             */
+            page_size?: number;
+            /** @description Runs it on a cron expression or every interval_s seconds */
+            trigger?: components["schemas"]["Trigger"] | null;
+        };
+        /**
+         * Workspace
+         * @description A workspace with its tables' and edge types' counts, sizes and schemas (GET /db/{workspace}).
+         */
+        Workspace: {
+            /** Created */
+            created: number | null;
+            /** Edges */
+            edges: components["schemas"]["EdgeTypeInfo"][];
+            /** Label */
+            label: string | null;
+            /** Managed */
+            managed: string | null;
+            /** Name */
+            name: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Tables */
+            tables: components["schemas"]["TableInfo"][];
+        };
+        /**
+         * WorkspaceEntry
+         * @description A workspace as GET /db lists it, its tables and edge types by name and kind; or, listed with ?all=true, one
+         *     of the service's own.
+         */
+        WorkspaceEntry: {
+            /** Created */
+            created: number | null;
+            /** Edges */
+            edges: components["schemas"]["EdgeTypeEntry"][];
+            /** Label */
+            label: string | null;
+            /** Managed */
+            managed: string | null;
+            /** Name */
+            name: string;
+            /** Tables */
+            tables: components["schemas"]["TableEntry"][];
+        };
+        /** Workspaces */
+        Workspaces: {
+            /** Next */
+            next?: string | null;
+            /** Workspaces */
+            workspaces: components["schemas"]["WorkspaceEntry"][];
         };
         /**
          * ZeroShotClassificationBatchInferenceRequest
@@ -8171,6 +9887,11 @@ export interface components {
              * @description One result per input, in the same order
              */
             results: components["schemas"]["TextClassificationOutput"][];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -8214,6 +9935,11 @@ export interface components {
             /** Processing Time */
             processing_time: number;
             result: components["schemas"]["TextClassificationOutput"];
+            /**
+             * Revision
+             * @description The Hub commit of the weights that answered; null when they are not from the Hub cache
+             */
+            revision?: string | null;
             /**
              * Task
              * @constant
@@ -8274,71 +10000,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
+            /** @description The body or a parameter does not fit */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8352,8 +10024,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
-                /** @description Only entries older than this one: the last id of the previous page */
-                before_id?: number | null;
+                /** @description The previous page's next */
+                cursor?: string | null;
                 method?: ("POST" | "PUT" | "PATCH" | "DELETE") | null;
                 /** @description Part of the route or the path asked for */
                 route?: string | null;
@@ -8366,10 +10038,7 @@ export interface operations {
                 /** @description Only entries at or before this Unix time */
                 until?: number | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -8384,80 +10053,17 @@ export interface operations {
                     "application/json": components["schemas"]["AuditEntries"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8470,10 +10076,7 @@ export interface operations {
     config_admin_config_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -8488,80 +10091,17 @@ export interface operations {
                     "application/json": components["schemas"]["AdminConfig"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8574,10 +10114,7 @@ export interface operations {
     list_datasets_admin_datasets_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -8592,80 +10129,17 @@ export interface operations {
                     "application/json": components["schemas"]["Datasets"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8678,10 +10152,7 @@ export interface operations {
     create_dataset_admin_datasets_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -8700,80 +10171,17 @@ export interface operations {
                     "application/json": components["schemas"]["Dataset"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8786,10 +10194,7 @@ export interface operations {
     get_dataset_admin_datasets__dataset_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
             };
@@ -8806,80 +10211,17 @@ export interface operations {
                     "application/json": components["schemas"]["DatasetDetail"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8892,10 +10234,7 @@ export interface operations {
     delete_dataset_admin_datasets__dataset_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
             };
@@ -8912,71 +10251,17 @@ export interface operations {
                     "application/json": components["schemas"]["Deleted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8984,8 +10269,43 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    update_dataset_admin_datasets__dataset_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDataset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dataset"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8999,12 +10319,10 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
-                skip?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
             };
@@ -9021,80 +10339,17 @@ export interface operations {
                     "application/json": components["schemas"]["DatasetExamples"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9107,10 +10362,7 @@ export interface operations {
     add_examples_admin_datasets__dataset_id__examples_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
             };
@@ -9131,80 +10383,17 @@ export interface operations {
                     "application/json": components["schemas"]["ExamplesAdded"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9217,10 +10406,7 @@ export interface operations {
     delete_example_admin_datasets__dataset_id__examples__example_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
                 example_id: string;
@@ -9238,71 +10424,17 @@ export interface operations {
                     "application/json": components["schemas"]["Deleted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9310,8 +10442,44 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    update_example_admin_datasets__dataset_id__examples__example_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                example_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateExample"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetExample"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9324,10 +10492,7 @@ export interface operations {
     export_dataset_admin_datasets__dataset_id__export_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 dataset_id: string;
             };
@@ -9344,80 +10509,17 @@ export interface operations {
                     "text/plain": string;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "text/plain": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9427,13 +10529,95 @@ export interface operations {
             };
         };
     };
+    examples_to_label_admin_datasets__dataset_id__to_label_get: {
+        parameters: {
+            query?: {
+                run_id?: string | null;
+                limit?: number;
+                /** @description How many the labeler passed over at the front */
+                skip?: number;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExamplesToLabel"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    write_training_file_admin_datasets__dataset_id__training_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrainingFile"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
     list_metrics_admin_evals_metrics_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -9448,80 +10632,17 @@ export interface operations {
                     "application/json": components["schemas"]["MetricsInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9541,10 +10662,7 @@ export interface operations {
                 /** @description Only events at or before this Unix time */
                 until?: number | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -9559,71 +10677,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelEvents"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9631,8 +10695,169 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    list_keys_admin_keys_get: {
+        parameters: {
+            query?: {
+                /** @description Only the keys in this state */
+                state?: ("live" | "expired" | "revoked") | null;
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientKeyList"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    make_key_admin_keys_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewKey"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientKeyMade"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    change_key_admin_keys__key_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeyChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientKeyInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    revoke_key_admin_keys__key_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientKeyInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9645,10 +10870,7 @@ export interface operations {
     set_limits_admin_limits_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -9667,80 +10889,17 @@ export interface operations {
                     "application/json": components["schemas"]["LimitsResult"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9757,10 +10916,7 @@ export interface operations {
                 limit?: number;
                 level?: ("DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL") | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -9775,80 +10931,17 @@ export interface operations {
                     "application/json": components["schemas"]["Logs"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9861,10 +10954,7 @@ export interface operations {
     list_model_servers_admin_model_servers_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -9879,80 +10969,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServers"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9965,10 +10992,7 @@ export interface operations {
     put_model_admin_model_servers_models__model_id__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 model_id: string;
             };
@@ -9989,80 +11013,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServers"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10075,10 +11036,7 @@ export interface operations {
     delete_model_admin_model_servers_models__model_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 model_id: string;
             };
@@ -10095,80 +11053,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServers"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10181,10 +11076,7 @@ export interface operations {
     probe_model_admin_model_servers_probe_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -10203,80 +11095,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServerProbe"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10289,10 +11118,7 @@ export interface operations {
     put_provider_admin_model_servers_providers__name__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -10313,80 +11139,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServers"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10399,10 +11162,7 @@ export interface operations {
     delete_provider_admin_model_servers_providers__name__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -10419,71 +11179,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelServers"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10491,8 +11197,43 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    put_provider_key_admin_model_servers_providers__name__key_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelServers"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10513,11 +11254,14 @@ export interface operations {
                 status?: ("ok" | "client_error" | "error") | null;
                 /** @description Part of the model ID or task */
                 model?: string | null;
+                /** @description A tag it was given (X-Trace-Tag) */
+                tag?: string | null;
+                /** @description Its session (X-Session-Id) */
+                session?: string | null;
+                /** @description Words its input or output holds (while its traces are kept) */
+                q?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -10532,80 +11276,17 @@ export interface operations {
                     "application/json": components["schemas"]["RequestRows"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10619,11 +11300,11 @@ export interface operations {
         parameters: {
             query?: {
                 dataset_id?: string | null;
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -10638,80 +11319,17 @@ export interface operations {
                     "application/json": components["schemas"]["Runs"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10724,10 +11342,7 @@ export interface operations {
     create_run_admin_runs_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -10746,80 +11361,17 @@ export interface operations {
                     "application/json": components["schemas"]["Run"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10832,10 +11384,7 @@ export interface operations {
     compare_runs_admin_runs_compare__run_a___run_b__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_a: string;
                 run_b: string;
@@ -10853,80 +11402,17 @@ export interface operations {
                     "application/json": components["schemas"]["Comparison"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10939,10 +11425,7 @@ export interface operations {
     get_run_admin_runs__run_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -10959,80 +11442,17 @@ export interface operations {
                     "application/json": components["schemas"]["RunDetail"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11045,10 +11465,7 @@ export interface operations {
     delete_run_admin_runs__run_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -11065,80 +11482,17 @@ export interface operations {
                     "application/json": components["schemas"]["Deleted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11151,10 +11505,7 @@ export interface operations {
     cancel_run_admin_runs__run_id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -11171,80 +11522,17 @@ export interface operations {
                     "application/json": components["schemas"]["Run"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11257,10 +11545,7 @@ export interface operations {
     judge_run_admin_runs__run_id__judge_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -11281,80 +11566,17 @@ export interface operations {
                     "application/json": components["schemas"]["JudgeStarted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11367,10 +11589,7 @@ export interface operations {
     resume_run_admin_runs__run_id__resume_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -11387,80 +11606,17 @@ export interface operations {
                     "application/json": components["schemas"]["Run"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11473,10 +11629,7 @@ export interface operations {
     score_run_admin_runs__run_id__score_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 run_id: string;
             };
@@ -11497,80 +11650,17 @@ export interface operations {
                     "application/json": components["schemas"]["Scored"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11602,80 +11692,17 @@ export interface operations {
                     "application/json": components["schemas"]["SetupResult"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11707,80 +11734,17 @@ export interface operations {
                     "application/json": components["schemas"]["SetupSkipped"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11808,71 +11772,17 @@ export interface operations {
                     "application/json": components["schemas"]["SetupStatus"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
+            /** @description The body or a parameter does not fit */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11887,10 +11797,7 @@ export interface operations {
             query?: {
                 window?: "1h" | "24h" | "7d";
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -11905,80 +11812,17 @@ export interface operations {
                     "application/json": components["schemas"]["Stats"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11997,10 +11841,7 @@ export interface operations {
                 until?: number | null;
                 buckets?: number;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -12015,198 +11856,17 @@ export interface operations {
                     "application/json": components["schemas"]["Timeline"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    list_traces_admin_traces_get: {
-        parameters: {
-            query?: {
-                since?: number | null;
-                until?: number | null;
-                /** @description Only traces older than this time: the cursor for the next page */
-                before?: number | null;
-                /** @description Part of the model ID */
-                model?: string | null;
-                task?: string | null;
-                status?: ("ok" | "client_error" | "error") | null;
-                tag?: string | null;
-                session?: string | null;
-                /** @description Words to search the inputs and outputs for */
-                q?: string | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Traces"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12219,10 +11879,7 @@ export interface operations {
     get_trace_admin_traces__trace_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 trace_id: string;
             };
@@ -12239,80 +11896,17 @@ export interface operations {
                     "application/json": components["schemas"]["Trace"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12322,13 +11916,17 @@ export interface operations {
             };
         };
     };
-    list_collections_collections_get: {
+    list_workspaces_db_get: {
         parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
+            query?: {
+                /** @description Add the service's own data (evals, jobs, enrichers, the playground): needs the admin key */
+                all?: boolean;
+                /** @description Workspaces per page */
+                _limit?: number;
+                /** @description The previous page's 'next' */
+                _cursor?: string | null;
             };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -12340,83 +11938,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Workspaces"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12426,987 +11961,16 @@ export interface operations {
             };
         };
     };
-    create_collection_collections_post: {
+    create_workspace_db_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateCollection"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    get_collection_collections__name__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    drop_collection_collections__name__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    add_items_collections__name__items_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddItems"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    get_item_collections__name__items__item_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-                item_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    delete_item_collections__name__items__item_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-                item_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    query_collections__name__query_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Query"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    search_collections__name__search_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Search"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    list_namespaces_db_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Namespaces"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    create_namespace_db_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateNamespace"];
+                "application/json": components["schemas"]["CreateWorkspace"];
             };
         };
         responses: {
@@ -13416,83 +11980,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Namespace"];
+                    "application/json": components["schemas"]["Workspace"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13502,15 +12003,12 @@ export interface operations {
             };
         };
     };
-    get_namespace_db__namespace__get: {
+    get_workspace_db__workspace__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -13522,83 +12020,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Namespace"];
+                    "application/json": components["schemas"]["Workspace"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13608,15 +12043,12 @@ export interface operations {
             };
         };
     };
-    create_table_db__namespace__post: {
+    create_table_db__workspace__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -13635,80 +12067,17 @@ export interface operations {
                     "application/json": components["schemas"]["TableInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13718,15 +12087,12 @@ export interface operations {
             };
         };
     };
-    drop_namespace_db__namespace__delete: {
+    drop_workspace_db__workspace__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -13739,80 +12105,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13822,15 +12125,226 @@ export interface operations {
             };
         };
     };
-    list_edge_types_db__namespace___edges_get: {
+    set_label_db__workspace__patch: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLabel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_dashboards_db__workspace___dashboards_get: {
+        parameters: {
+            query?: {
+                /** @description Per page */
+                _limit?: number;
+                /** @description The previous page's 'next' */
+                _cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardList"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_dashboard_db__workspace___dashboards__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    put_dashboard_db__workspace___dashboards__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    delete_dashboard_db__workspace___dashboards__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_edge_types_db__workspace___edges_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
             };
             cookie?: never;
         };
@@ -13845,80 +12359,17 @@ export interface operations {
                     "application/json": components["schemas"]["EdgeTypes"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13928,15 +12379,12 @@ export interface operations {
             };
         };
     };
-    put_edges_db__namespace___edges_put: {
+    put_edges_db__workspace___edges_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -13953,80 +12401,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14036,15 +12421,12 @@ export interface operations {
             };
         };
     };
-    create_edge_type_db__namespace___edges_post: {
+    create_edge_type_db__workspace___edges_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -14063,80 +12445,17 @@ export interface operations {
                     "application/json": components["schemas"]["EdgeTypeInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14146,15 +12465,12 @@ export interface operations {
             };
         };
     };
-    delete_edges_db__namespace___edges__delete_post: {
+    delete_edges_db__workspace___edges__delete_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -14171,80 +12487,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14254,15 +12507,12 @@ export interface operations {
             };
         };
     };
-    drop_edge_type_db__namespace___edges__edge_type__delete: {
+    drop_edge_type_db__workspace___edges__edge_type__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 edge_type: string;
             };
             cookie?: never;
@@ -14276,80 +12526,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14359,7 +12546,7 @@ export interface operations {
             };
         };
     };
-    graph_view_db__namespace___graph_get: {
+    graph_view_db__workspace___graph_get: {
         parameters: {
             query?: {
                 /** @description Rows at most, shared evenly among the tables */
@@ -14367,12 +12554,9 @@ export interface operations {
                 /** @description Edges at most */
                 _edge_limit?: number;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -14387,80 +12571,17 @@ export interface operations {
                     "application/json": components["schemas"]["GraphView"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14470,15 +12591,12 @@ export interface operations {
             };
         };
     };
-    graph_query_db__namespace___query_post: {
+    graph_query_db__workspace___query_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -14497,80 +12615,17 @@ export interface operations {
                     "application/json": components["schemas"]["RowList"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14580,15 +12635,12 @@ export interface operations {
             };
         };
     };
-    transaction_db__namespace___transaction_post: {
+    transaction_db__workspace___transaction_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
             };
             cookie?: never;
         };
@@ -14605,80 +12657,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14688,7 +12677,492 @@ export interface operations {
             };
         };
     };
-    list_rows_db__namespace___table__get: {
+    list_views_db__workspace___views_get: {
+        parameters: {
+            query?: {
+                /** @description Per page */
+                _limit?: number;
+                /** @description The previous page's 'next' */
+                _cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewList"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    try_view_db__workspace___views__try_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TryView"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewResult"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_view_db__workspace___views__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    put_view_db__workspace___views__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    run_view_db__workspace___views__name__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunView"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewResult"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    delete_view_db__workspace___views__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    upload_file_db__workspace___bucket___files_post: {
+        parameters: {
+            query: {
+                /** @description The file's name: 1 to 255 characters, no control characters; need not be unique */
+                name: string;
+            };
+            header?: never;
+            path: {
+                workspace: string;
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        /** @description The file's bytes, as they are */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketFile"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    download_file_db__workspace___bucket___files__file_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                bucket: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file's bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The part of them a Range header asked for */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    delete_file_db__workspace___bucket___files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                bucket: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_bucket_remote_db__workspace___bucket___remote_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketRemote"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    set_bucket_remote_db__workspace___bucket___remote_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace: string;
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRemote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketRemote"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_rows_db__workspace___table__get: {
         parameters: {
             query?: {
                 /** @description Rows per page */
@@ -14699,13 +13173,12 @@ export interface operations {
                 _sort?: string | null;
                 /** @description Words the full-text fields must hold: every word, a "quoted phrase", -word must not, word* for words starting so */
                 _search?: string | null;
+                /** @description Refs to follow, comma-separated: a ref field (the row it names), or table:field (the rows of table whose ref field names this one, 100 at most); a dot goes on from there, 3 steps at most. Found under each row's _expand */
+                _expand?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -14721,80 +13194,17 @@ export interface operations {
                     "application/json": components["schemas"]["RowsPage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14804,15 +13214,12 @@ export interface operations {
             };
         };
     };
-    insert_row_db__namespace___table__post: {
+    insert_row_db__workspace___table__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -14834,80 +13241,17 @@ export interface operations {
                     "application/json": components["schemas"]["Row"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14917,15 +13261,12 @@ export interface operations {
             };
         };
     };
-    drop_table_db__namespace___table__delete: {
+    drop_table_db__workspace___table__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -14939,80 +13280,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15022,15 +13300,12 @@ export interface operations {
             };
         };
     };
-    bulk_put_db__namespace___table___bulk_put: {
+    bulk_put_db__workspace___table___bulk_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15048,80 +13323,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15131,15 +13343,12 @@ export interface operations {
             };
         };
     };
-    bulk_delete_db__namespace___table___bulk_delete_post: {
+    bulk_delete_db__workspace___table___bulk_delete_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15157,80 +13366,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15240,15 +13386,12 @@ export interface operations {
             };
         };
     };
-    bulk_get_db__namespace___table___bulk_get_post: {
+    bulk_get_db__workspace___table___bulk_get_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15268,80 +13411,17 @@ export interface operations {
                     "application/json": components["schemas"]["RowList"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15351,18 +13431,15 @@ export interface operations {
             };
         };
     };
-    count_rows_db__namespace___table___count_get: {
+    count_rows_db__workspace___table___count_get: {
         parameters: {
             query?: {
                 /** @description Words the full-text fields must hold: every word, a "quoted phrase", -word must not, word* for words starting so */
                 _search?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15378,80 +13455,17 @@ export interface operations {
                     "application/json": components["schemas"]["RowCount"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15461,18 +13475,15 @@ export interface operations {
             };
         };
     };
-    get_schema_db__namespace___table___schema_get: {
+    get_schema_db__workspace___table___schema_get: {
         parameters: {
             query?: {
                 /** @description Newest rows to observe */
                 _sample?: number;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15488,80 +13499,17 @@ export interface operations {
                     "application/json": components["schemas"]["SchemaInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15571,15 +13519,12 @@ export interface operations {
             };
         };
     };
-    put_schema_db__namespace___table___schema_put: {
+    put_schema_db__workspace___table___schema_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
             };
             cookie?: never;
@@ -15599,80 +13544,17 @@ export interface operations {
                     "application/json": components["schemas"]["TableSchemaOut"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15682,15 +13564,60 @@ export interface operations {
             };
         };
     };
-    get_row_db__namespace___table___row_id__get: {
+    vector_search_db__workspace___table___search_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VectorQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorSearch"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_row_db__workspace___table___row_id__get: {
+        parameters: {
+            query?: {
+                /** @description Refs to follow, comma-separated: a ref field (the row it names), or table:field (the rows of table whose ref field names this one, 100 at most); a dot goes on from there, 3 steps at most. Found under each row's _expand */
+                _expand?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -15707,80 +13634,17 @@ export interface operations {
                     "application/json": components["schemas"]["Row"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15790,15 +13654,12 @@ export interface operations {
             };
         };
     };
-    put_row_db__namespace___table___row_id__put: {
+    put_row_db__workspace___table___row_id__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -15830,80 +13691,17 @@ export interface operations {
                     "application/json": components["schemas"]["Row"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15913,15 +13711,12 @@ export interface operations {
             };
         };
     };
-    delete_row_db__namespace___table___row_id__delete: {
+    delete_row_db__workspace___table___row_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -15936,80 +13731,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16019,15 +13751,12 @@ export interface operations {
             };
         };
     };
-    patch_row_db__namespace___table___row_id__patch: {
+    patch_row_db__workspace___table___row_id__patch: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -16050,80 +13779,17 @@ export interface operations {
                     "application/json": components["schemas"]["Row"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16133,7 +13799,7 @@ export interface operations {
             };
         };
     };
-    row_edges_db__namespace___table___row_id___edges_get: {
+    row_edges_db__workspace___table___row_id___edges_get: {
         parameters: {
             query?: {
                 /** @description Edges leaving the row, arriving, or both */
@@ -16142,12 +13808,9 @@ export interface operations {
                 /** @description The previous page's 'next' */
                 _cursor?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -16164,80 +13827,17 @@ export interface operations {
                     "application/json": components["schemas"]["EdgesPage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16247,7 +13847,7 @@ export interface operations {
             };
         };
     };
-    row_neighbors_db__namespace___table___row_id___neighbors_get: {
+    row_neighbors_db__workspace___table___row_id___neighbors_get: {
         parameters: {
             query?: {
                 /** @description Along edges leaving the row, arriving, or both */
@@ -16256,12 +13856,9 @@ export interface operations {
                 /** @description The previous page's 'next' */
                 _cursor?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -16278,80 +13875,17 @@ export interface operations {
                     "application/json": components["schemas"]["NeighborsPage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16361,7 +13895,7 @@ export interface operations {
             };
         };
     };
-    row_traverse_db__namespace___table___row_id___traverse_get: {
+    row_traverse_db__workspace___table___row_id___traverse_get: {
         parameters: {
             query?: {
                 /** @description Follow edges leaving each row, arriving, or both */
@@ -16370,12 +13904,9 @@ export interface operations {
                 _depth?: number;
                 _limit?: number;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
-                namespace: string;
+                workspace: string;
                 table: string;
                 row_id: string;
             };
@@ -16392,80 +13923,17 @@ export interface operations {
                     "application/json": components["schemas"]["RowList"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16478,10 +13946,7 @@ export interface operations {
     enrich_enrich_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -16500,80 +13965,17 @@ export interface operations {
                     "application/json": components["schemas"]["EnrichResponse"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16586,10 +13988,7 @@ export interface operations {
     list_enrichers_enrichers_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -16604,80 +14003,17 @@ export interface operations {
                     "application/json": components["schemas"]["EnricherList"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16692,10 +14028,7 @@ export interface operations {
             query?: {
                 enricher?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -16708,80 +14041,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16794,10 +14064,7 @@ export interface operations {
     get_enricher_enrichers__name__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -16814,80 +14081,17 @@ export interface operations {
                     "application/json": components["schemas"]["EnricherInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16900,10 +14104,7 @@ export interface operations {
     put_enricher_enrichers__name__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -16924,80 +14125,17 @@ export interface operations {
                     "application/json": components["schemas"]["EnricherInfo"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17010,10 +14148,7 @@ export interface operations {
     delete_enricher_enrichers__name__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -17028,80 +14163,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17114,10 +14186,7 @@ export interface operations {
     put_secret_enrichers__name__secret_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -17138,80 +14207,17 @@ export interface operations {
                     "application/json": components["schemas"]["SecretSaved"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17224,10 +14230,7 @@ export interface operations {
     test_enricher_enrichers__name__test_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 name: string;
             };
@@ -17248,80 +14251,17 @@ export interface operations {
                     "application/json": components["schemas"]["EnricherTest"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17334,13 +14274,11 @@ export interface operations {
     create_capture_evidence_captures_post: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -17358,80 +14296,17 @@ export interface operations {
                     };
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17444,13 +14319,11 @@ export interface operations {
     get_capture_evidence_captures__capture_id__get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 capture_id: string;
@@ -17468,80 +14341,17 @@ export interface operations {
                     "application/json": components["schemas"]["Capture"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17554,13 +14364,11 @@ export interface operations {
     annotate_capture_evidence_captures__capture_id__annotations_put: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 capture_id: string;
@@ -17582,80 +14390,17 @@ export interface operations {
                     "application/json": components["schemas"]["Annotation"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17668,13 +14413,11 @@ export interface operations {
     get_artifact_evidence_captures__capture_id__artifacts__name__get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 capture_id: string;
@@ -17691,80 +14434,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17777,13 +14457,11 @@ export interface operations {
     list_cases_evidence_cases_get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -17799,80 +14477,17 @@ export interface operations {
                     "application/json": components["schemas"]["EvidenceCases"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17885,13 +14500,11 @@ export interface operations {
     create_case_evidence_cases_post: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -17911,80 +14524,17 @@ export interface operations {
                     "application/json": components["schemas"]["CaseCreated"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17997,13 +14547,11 @@ export interface operations {
     list_annotations_evidence_cases__case_id__annotations_get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 case_id: string;
@@ -18021,80 +14569,17 @@ export interface operations {
                     "application/json": components["schemas"]["Annotations"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18107,13 +14592,11 @@ export interface operations {
     list_captures_evidence_cases__case_id__captures_get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 case_id: string;
@@ -18131,80 +14614,17 @@ export interface operations {
                     "application/json": components["schemas"]["CaptureSummaries"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18217,13 +14637,11 @@ export interface operations {
     list_todos_evidence_cases__case_id__todos_get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 case_id: string;
@@ -18241,80 +14659,17 @@ export interface operations {
                     "application/json": components["schemas"]["CaseTodos"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18327,13 +14682,11 @@ export interface operations {
     set_todos_evidence_cases__case_id__todos_put: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path: {
                 case_id: string;
@@ -18355,80 +14708,17 @@ export interface operations {
                     "application/json": components["schemas"]["CaseTodos"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18443,8 +14733,6 @@ export interface operations {
             query?: never;
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -18460,80 +14748,17 @@ export interface operations {
                     "text/plain": string;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "text/plain": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18561,13 +14786,11 @@ export interface operations {
                 limit?: number;
                 /** @description The previous page's next */
                 cursor?: string | null;
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -18583,80 +14806,17 @@ export interface operations {
                     "application/json": components["schemas"]["EvidenceSearch"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18671,8 +14831,6 @@ export interface operations {
             query?: never;
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -18688,80 +14846,17 @@ export interface operations {
                     "application/json": components["schemas"]["TimestampRetry"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18774,13 +14869,11 @@ export interface operations {
     verify_evidence_verify_get: {
         parameters: {
             query?: {
-                /** @description The workspace (GET /evidence/workspaces); the default one when left out */
+                /** @description The workspace, by its name (GET /db); the default one when left out */
                 workspace?: string;
             };
             header?: {
                 origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -18796,294 +14889,17 @@ export interface operations {
                     "application/json": components["schemas"]["VerifyReport"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    list_workspaces_evidence_workspaces_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EvidenceWorkspaces"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    create_workspace_evidence_workspaces_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                origin?: string | null;
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewWorkspace"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceCreated"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19111,811 +14927,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    downloads_hub_downloads_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HubDownloads"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    start_download_hub_downloads_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DownloadRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HubDownload"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    cancel_download_hub_downloads__download_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                download_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    local_hub_local_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HubLocal"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    delete_local_hub_local__repo_id__delete: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                repo_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    repo_hub_repos__repo_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path: {
-                repo_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HubRepo"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    search_hub_search_get: {
-        parameters: {
-            query?: {
-                /** @description Words of the model ID or card */
-                q?: string;
-                /** @description Only models for this task (by the Hub's pipeline tag) */
-                task?: ("text-generation" | "text-classification" | "zero-shot-classification" | "question-answering" | "vision-language" | "embedding" | "rerank" | "speech-to-text") | null;
-                limit?: number;
-            };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HubSearch"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19928,16 +14950,13 @@ export interface operations {
     run_inference_inference_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TextGenerationInferenceRequest"] | components["schemas"]["TextClassificationInferenceRequest"] | components["schemas"]["ZeroShotClassificationInferenceRequest"] | components["schemas"]["QuestionAnsweringInferenceRequest"] | components["schemas"]["VisionLanguageInferenceRequest"] | components["schemas"]["EmbeddingInferenceRequest"] | components["schemas"]["RerankInferenceRequest"] | components["schemas"]["SpeechToTextInferenceRequest"] | components["schemas"]["DecisionInferenceRequest"] | components["schemas"]["TabularPredictionInferenceRequest"] | components["schemas"]["MultimodalPredictionInferenceRequest"] | components["schemas"]["TimeseriesForecastInferenceRequest"] | components["schemas"]["CustomInferenceRequest"] | components["schemas"]["UntypedInferenceRequest"];
+                "application/json": components["schemas"]["TextGenerationInferenceRequest"] | components["schemas"]["TextClassificationInferenceRequest"] | components["schemas"]["ZeroShotClassificationInferenceRequest"] | components["schemas"]["QuestionAnsweringInferenceRequest"] | components["schemas"]["VisionLanguageInferenceRequest"] | components["schemas"]["EmbeddingInferenceRequest"] | components["schemas"]["RerankInferenceRequest"] | components["schemas"]["SpeechToTextInferenceRequest"] | components["schemas"]["DecisionInferenceRequest"] | components["schemas"]["TabularPredictionInferenceRequest"] | components["schemas"]["TimeseriesForecastInferenceRequest"] | components["schemas"]["CustomInferenceRequest"] | components["schemas"]["UntypedInferenceRequest"];
             };
         };
         responses: {
@@ -19947,83 +14966,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20036,16 +14992,13 @@ export interface operations {
     run_batch_inference_inference_batch_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TextGenerationBatchInferenceRequest"] | components["schemas"]["TextClassificationBatchInferenceRequest"] | components["schemas"]["ZeroShotClassificationBatchInferenceRequest"] | components["schemas"]["QuestionAnsweringBatchInferenceRequest"] | components["schemas"]["VisionLanguageBatchInferenceRequest"] | components["schemas"]["EmbeddingBatchInferenceRequest"] | components["schemas"]["RerankBatchInferenceRequest"] | components["schemas"]["SpeechToTextBatchInferenceRequest"] | components["schemas"]["DecisionBatchInferenceRequest"] | components["schemas"]["TabularPredictionBatchInferenceRequest"] | components["schemas"]["MultimodalPredictionBatchInferenceRequest"] | components["schemas"]["TimeseriesForecastBatchInferenceRequest"] | components["schemas"]["CustomBatchInferenceRequest"] | components["schemas"]["UntypedBatchInferenceRequest"];
+                "application/json": components["schemas"]["TextGenerationBatchInferenceRequest"] | components["schemas"]["TextClassificationBatchInferenceRequest"] | components["schemas"]["ZeroShotClassificationBatchInferenceRequest"] | components["schemas"]["QuestionAnsweringBatchInferenceRequest"] | components["schemas"]["VisionLanguageBatchInferenceRequest"] | components["schemas"]["EmbeddingBatchInferenceRequest"] | components["schemas"]["RerankBatchInferenceRequest"] | components["schemas"]["SpeechToTextBatchInferenceRequest"] | components["schemas"]["DecisionBatchInferenceRequest"] | components["schemas"]["TabularPredictionBatchInferenceRequest"] | components["schemas"]["TimeseriesForecastBatchInferenceRequest"] | components["schemas"]["CustomBatchInferenceRequest"] | components["schemas"]["UntypedBatchInferenceRequest"];
             };
         };
         responses: {
@@ -20055,83 +15008,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationBatchInferenceResponse"] | components["schemas"]["TextClassificationBatchInferenceResponse"] | components["schemas"]["ZeroShotClassificationBatchInferenceResponse"] | components["schemas"]["QuestionAnsweringBatchInferenceResponse"] | components["schemas"]["VisionLanguageBatchInferenceResponse"] | components["schemas"]["EmbeddingBatchInferenceResponse"] | components["schemas"]["RerankBatchInferenceResponse"] | components["schemas"]["SpeechToTextBatchInferenceResponse"] | components["schemas"]["DecisionBatchInferenceResponse"] | components["schemas"]["TabularPredictionBatchInferenceResponse"] | components["schemas"]["MultimodalPredictionBatchInferenceResponse"] | components["schemas"]["TimeseriesForecastBatchInferenceResponse"] | components["schemas"]["CustomBatchInferenceResponse"] | components["schemas"]["UntypedBatchInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationBatchInferenceResponse"] | components["schemas"]["TextClassificationBatchInferenceResponse"] | components["schemas"]["ZeroShotClassificationBatchInferenceResponse"] | components["schemas"]["QuestionAnsweringBatchInferenceResponse"] | components["schemas"]["VisionLanguageBatchInferenceResponse"] | components["schemas"]["EmbeddingBatchInferenceResponse"] | components["schemas"]["RerankBatchInferenceResponse"] | components["schemas"]["SpeechToTextBatchInferenceResponse"] | components["schemas"]["DecisionBatchInferenceResponse"] | components["schemas"]["TabularPredictionBatchInferenceResponse"] | components["schemas"]["TimeseriesForecastBatchInferenceResponse"] | components["schemas"]["CustomBatchInferenceResponse"] | components["schemas"]["UntypedBatchInferenceResponse"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20146,11 +15036,14 @@ export interface operations {
             query?: {
                 limit?: number;
                 status?: ("queued" | "running" | "succeeded" | "failed" | "cancelled") | null;
+                /** @description Only these jobs (a name from GET /jobs/types), e.g. job=autogluon-tabular&job=autogluon-timeseries */
+                job?: string[];
+                /** @description Only the jobs working on this: the value of the param a job names as its ref (autogluon-predict's predictor) */
+                ref?: string | null;
+                /** @description The previous page's next */
+                cursor?: string | null;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20165,80 +15058,17 @@ export interface operations {
                     "application/json": components["schemas"]["Jobs"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20251,10 +15081,7 @@ export interface operations {
     submit_job_jobs_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20270,83 +15097,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Job"];
+                    "application/json": components["schemas"]["Task"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20359,10 +15123,7 @@ export interface operations {
     list_data_jobs_data_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20374,83 +15135,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Files"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20463,10 +15161,7 @@ export interface operations {
     upload_data_jobs_data_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20482,83 +15177,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20571,10 +15203,7 @@ export interface operations {
     delete_data_jobs_data__path__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 path: string;
             };
@@ -20588,74 +15217,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Deleted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20663,8 +15238,39 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    summarize_data_jobs_data__path__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileSummary"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20677,10 +15283,7 @@ export interface operations {
     list_schedules_jobs_schedules_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20695,80 +15298,17 @@ export interface operations {
                     "application/json": components["schemas"]["Schedules"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20781,16 +15321,13 @@ export interface operations {
     create_schedule_jobs_schedules_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ScheduleBody"];
+                "application/json": components["schemas"]["ScheduleSpec"];
             };
         };
         responses: {
@@ -20803,80 +15340,17 @@ export interface operations {
                     "application/json": components["schemas"]["Schedule"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20889,10 +15363,7 @@ export interface operations {
     get_schedule_jobs_schedules__id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -20909,80 +15380,17 @@ export interface operations {
                     "application/json": components["schemas"]["Schedule"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20995,10 +15403,7 @@ export interface operations {
     update_schedule_jobs_schedules__id__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21006,7 +15411,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ScheduleBody"];
+                "application/json": components["schemas"]["ScheduleSpec"];
             };
         };
         responses: {
@@ -21019,80 +15424,17 @@ export interface operations {
                     "application/json": components["schemas"]["Schedule"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21105,10 +15447,7 @@ export interface operations {
     delete_schedule_jobs_schedules__id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21123,80 +15462,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "text/plain": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21209,10 +15485,7 @@ export interface operations {
     run_schedule_jobs_schedules__id__run_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21226,83 +15499,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Job"];
+                    "application/json": components["schemas"]["Task"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21315,10 +15525,7 @@ export interface operations {
     job_types_jobs_types_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21333,292 +15540,17 @@ export interface operations {
                     "application/json": components["schemas"]["JobTypes"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    webhooks_jobs_webhooks_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Webhooks"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-        };
-    };
-    test_webhook_jobs_webhooks_test_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WebhookTest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WebhookTestResult"];
-                };
-            };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21631,10 +15563,7 @@ export interface operations {
     get_job_jobs__id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21648,83 +15577,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Job"];
+                    "application/json": components["schemas"]["Task"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21737,10 +15603,7 @@ export interface operations {
     delete_job_jobs__id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21757,80 +15620,17 @@ export interface operations {
                     "application/json": components["schemas"]["Deleted"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21843,10 +15643,7 @@ export interface operations {
     cancel_job_jobs__id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21860,83 +15657,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Job"];
+                    "application/json": components["schemas"]["Task"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21949,10 +15683,7 @@ export interface operations {
     job_events_jobs__id__events_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -21969,80 +15700,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22055,10 +15723,7 @@ export interface operations {
     job_files_jobs__id__files_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -22072,83 +15737,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Files"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22161,10 +15763,7 @@ export interface operations {
     job_file_jobs__id__files__path__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 path: string;
                 id: string;
@@ -22182,80 +15781,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22270,10 +15806,7 @@ export interface operations {
             query?: {
                 tail?: number;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 id: string;
             };
@@ -22290,80 +15823,17 @@ export interface operations {
                     "text/plain": string;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "text/plain": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22376,10 +15846,7 @@ export interface operations {
     metrics_metrics_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22394,80 +15861,17 @@ export interface operations {
                     "text/plain": string;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "text/plain": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22480,10 +15884,7 @@ export interface operations {
     model_catalog_models_catalog_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22498,80 +15899,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelCatalog"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22584,10 +15922,7 @@ export interface operations {
     clear_all_models_models_clear_delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22602,80 +15937,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelMessage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22692,10 +15964,7 @@ export interface operations {
                 task: string;
                 torch_dtype?: string;
             };
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22710,80 +15979,17 @@ export interface operations {
                     "application/json": components["schemas"]["LoadPlan"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22796,10 +16002,7 @@ export interface operations {
     list_available_models_models_list_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22816,80 +16019,17 @@ export interface operations {
                     };
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22902,10 +16042,7 @@ export interface operations {
     load_model_models_load_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -22924,80 +16061,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelMessage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23010,10 +16084,7 @@ export interface operations {
     get_models_status_models_status_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -23028,80 +16099,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23114,10 +16122,7 @@ export interface operations {
     list_model_types_models_types_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -23132,80 +16137,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelTypes"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23218,10 +16160,7 @@ export interface operations {
     unload_model_models__model_id___task__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 model_id: string;
                 task: string;
@@ -23239,80 +16178,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelMessage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23325,10 +16201,7 @@ export interface operations {
     pin_model_models__model_id___task__pin_put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 model_id: string;
                 task: string;
@@ -23350,80 +16223,17 @@ export interface operations {
                     "application/json": components["schemas"]["ModelMessage"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23436,10 +16246,7 @@ export interface operations {
     list_conversations_playground_conversations_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -23454,80 +16261,17 @@ export interface operations {
                     "application/json": components["schemas"]["Conversations"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23540,10 +16284,7 @@ export interface operations {
     create_conversation_playground_conversations_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -23562,80 +16303,17 @@ export interface operations {
                     "application/json": components["schemas"]["Conversation"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23648,10 +16326,7 @@ export interface operations {
     get_conversation_playground_conversations__conversation_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 conversation_id: string;
             };
@@ -23668,80 +16343,17 @@ export interface operations {
                     "application/json": components["schemas"]["Conversation"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23754,10 +16366,7 @@ export interface operations {
     replace_conversation_playground_conversations__conversation_id__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 conversation_id: string;
             };
@@ -23778,80 +16387,17 @@ export interface operations {
                     "application/json": components["schemas"]["Conversation"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23864,10 +16410,7 @@ export interface operations {
     delete_conversation_playground_conversations__conversation_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 conversation_id: string;
             };
@@ -23882,80 +16425,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23968,10 +16448,7 @@ export interface operations {
     conversation_to_example_playground_conversations__conversation_id__example_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 conversation_id: string;
             };
@@ -23992,80 +16469,17 @@ export interface operations {
                     "application/json": components["schemas"]["ExampleAdded"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24078,10 +16492,7 @@ export interface operations {
     limits_playground_limits_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24096,80 +16507,17 @@ export interface operations {
                     "application/json": components["schemas"]["Limits"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24182,10 +16530,7 @@ export interface operations {
     list_presets_playground_presets_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24200,80 +16545,17 @@ export interface operations {
                     "application/json": components["schemas"]["Presets"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24286,10 +16568,7 @@ export interface operations {
     create_preset_playground_presets_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24308,80 +16587,17 @@ export interface operations {
                     "application/json": components["schemas"]["Preset"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24394,10 +16610,7 @@ export interface operations {
     replace_preset_playground_presets__preset_id__put: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 preset_id: string;
             };
@@ -24418,80 +16631,17 @@ export interface operations {
                     "application/json": components["schemas"]["Preset"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24504,10 +16654,7 @@ export interface operations {
     delete_preset_playground_presets__preset_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path: {
                 preset_id: string;
             };
@@ -24522,71 +16669,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24594,8 +16687,366 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    list_tasks_queue_get: {
+        parameters: {
+            query?: {
+                /** @description Only tasks of this kind (job, run, workflow...) */
+                kind?: string | null;
+                status?: ("queued" | "running" | "succeeded" | "failed" | "cancelled")[] | null;
+                /** @description Only tasks working on this (a run's id, a bucket) */
+                ref?: string | null;
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Queue"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    webhooks_queue_webhooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhooks"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    test_webhook_queue_webhooks_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookTest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookTestResult"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    cancel_task_queue__id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_remotes_remotes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteList"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_remote_remotes__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    put_remote_remotes__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    delete_remote_remotes__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    test_remote_remotes__name__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteTest"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24608,10 +17059,7 @@ export interface operations {
     list_tasks_tasks_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24626,80 +17074,17 @@ export interface operations {
                     "application/json": components["schemas"]["Tasks"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24712,10 +17097,7 @@ export interface operations {
     transcriptions_v1_audio_transcriptions_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24734,80 +17116,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24820,10 +17139,7 @@ export interface operations {
     chat_completions_v1_chat_completions_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24842,80 +17158,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24928,10 +17181,7 @@ export interface operations {
     completions_v1_completions_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -24950,80 +17200,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25036,10 +17223,7 @@ export interface operations {
     decisions_v1_decisions_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -25058,80 +17242,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25144,10 +17265,7 @@ export interface operations {
     embeddings_v1_embeddings_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -25166,80 +17284,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25252,10 +17307,7 @@ export interface operations {
     list_models_v1_models_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -25270,80 +17322,17 @@ export interface operations {
                     "application/json": components["schemas"]["OpenAIModels"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25356,10 +17345,7 @@ export interface operations {
     rerank_v1_rerank_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -25378,80 +17364,17 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25464,10 +17387,7 @@ export interface operations {
     run_vision_language_inference_vision_language_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-api-key"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -25483,74 +17403,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["MultimodalPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
+                    "application/json": components["schemas"]["TextGenerationInferenceResponse"] | components["schemas"]["TextClassificationInferenceResponse"] | components["schemas"]["ZeroShotClassificationInferenceResponse"] | components["schemas"]["QuestionAnsweringInferenceResponse"] | components["schemas"]["VisionLanguageInferenceResponse"] | components["schemas"]["EmbeddingInferenceResponse"] | components["schemas"]["RerankInferenceResponse"] | components["schemas"]["SpeechToTextInferenceResponse"] | components["schemas"]["DecisionInferenceResponse"] | components["schemas"]["TabularPredictionInferenceResponse"] | components["schemas"]["TimeseriesForecastInferenceResponse"] | components["schemas"]["CustomInferenceResponse"] | components["schemas"]["UntypedInferenceResponse"];
                 };
             };
-            /** @description Refused: the request is wrong (a bad value, an unknown name) */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No key, or not one of the accepted ones; the header names the scheme. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description No such thing: an unknown id or name. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request is fine, but not now: the thing is busy, or in the way. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description The request, or a file in it, is larger than allowed. */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorDetail"];
-                };
-            };
-            /** @description Validation Error */
+            /** @description The body or a parameter does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ValidationProblem"];
                 };
             };
-            /** @description Internal error: its type, and its text with DEBUG on */
-            500: {
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25558,8 +17424,537 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A part of the service is off, full or down: the request may work later. */
-            503: {
+        };
+    };
+    list_workflows_workflows_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowList"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    create_workflow_workflows_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    dry_run_workflows_dry_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DryRun"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDryRun"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_node_types_workflows_nodes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowNodeTypes"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_run_workflows_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    cancel_run_workflows_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_workflow_workflows__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    update_workflow_workflows__id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    delete_workflow_workflows__id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    invoke_workflow_workflows__id__invoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Invoke"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInvoke"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    reset_workflow_workflows__id__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowInfo"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    start_run_workflows__id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartRun"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    list_runs_workflows__id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description The previous page's next */
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRuns"];
+                };
+            };
+            /** @description The body or a parameter does not fit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblem"];
+                };
+            };
+            /** @description A refusal (core/errors.py: its status says which) or an internal error (500): {detail} */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };

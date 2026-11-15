@@ -7,13 +7,12 @@ import { Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
-import { Facts, Field, Heading, Notice, StatusDot, SubmitButton } from "../../shared/components";
+import { useApi } from "../../shared/api";
+import { Facts, Field, Heading, Notice, StatusDot, SubmitButton, StatusBadge } from "../../shared/components";
 import { fmtAgo, fmtClock } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { WebhookDelivery, Webhooks } from "../../shared/types";
 import { fmtDeliveryTries, fmtWebhookTest } from "./jobs";
-import { StatusBadge } from "./JobsTable";
 import { LoadedCard } from "../layout";
 
 const DELIVERY_COLUMNS: GridColumn<WebhookDelivery>[] = [
@@ -46,7 +45,8 @@ const DELIVERY_COLUMNS: GridColumn<WebhookDelivery>[] = [
   },
 ];
 
-export function WebhooksCard(props: { client: ApiClient; webhooks: Webhooks | null; error: string }) {
+export function WebhooksCard(props: { webhooks: Webhooks | null; error: string }) {
+  const client = useApi();
   const { webhooks } = props;
   const [url, setUrl] = useState("");
   // The first configured URL goes into the test field once, when the list arrives.
@@ -57,7 +57,7 @@ export function WebhooksCard(props: { client: ApiClient; webhooks: Webhooks | nu
   const test = useAction(
     (event: FormEvent) => {
       event.preventDefault();
-      return props.client.post("/jobs/webhooks/test", { body: { url: url.trim() } });
+      return client.post("/queue/webhooks/test", { body: { url: url.trim() } });
     },
     { notice: true, success: fmtWebhookTest },
   );

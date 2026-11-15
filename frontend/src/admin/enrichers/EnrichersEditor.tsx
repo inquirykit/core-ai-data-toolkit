@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { formValue, valueKey } from "../../shared/form-schema";
 import { SchemaForm, useApiSchema, type SchemaFormHandle, type UiSchema } from "../../shared/schema-form";
 import { ConfirmButton, Notice, StatusDot, SubmitButton } from "../../shared/components";
@@ -57,7 +57,7 @@ function enricherUi(opts: { isNew: boolean; post: boolean; secretForm: ReactNode
     terms: { "ui:description": "Lookups skip enrichers whose terms ENRICHER_TERMS does not allow", "ui:enumNames": TERMS.map(([v, text]) => `${v} · ${text}`) },
     attribution: { "ui:placeholder": "Data by …", "ui:description": "Shown with every result, for services that ask for credit" },
     enabled: { "ui:description": "Off, it is skipped by lookups but can still be tested." },
-    secret: { "ui:title": "Secret env var", "ui:placeholder": "ABUSEIPDB_KEY", "ui:description": "Capital letters, digits and underscores; empty when the service needs no key" },
+    secret: { "ui:title": "Secret env var", "ui:placeholder": "ABUSEIPDB_KEY", "ui:description": "Capital letters, digits and underscores, ending in _KEY, _TOKEN or _SECRET; empty when the service needs no key" },
     secret_optional: { "ui:title": "Also run without the key", "ui:description": "For services with a free tier that a key only widens." },
     ttl: { "ui:title": "Cache TTL", "ui:placeholder": "24h", "ui:description": "How long an answer is kept: 30m, 24h, 7d" },
     rate_limit: { "ui:placeholder": "1000/day", "ui:description": "Requests per window, or empty: 1000/day, 4/min" },
@@ -89,8 +89,8 @@ function enricherUi(opts: { isNew: boolean; post: boolean; secretForm: ReactNode
  * The form for one enricher (``loaded`` null for a new one, prefilled from ``source`` when duplicating), made from
  * its schema, and under it, for a saved one, the test bench. Saving PUTs the whole spec.
  */
-export function EnricherEditor(props: { client: ApiClient; types: EntityType[]; loaded: EnricherInfo | null; source?: EnricherInfo; onChange(): Promise<unknown> }) {
-  const { client } = props;
+export function EnricherEditor(props: { types: EntityType[]; loaded: EnricherInfo | null; source?: EnricherInfo; onChange(): Promise<unknown> }) {
+  const client = useApi();
   const { schema, error: schemaError } = useApiSchema("EnricherSpec");
   const [loaded, setLoaded] = useState(props.loaded);
   const isNew = !loaded;
@@ -136,7 +136,6 @@ export function EnricherEditor(props: { client: ApiClient; types: EntityType[]; 
 
   const secretForm = loaded?.secret && (
     <SecretForm
-      client={client}
       info={loaded}
       onSaved={(isSet) => {
         setLoaded({ ...loaded, secret_set: isSet });
@@ -213,12 +212,13 @@ export function EnricherEditor(props: { client: ApiClient; types: EntityType[]; 
           </CardFooter>
         </form>
       </Card>
-      {loaded && <TestCard client={client} name={loaded.name} types={props.types} blocked={dirty ? "Save or undo the changes first: the test runs the saved version" : ""} />}
+      {loaded && <TestCard name={loaded.name} types={props.types} blocked={dirty ? "Save or undo the changes first: the test runs the saved version" : ""} />}
     </div>
   );
 }
-/** The key's value, written to the server's .env; never read back. */
-function SecretForm({ client, info, onSaved }: { client: ApiClient; info: EnricherInfo; onSaved(set: boolean): void }) {
+/** The key's value, kept encrypted on the server; never read back. */
+function SecretForm({ info, onSaved }: { info: EnricherInfo; onSaved(set: boolean): void }) {
+  const client = useApi();
   const [value, setValue] = useState("");
   const save = useAction(
     async () => {
@@ -250,7 +250,7 @@ function SecretForm({ client, info, onSaved }: { client: ApiClient; info: Enrich
         </SubmitButton>
       </div>
       <p className="text-xs text-muted-foreground">
-        Written to the server's <code>.env</code> file and never shown again; saving an empty value clears it.
+        Kept encrypted on the server and never shown again; saving an empty value clears it.
       </p>
       <Notice notice={save.notice} />
     </div>

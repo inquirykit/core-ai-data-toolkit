@@ -87,7 +87,6 @@ export const BACKEND_KINDS: [BackendKind, string, string][] = [
   ["cmd", "Command", "A server this service starts when the model loads, and stops when it is evicted"],
   ["hub", "In-process", "A Hugging Face model run in this process: the last resort"],
 ];
-export const TASKS: ModelTask[] = ["text-generation", "vision-language", "embedding", "rerank", "speech-to-text"];
 
 /** One backend's editor: every field as text, empty meaning not given (the provider's value, or the default). */
 export interface BackendForm {
@@ -97,6 +96,9 @@ export interface BackendForm {
   /** The command as one line of shell words */
   cmd: string;
   hub: string;
+  /** The hub model's branch, tag or commit */
+  revision: string;
+  max_length: string;
   upstream_model: string;
   memory_gb: string;
   max_concurrency: string;
@@ -124,6 +126,8 @@ export const emptyBackend = (kind: BackendKind = "provider", provider = ""): Bac
   url: "",
   cmd: "",
   hub: "",
+  revision: "",
+  max_length: "",
   upstream_model: "",
   memory_gb: "",
   max_concurrency: "",
@@ -159,6 +163,8 @@ export function backendForm(backend: Backend): BackendForm {
     url: text(backend.url),
     cmd: backend.cmd?.length ? shellJoin(backend.cmd) : "",
     hub: text(backend.hub),
+    revision: text(backend.revision),
+    max_length: text(backend.max_length),
     upstream_model: text(backend.upstream_model),
     memory_gb: text(backend.memory_gb),
     max_concurrency: text(backend.max_concurrency),
@@ -193,7 +199,11 @@ export function backendFromForm(form: BackendForm): Backend {
   if (form.kind === "provider") out.provider = form.provider.trim();
   if (form.kind === "url") out.url = form.url.trim();
   if (form.kind === "cmd") out.cmd = shellSplit(form.cmd);
-  if (form.kind === "hub") out.hub = form.hub.trim();
+  if (form.kind === "hub") {
+    out.hub = form.hub.trim();
+    if (form.revision.trim()) out.revision = form.revision.trim();
+    if (form.max_length.trim()) out.max_length = Number(form.max_length);
+  }
   if (form.upstream_model.trim()) out.upstream_model = form.upstream_model.trim();
   for (const name of ["memory_gb", "max_concurrency", "startup_timeout", "request_timeout"] as const) {
     if (form[name].trim()) out[name] = Number(form[name]);
@@ -223,6 +233,7 @@ export const formKey = (form: EntryForm): string => JSON.stringify(form);
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const URL_RE = /^https?:\/\/[^\s/]+/;
+const REVISION_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
 function numberProblem(value: string, what: string, min: number, max: number, integer = false): string | null {
   if (!value.trim()) return null;
@@ -244,6 +255,7 @@ export function validateEntry(form: EntryForm, providers: string[]): string[] {
     if (b.kind === "provider" && b.provider && !providers.includes(b.provider)) errors.push(`${at}: there is no provider named ${b.provider}`);
     if (b.kind === "url" && !URL_RE.test(b.url.trim())) errors.push(`${at}: the URL starts with http:// or https:// and a host`);
     if (b.kind === "hub" && !b.hub.trim()) errors.push(`${at}: give the Hub model ID`);
+    if (b.kind === "hub" && b.revision.trim() && !REVISION_RE.test(b.revision.trim())) errors.push(`${at}: the revision is a branch, tag or commit`);
     if (b.kind === "cmd") {
       try {
         if (!shellSplit(b.cmd).length) errors.push(`${at}: give the command`);
@@ -256,6 +268,7 @@ export function validateEntry(form: EntryForm, providers: string[]): string[] {
       numberProblem(b.max_concurrency, "Concurrency", 1, 1024, true),
       numberProblem(b.startup_timeout, "The startup timeout", 1, 86400),
       numberProblem(b.request_timeout, "The request timeout", 1, 86400),
+      b.kind === "hub" ? numberProblem(b.max_length, "Max length", 1, 1048576, true) : null,
     ]) {
       if (problem) errors.push(`${at}: ${problem}`);
     }
@@ -272,10 +285,37 @@ export function validateEntry(form: EntryForm, providers: string[]): string[] {
 }
 
 // -------------------------------------------------------------- providers
-/** Providers most people run, to start from: a name and the settings (the Provider schema's fields; its form fills the rest). */
+/**
+ * Providers most people run, to start from: a name and the settings (the Provider schema's fields; its form fills the
+ * rest), each at its own default port. Every one answers the OpenAI routes under /v1 without a key. Only Ollama can be
+ * asked to unload a model. vLLM and SGLang batch, so they take many requests at once.
+ */
 export const PROVIDER_PRESETS: [label: string, name: string, settings: Partial<Provider>][] = [
   ["Ollama", "ollama", { url: "http://127.0.0.1:11434", max_concurrency: 4, on_evict: "unload", description: "Ollama on this machine" }],
   ["LM Studio", "lmstudio", { url: "http://127.0.0.1:1234", max_concurrency: 4, on_evict: "stop", description: "LM Studio's server on this machine (JIT loading on)" }],
+  // llama-server lists its one model by file name or alias, not by what is asked for, so /health says it is up.
+  // Its default port was 8080 before release b11521, and still is in its Docker images.
+  ["llama.cpp", "llamacpp", { url: "http://127.0.0.1:9931", health_path: "/health", max_concurrency: 4, on_evict: "stop", description: "llama.cpp's llama-server on this machine (-np sets how many requests it runs at once)" }],
+  ["MLX LM", "mlx", { url: "http://127.0.0.1:8080", max_concurrency: 1, on_evict: "stop", description: "mlx_lm.server on this Mac (Apple silicon), one request at a time" }],
+  ["Jan", "jan", { url: "http://127.0.0.1:1337", max_concurrency: 4, on_evict: "stop", description: "Jan's Local API Server on this machine, with no API key set" }],
+  ["LocalAI", "localai", { url: "http://127.0.0.1:8080", max_concurrency: 4, on_evict: "stop", description: "LocalAI on this machine" }],
+  ["vLLM", "vllm", { url: "http://127.0.0.1:8000", max_concurrency: 32, on_evict: "stop", description: "vLLM's OpenAI server (vllm serve) already running on this machine" }],
+  ["SGLang", "sglang", { url: "http://127.0.0.1:30000", max_concurrency: 32, on_evict: "stop", description: "SGLang's server already running on this machine" }],
+];
+
+/**
+ * Services on the internet that answer the OpenAI routes: pick one and paste its API key. Each URL is what comes before
+ * /v1, which the client adds, so a service whose routes are elsewhere (Gemini's are under /v1beta/openai) cannot be one.
+ */
+export const HOSTED_PROVIDER_PRESETS: typeof PROVIDER_PRESETS = [
+  ["OpenAI", "openai", { url: "https://api.openai.com", description: "OpenAI's API" }],
+  ["OpenRouter", "openrouter", { url: "https://openrouter.ai/api", description: "OpenRouter: many vendors' models behind one key" }],
+  ["Groq", "groq", { url: "https://api.groq.com/openai", description: "Groq's API" }],
+  ["Mistral", "mistral", { url: "https://api.mistral.ai", description: "Mistral's API" }],
+  ["DeepSeek", "deepseek", { url: "https://api.deepseek.com", description: "DeepSeek's API" }],
+  ["Together", "together", { url: "https://api.together.xyz", description: "Together AI's API" }],
+  ["Fireworks", "fireworks", { url: "https://api.fireworks.ai/inference", description: "Fireworks AI's API" }],
+  ["xAI", "xai", { url: "https://api.x.ai", description: "xAI's API" }],
 ];
 
 const PROVIDER_NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;

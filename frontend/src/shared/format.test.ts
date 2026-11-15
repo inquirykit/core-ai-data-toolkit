@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { fmtBytes, fmtIso, plural, statusOf } from "./format";
+import { fmtBytes, fmtIso, fmtSeconds, plural, statusOf } from "./format";
+
+describe("fmtSeconds", () => {
+  it("says seconds under a minute, and minutes or hours above", () => {
+    expect(fmtSeconds(12.4)).toBe("12 s");
+    expect(fmtSeconds(180)).toBe("3 min");
+  });
+});
 
 describe("fmtIso", () => {
   it("shows a time the browser's way, and other text as it is", () => {

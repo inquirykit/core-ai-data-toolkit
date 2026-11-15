@@ -7,17 +7,19 @@ import { ChevronRight, FlaskConical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { errorText } from "../../shared/query";
 import { EmptyCard } from "../../shared/components";
 import { fmtInt, fmtMs } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { Comparison, Dataset } from "../../shared/types";
-import { evalsHref, fmtScore, inputPreview, metricLabel, outputPreview, referencePreview, scoreTone } from "./evals";
-import { MetricChip, TONE_CLASS } from "./EvalsRun";
+import { TONE_CLASS, evalsHref, fmtScore, inputPreview, metricLabel, outputPreview, referencePreview, scoreTone } from "./evals";
+import { MetricChip } from "./EvalsRun";
+import { ReportChips } from "./EvalsReport";
 import { DetailSkeleton } from "../layout";
 
-export function CompareView({ client, dataset, runs }: { client: ApiClient; dataset: Dataset; runs: [string, string] }) {
+export function CompareView({ dataset, runs }: { dataset: Dataset; runs: [string, string] }) {
+  const client = useApi();
   const [open, setOpen] = useState<string | null>(null);
   const query = client.useQuery("get", "/admin/runs/compare/{run_a}/{run_b}", { params: { path: { run_a: runs[0], run_b: runs[1] } } });
   const { data } = query;
@@ -74,11 +76,14 @@ export function CompareView({ client, dataset, runs }: { client: ApiClient; data
                   <span>{fmtMs(item.duration_ms)}</span>
                   {item.scores
                     .filter((s) => !s.metric.startsWith("judge_vs_"))
-                    .map((s) => (
-                      <span key={s.id} className={cn(scoreTone(s.value) && TONE_CLASS[scoreTone(s.value)!])}>
+                    .map((s) => {
+                      const tone = scoreTone(s.value, run.summary[s.metric]?.lower_is_better ?? false);
+                      return (
+                      <span key={s.id} className={cn(tone && TONE_CLASS[tone])}>
                         {metricLabel(s.metric)} {fmtScore(s.value, s.metric, s.label)}
                       </span>
-                    ))}
+                      );
+                    })}
                 </div>
               )}
             </>
@@ -128,11 +133,12 @@ export function CompareView({ client, dataset, runs }: { client: ApiClient; data
               {side.toUpperCase()} · <span className="font-mono">{run.model_id}</span>
             </div>
             <div className="mt-1 flex flex-wrap gap-2">
+              {run.classification && <ReportChips report={run.classification} />}
               {Object.keys(run.summary).length ? (
                 Object.keys(run.summary)
                   .sort()
                   .map((m) => <MetricChip key={m} metric={m} summary={run.summary[m]} runs={[data.a, data.b]} />)
-              ) : (
+              ) : run.classification ? null : (
                 <span className="text-sm text-muted-foreground">No scores yet</span>
               )}
             </div>

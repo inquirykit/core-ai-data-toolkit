@@ -46,9 +46,12 @@ export type BackendProbe = Schemas["BackendProbe"];
 
 // ---------------------------------------------------------------- enrichers
 export type EntityType = Schemas["EntityType"];
-export const ENTITY_TYPES: EntityType[] = [
-  "ipv4", "ipv6", "cidr", "asn", "domain", "url", "email", "phone", "md5", "sha1", "sha256", "cve", "crypto_wallet", "generic",
-];
+/** Every type, in order: keyed by the API's, so tsc fails on one missing. */
+const ENTITY_TYPE_ORDER: Record<EntityType, null> = {
+  ipv4: null, ipv6: null, cidr: null, asn: null, domain: null, url: null, email: null, phone: null, md5: null, sha1: null,
+  sha256: null, cve: null, crypto_wallet: null, generic: null,
+};
+export const ENTITY_TYPES = Object.keys(ENTITY_TYPE_ORDER) as EntityType[];
 /** An enricher's request, as the API's answers carry it: every field, defaults included. */
 type EnricherRequest = Schemas["RequestSpec-Output"];
 /** PUT /enrichers/{name} body; what the file holds. */
@@ -69,7 +72,6 @@ export type EnricherTestBody = Schemas["TestRequest"];
 export type EnricherTest = Schemas["EnricherTest"];
 
 // ------------------------------------------------------------ traces, evals
-export type TraceSummary = Schemas["TraceSummary"];
 export type Trace = Schemas["Trace"];
 export type TraceCapture = Schemas["TraceCapture"];
 export type Dataset = Schemas["Dataset"];
@@ -87,33 +89,41 @@ export type CompareRow = Schemas["CompareRow"];
 export type Comparison = Schemas["Comparison"];
 export type MetricsInfo = Schemas["MetricsInfo"];
 
-// -------------------------------------------------------------------- hub
-export type HubSearchResult = Schemas["HubSearchResult"];
-export type HubSearch = Schemas["HubSearch"];
-export type HubRepo = Schemas["HubRepo"];
-export type HubDownload = Schemas["HubDownload"];
-export type HubDownloadStatus = HubDownload["status"];
-export type HubLocalRepo = Schemas["HubLocalRepo"];
-export type HubLocal = Schemas["HubLocal"];
-
-// ------------------------------------------------------------------- jobs
-export type Job = Schemas["Job"];
-export type JobStatus = Job["status"];
+// ------------------------------------------------------------ tasks, jobs
+/** A task of any kind on the one queue (GET /queue): a job, an eval run, a download, a copy... */
+export type Task = Schemas["Task"];
+export type TaskStatus = Task["status"];
+/** A task of the kind job, as the Jobs section shows it */
+export type Job = Task;
 /** How urgent a job, a schedule's jobs or an eval run is: queued work starts the most urgent first */
-export type Priority = Job["priority"];
+export type Priority = Task["priority"];
 export type JobType = Schemas["JobType"];
 /** The body of POST /jobs */
 export type SubmitJobBody = Schemas["SubmitJob"];
 export type Schedule = Schemas["Schedule"];
 /** The body of POST /jobs/schedules and PUT /jobs/schedules/{id}: one of ``cron`` and ``interval_s`` */
-export type ScheduleBody = Schemas["ScheduleBody"];
+export type ScheduleBody = Schemas["ScheduleSpec"];
 export type Webhooks = Schemas["Webhooks"];
 /** One event's delivery to one URL, retried with backoff */
 export type WebhookDelivery = Schemas["WebhookDelivery"];
 export type WebhookTest = Schemas["WebhookTestResult"];
 
+// -------------------------------------------------------------- workflows
+/** A workflow as it is saved and sent: its nodes, edges, page size and trigger */
+export type WorkflowSpec = Schemas["WorkflowSpec"];
+export type WorkflowNode = Schemas["Node"];
+export type WorkflowEdge = Schemas["Edge"];
+export type WorkflowTrigger = Schemas["Trigger"];
+/** A saved workflow: its spec with its id, schedule and times */
+export type WorkflowInfo = Schemas["WorkflowInfo"];
+/** A node type of the editor's palette, with its settings' JSON Schema */
+export type WorkflowNodeType = Schemas["WorkflowNodeType"];
+export type WorkflowRun = Schemas["WorkflowRun"];
+export type WorkflowDryRun = Schemas["WorkflowDryRun"];
+export type WorkflowNodeCount = Schemas["WorkflowNodeCount"];
+export type WorkflowEdgeCount = Schemas["WorkflowEdgeCount"];
+
 // --------------------------------------------------------------- evidence
-export type EvidenceWorkspace = Schemas["EvidenceWorkspace"];
 export type EvidenceCase = Schemas["EvidenceCase"];
 export type CaptureSummary = Schemas["CaptureSummary"];
 /** A capture an evidence search found (GET /evidence/search), from any case of the workspace */
@@ -156,7 +166,7 @@ export interface EnrichmentItem {
 /** GET /evidence/captures/{id} */
 export type Capture = Omit<Schemas["Capture"], "record"> & { record: CaptureRecord };
 
-/** A status in words with the colour of its dot: what the tables of statuses (jobs, runs, downloads…) hold. */
+/** A status in words with the colour of its dot: what the tables of statuses (jobs, runs, tasks…) hold. */
 export interface Status {
   label: string;
   color: string;

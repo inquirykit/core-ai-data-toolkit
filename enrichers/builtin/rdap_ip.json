@@ -1,6 +1,5 @@
 {
   "name": "rdap_ip",
-  "kind": "http",
   "description": "Registration of the network an IP address belongs to (RDAP via rdap.org, keyless)",
   "docs": "https://about.rdap.org/",
   "inputs": [

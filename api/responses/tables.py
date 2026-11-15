@@ -1,10 +1,12 @@
-"""/db: namespaces, tables, schemas, rows, edges and graph views."""
+"""/db: workspaces, tables, schemas, rows, edges and graph views (a bucket's files: files.py)."""
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from .common import Json, Out
+from db.tables import ON_DELETE, QUANTIZATIONS, SIMILARITIES, TYPES
+
+from .common import OPEN, Json, Out
 
 
 class Row(BaseModel):
@@ -15,47 +17,96 @@ class Row(BaseModel):
 
 
 class FieldInfo(Out):
-    """A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``."""
+    """A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``.
+    A vector field also has its options; ``model`` and ``from`` only when it is embedded. A ref field has ``to`` and
+    ``on_delete``."""
     name: str
-    type: Literal["string", "integer", "number", "boolean", "object", "any"]
+    type: Literal[TYPES]
     list: bool
     required: bool
     indexed: bool
     unique: bool
     # Its words are searchable with _search (a string field)
     fulltext: bool
+    # A vector field's: how many numbers each vector holds
+    dimensions: Optional[int] = None
+    # A vector field's: how a search compares vectors
+    similarity: Optional[Literal[SIMILARITIES]] = None
+    # A vector field's storage: NONE, its numbers as 4-byte floats
+    quantization: Optional[Literal[QUANTIZATIONS]] = None
+    # A vector field's embedding model, which embeds the text of ``from`` on every write that sets it
+    model: Optional[str] = None
+    # "from" is a Python keyword: the field is read from and written as "from".
+    from_: Optional[str] = Field(None, alias="from", description="The string field a vector is embedded from")
+    # A vector field with a model's: the text put before a search's text, and before each row's ("" for none)
+    query_prompt: Optional[str] = None
+    document_prompt: Optional[str] = None
+    # A ref field's: the table of the workspace whose row ids it holds, and what deleting one of those rows does here
+    to: Optional[str] = None
+    on_delete: Optional[Literal[ON_DELETE]] = None
+
+    model_config = ConfigDict(**OPEN, populate_by_name=True, protected_namespaces=())
 
 
-class TableInfo(Out):
+class TableEntry(Out):
+    """A table as the workspaces' list (GET /db) names it: its kind and what keeps it."""
     name: str
-    count: int
-    # On disk: its bucket file and its indexes' files
-    size_bytes: int
-    strict: bool
     # A graph table: its rows can be joined by edges
     graph: bool
+    # A bucket: a table of files, its fields fixed, its rows written by its file routes (.../_files)
+    bucket: bool
+    # The name of its vector field; null for none
+    vector: Optional[str]
+    # Null for a table of the workspace's; for a kept table (the evidence ledger's), what keeps it: read-only here,
+    # and read with the admin key
+    kept: Optional[str]
+
+
+class TableInfo(TableEntry):
+    """A table with its rows' count, its size and its schema (GET /db/{workspace})."""
+    count: int
+    # About how many bytes it takes in the database (an estimate: DuckDB compresses and shares blocks); for a bucket
+    # of files, its rows only, as its files' bytes are kept in DATA_DIR/files
+    size_bytes: int
+    strict: bool
     fields: List[FieldInfo]
 
 
-class EdgeTypeInfo(Out):
+class EdgeTypeEntry(Out):
     name: str
+
+
+class EdgeTypeInfo(EdgeTypeEntry):
     count: int
     size_bytes: int
 
 
-class Namespace(Out):
+class WorkspaceEntry(Out):
+    """A workspace as GET /db lists it, its tables and edge types by name and kind; or, listed with ?all=true, one
+    of the service's own."""
     name: str
-    tables: List[TableInfo]
-    edges: List[EdgeTypeInfo]
+    # What it holds, in words; null when it has none
+    label: Optional[str]
+    tables: List[TableEntry]
+    edges: List[EdgeTypeEntry]
+    # Null for a workspace; for the service's own (the evals, the jobs), what keeps it: read-only here
+    managed: Optional[str]
+    # When it was made (Unix time)
+    created: Optional[float]
+
+
+class Workspace(WorkspaceEntry):
+    """A workspace with its tables' and edge types' counts, sizes and schemas (GET /db/{workspace})."""
+    tables: List[TableInfo]  # type: ignore[assignment]
+    edges: List[EdgeTypeInfo]  # type: ignore[assignment]
     # The sum of its tables' and edge types' sizes
     size_bytes: int
-    # Kept by the service (the evals, the evidence ledger), and what keeps it: read-only through /db
-    managed: Optional[str]
-    created: Optional[float] = None
 
 
-class Namespaces(Out):
-    namespaces: List[Namespace]
+class Workspaces(Out):
+    workspaces: List[WorkspaceEntry]
+    # The next page's cursor; absent on the last
+    next: Optional[str] = None
 
 
 class ObservedField(Out):
@@ -73,6 +124,7 @@ class Observed(Out):
 class SchemaInfo(Out):
     strict: bool
     graph: bool
+    bucket: bool
     fields: List[FieldInfo]
     observed: Observed
 
@@ -81,6 +133,7 @@ class TableSchemaOut(Out):
     """A table's schema, as PUT .../_schema saved it."""
     strict: bool
     graph: bool
+    bucket: bool
     fields: List[FieldInfo]
 
 
@@ -166,3 +219,21 @@ class EdgeTypeDetail(EdgeTypeInfo):
 
 class EdgeTypes(Out):
     edges: List[EdgeTypeDetail]
+
+
+class VectorHit(Out):
+    # The row, without its vector
+    row: Row
+    # How far it is from the vector searched for, by the field's similarity (lower is nearer): the route says how.
+    # Absent for a row a hybrid search found by its words only
+    distance: Optional[float] = None
+    # A hybrid or reranked search's, higher is better: the reranker's score (0 to 1) when there is one, else the fused
+    # rank score
+    score: Optional[float] = None
+
+
+class VectorSearch(Out):
+    # Nearest first; best first for a hybrid search
+    results: List[VectorHit]
+    # The tokens the text took to embed, and to rerank with; absent when a vector was given
+    tokens: Optional[int] = None

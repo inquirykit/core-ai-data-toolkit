@@ -11,6 +11,7 @@ returns. A task without a contract gets the untyped variant, whose input and
 result are anything.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
@@ -59,6 +60,8 @@ class InferenceResponse(BaseModel, Generic[T]):
     processing_time: float
     cold_start: bool = Field(False, description="True when this request had to load the model first")
     backend: Optional[str] = Field(None, description="Which backend of a model server answered, e.g. \"ollama: qwen3.5:4b\"")
+    revision: Optional[str] = Field(None, description="The Hub commit of the weights that answered; null when they "
+                                                      "are not from the Hub cache")
     trace_id: Optional[str] = Field(None, description="This request's trace (GET /admin/traces/{id}), when tracing is on")
 
 
@@ -71,6 +74,8 @@ class BatchInferenceResponse(BaseModel, Generic[T]):
     processing_time: float
     cold_start: bool = Field(False, description="True when this request had to load the model first")
     backend: Optional[str] = Field(None, description="Which backend of a model server answered, e.g. \"ollama: qwen3.5:4b\"")
+    revision: Optional[str] = Field(None, description="The Hub commit of the weights that answered; null when they "
+                                                      "are not from the Hub cache")
     trace_ids: List[str] = Field(
         default_factory=list, description="Each input's trace (GET /admin/traces/{id}), in order, when tracing is on"
     )
@@ -170,6 +175,8 @@ class PinRequest(BaseModel):
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=deps.CLIENT)
+# This module's routes that only the admin's key opens.
+admin_router = APIRouter(dependencies=deps.ADMIN)
 
 
 def _resolve_image_path(image_path: Optional[str]) -> Optional[str]:
@@ -245,7 +252,7 @@ async def list_tasks():
     }
 
 
-@router.post("/models/load", **responses.answering(responses.ModelMessage), dependencies=deps.ADMIN)
+@admin_router.post("/models/load", **responses.answering(responses.ModelMessage))
 async def load_model(manager: deps.Manager, request: ModelLoadRequest):
     """Load a model into cache (``pin`` keeps it there until it is unloaded explicitly)"""
     await manager.load_model(
@@ -258,28 +265,28 @@ async def load_model(manager: deps.Manager, request: ModelLoadRequest):
     return {"message": f"Model {request.model_id} loaded successfully"}
 
 
-@router.delete("/models/clear", **responses.answering(responses.ModelMessage), dependencies=deps.ADMIN)
+@admin_router.delete("/models/clear", **responses.answering(responses.ModelMessage))
 async def clear_all_models(manager: deps.Manager):
     """Clear all models from cache"""
     await manager.clear_all_models()
     return {"message": "All models cleared from cache"}
 
 
-@router.delete("/models/{model_id:path}/{task}", **responses.answering(responses.ModelMessage), dependencies=deps.ADMIN)
+@admin_router.delete("/models/{model_id:path}/{task}", **responses.answering(responses.ModelMessage))
 async def unload_model(manager: deps.Manager, model_id: str, task: str):
     """Unload a specific model from cache (model_id may contain a slash); 404 if it is not loaded"""
     await manager.unload_model(model_id, task)
     return {"message": f"Model {model_id}:{task} unloaded successfully"}
 
 
-@router.put("/models/{model_id:path}/{task}/pin", **responses.answering(responses.ModelMessage), dependencies=deps.ADMIN)
+@admin_router.put("/models/{model_id:path}/{task}/pin", **responses.answering(responses.ModelMessage))
 async def pin_model(manager: deps.Manager, model_id: str, task: str, request: PinRequest):
     """Pin a loaded model so it is never evicted, or unpin it (model_id may contain a slash); 404 if it is not loaded"""
     manager.set_pinned(model_id, task, request.pinned)
     return {"message": f"Model {model_id}:{task} {'pinned' if request.pinned else 'unpinned'}"}
 
 
-@router.get("/models/status", dependencies=deps.ADMIN)
+@admin_router.get("/models/status")
 async def get_models_status(manager: deps.Manager):
     """Cache contents, memory use, loads pending, and per model its queue and expected wait"""
     return manager.get_cache_status()
@@ -287,8 +294,9 @@ async def get_models_status(manager: deps.Manager):
 
 @router.get("/models/list", **responses.answering(responses.Catalog))
 async def list_available_models(manager: deps.Manager):
-    """List available models for different tasks (only those in ALLOWED_MODELS when it is set)."""
-    return manager.get_available_models(Config.ALLOWED_MODELS)
+    """List available models for different tasks (only those in ALLOWED_MODELS when it is set, and those the operator
+    chose here: model servers' entries, models jobs here trained)."""
+    return await asyncio.to_thread(manager.get_available_models, Config.ALLOWED_MODELS)
 
 
 @router.get("/models/catalog", response_model=responses.ModelCatalog)
@@ -299,7 +307,7 @@ async def model_catalog(manager: deps.Manager):
     return {"tasks": await manager.get_catalog(Config.ALLOWED_MODELS)}
 
 
-@router.get("/models/estimate", response_model=responses.LoadPlan, dependencies=deps.ADMIN)
+@admin_router.get("/models/estimate", response_model=responses.LoadPlan)
 async def estimate_load(
     manager: deps.Manager,
     model_id: str = Query(..., min_length=1, max_length=256),

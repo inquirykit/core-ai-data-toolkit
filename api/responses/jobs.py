@@ -1,46 +1,49 @@
-"""/jobs: jobs, their types, schedules and webhooks."""
+"""/jobs: jobs, their types, their input files and their schedules."""
 
-from typing import Any, List, Literal, Optional
+from typing import List, Optional
 
+from pydantic import ConfigDict
 
-from .common import Json, Out
-
-
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-# How urgent a task is: of the queued tasks of a kind, the most urgent starts first (tasks/runner.py).
-Priority = Literal["high", "normal", "low"]
-
-
-class Job(Out):
-    id: str
-    # A name from GET /jobs/types
-    job: str
-    status: JobStatus
-    priority: Priority
-    params: Json
-    # 0..1, or null while unknown
-    progress: Optional[float]
-    message: Optional[str]
-    result: Any
-    error: Optional[str]
-    created: float
-    started: Optional[float]
-    finished: Optional[float]
-    # The schedule that started it, when one did
-    schedule_id: Optional[str]
-    webhook_url: Optional[str]
-    # Times it is queued again after failing, and the seconds before the first retry (doubled for each next)
-    retries: int
-    retry_delay_s: float
-    # Seconds a run may take, null for no limit
-    timeout_s: Optional[float]
-    # Retries so far; a queued retry waits until not_before
-    retried: int
-    not_before: Optional[float]
+from tasks.schedule import ScheduleSpec
+from .common import OPEN, Json, Out
+from .tasks import Task
 
 
 class Jobs(Out):
-    jobs: List[Job]
+    jobs: List[Task]
+    next: Optional[str] = None
+
+
+class FileEntry(Out):
+    """A file in DATA_DIR/datasets or in a job's folder: its path there, and its size."""
+    path: str
+    bytes: int
+
+
+class Files(Out):
+    files: List[FileEntry]
+
+
+class ColumnSummary(Out):
+    """One column of a data file, as DuckDB reads it."""
+    name: str
+    # DuckDB's type: BIGINT, DOUBLE, VARCHAR, DATE, TIMESTAMP, ...
+    type: str
+    min: Optional[str]
+    max: Optional[str]
+    # Approximate, so within a few percent of the true count
+    distinct: Optional[int]
+    # Numbers only
+    mean: Optional[float]
+    # The share of rows without a value, 0 to 1
+    missing: float
+
+
+class FileSummary(Out):
+    rows: int
+    columns: List[ColumnSummary]
+    # The first rows, each column by name
+    head: List[Json]
 
 
 class JobType(Out):
@@ -48,8 +51,10 @@ class JobType(Out):
     description: str
     # "default" for the service's own interpreter, else a JOB_ENVS_DIR environment
     env: str
-    # Whether that environment is set up (a job in one that is not is refused)
+    # Whether that environment is set up (a job in one that is not is refused); the setup-env job sets it up
     env_ready: bool
+    # Whether it was set up from its requirements file as it is now; false: the setup-env job updates it
+    env_current: bool
     # The JSON Schema of its params
     params: Json
     # The JSON Schema of its result, or null
@@ -68,61 +73,20 @@ class JobTypes(Out):
     limits: JobLimits
 
 
-class Schedule(Out):
+class Schedule(ScheduleSpec):
+    """A schedule: its spec, as POST and PUT take it, with its kind and id, when it was made and changed, its next and
+    last run, and the last task's id and status."""
+    model_config = ConfigDict(**OPEN, json_schema_serialization_defaults_required=True)
+
     id: str
-    name: str
-    job: str
-    params: Json
-    # A 5-field cron expression (server time), or null when interval_s is set
-    cron: Optional[str]
-    interval_s: Optional[float]
-    enabled: bool
-    webhook_url: Optional[str]
-    # The jobs it submits wait by it
-    priority: Priority
-    # The retries and timeout of the jobs it submits
-    retries: int
-    retry_delay_s: float
-    timeout_s: Optional[float]
+    kind: str
     created: float
     updated: float
     next_run: Optional[float]
     last_run: Optional[float]
-    last_job_id: Optional[str]
+    last_task_id: Optional[str]
     last_status: Optional[str]
 
 
 class Schedules(Out):
     schedules: List[Schedule]
-
-
-class WebhookDelivery(Out):
-    """One delivery of an event to one URL (tasks/webhooks.py): a task, retried with backoff."""
-    id: str
-    event: Optional[str]
-    # The job's or run's id the event tells of
-    about: Optional[str]
-    url: Optional[str]
-    status: JobStatus
-    # The last try's failure: still retried while queued
-    error: Optional[str]
-    retried: int
-    retries: int
-    # When a queued retry is tried
-    not_before: Optional[float]
-    created: float
-    finished: Optional[float]
-
-
-class Webhooks(Out):
-    urls: List[str]
-    secret_set: bool
-    events: List[str]
-    # The latest deliveries, newest first
-    deliveries: List[WebhookDelivery]
-
-
-class WebhookTestResult(Out):
-    ok: bool
-    status: Optional[int]
-    error: Optional[str]

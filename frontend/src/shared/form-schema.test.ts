@@ -53,7 +53,7 @@ describe("formSchema", () => {
 });
 
 describe("uiDefaults", () => {
-  it("edits each field by its shape: dicts of strings as rows, other dicts as JSON, sets as checkboxes, constants hidden", () => {
+  it("edits each field by its shape: dicts of strings as rows, other dicts as JSON, sets as checkboxes, constants hidden, a kind of text as lines", () => {
     const schema = formSchema({
       type: "object",
       properties: {
@@ -65,6 +65,7 @@ describe("uiDefaults", () => {
         request: { type: "object", properties: { extra: { type: "object" } } },
         backends: { type: "array", items: { type: "object", properties: { env: { type: "object", additionalProperties: { type: "string" } } } } },
         name: { type: "string" },
+        query: { type: "string", contentMediaType: "application/sql" },
       },
     });
     expect(schema.properties!.inputs).toMatchObject({ uniqueItems: true });
@@ -75,6 +76,7 @@ describe("uiDefaults", () => {
       inputs: { "ui:widget": "checkboxes", "ui:options": { inline: true } },
       request: { extra: { "ui:field": "json" } },
       backends: { items: { env: { "ui:field": "keyValue" } } },
+      query: { "ui:widget": "textarea", "ui:options": { rows: 6 } },
     });
   });
 });

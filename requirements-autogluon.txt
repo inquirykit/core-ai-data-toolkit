@@ -3,7 +3,9 @@
 # transformers <5.15 and timm <1.0.7, which the service's own models
 # (vegaml, FastVLM) cannot use. Create it with: scripts/setup_job_env.sh autogluon
 #
-# Everything: tabular (all models), multimodal and time series.
-autogluon==1.6.3
+# Tabular (every model family) and time series. Not the autogluon metapackage: its multimodal part adds 33
+# packages the service does not use.
+autogluon.tabular[all]==1.6.3
+autogluon.timeseries[all]==1.6.3
 # jobs/ itself needs only pydantic.
 pydantic>=2.7

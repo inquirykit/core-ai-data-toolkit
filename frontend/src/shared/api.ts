@@ -1,6 +1,7 @@
 import createFetchClient, { createQuerySerializer, type FetchResponse, type MaybeOptionalInit, type Middleware } from "openapi-fetch";
 import createQueryHooks, { type OpenapiQueryClient } from "openapi-react-query";
 import type { MediaType, PathsWithMethod, RequiredKeysOf } from "openapi-typescript-helpers";
+import { createContext, useContext } from "react";
 import type { components, paths } from "./api-schema";
 
 /** The server refused the key (401). The page has already been told to show the sign-in form. */
@@ -48,6 +49,8 @@ export interface ApiClient extends OpenapiQueryClient<paths> {
   delete: Call<"delete">;
   /** The reply itself, unread, for streams and files. Throws AuthError on 401 and ApiError on other failures. */
   raw<M extends Method, P extends PathsWithMethod<paths, M>, I extends Init<M, P>>(method: M, path: P, ...init: InitArgs<I>): Promise<Response>;
+  /** The same client, sending ``headers`` too: the playground tags its requests with one. */
+  with(headers: Record<string, string>): ApiClient;
 }
 
 /** FastAPI's "detail": a message, or a list of validation errors. */
@@ -84,6 +87,11 @@ export function fillPath(template: string, path: Record<string, unknown> = {}): 
 /** A query as the client sends it: unset values left out, an array's values each under its key. */
 export const queryString: (query: Record<string, unknown>) => string = createQuerySerializer();
 
+/** A reply that is a file to save (``Content-Disposition: attachment``), whatever its type. */
+function isAttachment(response: Response): boolean {
+  return /^\s*attachment\b/i.test(response.headers.get("Content-Disposition") ?? "");
+}
+
 /**
  * Sends ``getKey()`` as X-API-Key, and turns a failed reply into an error the
  * pages catch: AuthError on 401 (after ``onUnauthorized``, told whether a key
@@ -111,7 +119,9 @@ function access(getKey: () => string, onUnauthorized: (hadKey: boolean) => void)
       }
       // No route answers with a page: one here came from something in between (a proxy, or the dev server's
       // fallback for a path it does not forward), and would otherwise reach the caller as if it were the reply.
-      if (/^text\/html/i.test(response.headers.get("Content-Type") ?? "")) {
+      // A file is the exception: a download (a bucket's file, an evidence artifact) carries the type it was
+      // stored with, which may be text/html, and comes as an attachment, which no such fallback is.
+      if (!isAttachment(response) && /^text\/html/i.test(response.headers.get("Content-Type") ?? "")) {
         throw new ApiError(`Expected an API reply, got a web page (HTTP ${response.status})`, response.status);
       }
     },
@@ -149,5 +159,20 @@ export function createClient(
     delete: call("delete"),
     raw: async (method: Method, path: string, init?: object) =>
       (await client.request(method, path as never, { ...init, parseAs: "stream" } as never)).response,
+    with: (headers: Record<string, string>) => createClient(getKey, onUnauthorized, { ...fixed, ...headers }, transport),
   } as ApiClient;
+}
+
+// --------------------------------------------------------- the page's client
+// Each page makes its one client (shared/session.ts, or the setup page's own) and gives it to everything it draws
+// through ApiProvider; a part reads it with useApi() rather than being handed it by every part above it.
+const ApiContext = createContext<ApiClient | null>(null);
+
+export const ApiProvider = ApiContext.Provider;
+
+/** The page's client: the one its App gives with ApiProvider. */
+export function useApi(): ApiClient {
+  const client = useContext(ApiContext);
+  if (!client) throw new Error("useApi() outside an ApiProvider: the page's App gives the client");
+  return client;
 }

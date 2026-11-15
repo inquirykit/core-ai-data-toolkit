@@ -1,28 +1,100 @@
 // /admin#/running: the models in memory and used in the window, with a form
-// that loads one (ModelsCard), and the memory limits (LimitsCard).
+// that loads one (ModelsCard), the memory limits (LimitsCard), and the
+// background work of every kind on the one queue (QueueCard).
 import { useEffect, useState, type FormEvent } from "react";
-import { Boxes, Gauge } from "lucide-react";
+import { Boxes, Gauge, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../shared/action";
-import type { ApiClient } from "../shared/api";
+import { useApi } from "../shared/api";
 import { useTaskLabels } from "../shared/categories";
-import { ConfirmButton, Field, Notice, SelectField, StatusLabel, SubmitButton } from "../shared/components";
+import { ConfirmButton, Field, Notice, SelectField, StatusLabel, SubmitButton, StatusBadge } from "../shared/components";
 import { fmtAgo, fmtGB, fmtInt, fmtMs } from "../shared/format";
 import { DataGrid, type GridColumn } from "../shared/grid";
-import type { LoadedModel, ModelStats, Stats, Status } from "../shared/types";
+import { errorText, poll } from "../shared/query";
+import type { LoadedModel, ModelStats, Stats, Status, Task } from "../shared/types";
 import { MODEL_IDS_LIST, type CatalogInfo } from "./catalog";
+import { LoadedCard } from "./layout";
+import { isActive, pollInterval } from "../shared/tasks";
 
-export function RunningSection(props: { stats: Stats | null; client: ApiClient; catalog: CatalogInfo; refresh(): void }) {
-  const { stats, client, catalog, refresh } = props;
+export function RunningSection(props: { stats: Stats | null; catalog: CatalogInfo; refresh(): void }) {
+  const { stats, catalog, refresh } = props;
   if (!stats) return null;
   return (
     <>
-      <ModelsCard stats={stats} client={client} catalog={catalog} refresh={refresh} />
-      <LimitsCard stats={stats} client={client} refresh={refresh} />
+      <ModelsCard stats={stats} catalog={catalog} refresh={refresh} />
+      <LimitsCard stats={stats} refresh={refresh} />
+      <QueueCard />
     </>
+  );
+}
+
+// ------------------------------------------------------------------ queue
+const ACTIVE_LIMIT = 100;
+const ENDED_LIMIT = 10;
+
+/** Merges the work not done yet with the newest tasks, which may hold some of it: each task once, unfinished first. */
+export function queueRows(active: Task[], newest: Task[]): Task[] {
+  const seen = new Set(active.map((t) => t.id));
+  return [...active, ...newest.filter((t) => !seen.has(t.id) && !isActive(t))];
+}
+
+/**
+ * The tasks of every kind on the one queue (GET /queue): every one queued or running, polled fast while there is
+ * one, then the newest that ended. So a long run stays in view whatever came after it.
+ */
+function QueueCard() {
+  const client = useApi();
+  const active = client.useQuery("get", "/queue", { params: { query: { status: ["queued", "running"], limit: ACTIVE_LIMIT } } }, {
+    select: (d) => d.tasks,
+    ...poll((d?: { tasks: Task[] }) => pollInterval(d?.tasks ?? null)),
+  });
+  const newest = client.useQuery("get", "/queue", { params: { query: { limit: ENDED_LIMIT } } }, { select: (d) => d.tasks, ...poll(pollInterval(active.data ?? null)) });
+  const refetch = () => Promise.all([active.refetch(), newest.refetch()]);
+  const cancel = useAction(
+    async (t: Task) => {
+      await client.post("/queue/{id}/cancel", { params: { path: { id: t.id } } });
+      await refetch();
+    },
+    { failed: (t) => `Could not cancel the ${t.kind} task ${t.id}` },
+  );
+  const columns: GridColumn<Task>[] = [
+    { key: "kind", label: "Kind", render: (t) => t.kind },
+    { key: "on", label: "On", className: "max-w-64 truncate font-mono text-xs", render: (t) => t.job ?? t.ref ?? "" },
+    { key: "status", label: "Status", render: (t) => <StatusBadge status={t.status} /> },
+    { key: "doing", label: "Doing", className: "max-w-80 truncate text-xs text-muted-foreground", render: (t) => t.error ?? t.message ?? "" },
+    { key: "queued", label: "Queued", className: "text-xs whitespace-nowrap", render: (t) => fmtAgo(t.created) },
+    {
+      key: "actions",
+      headClassName: "w-0",
+      render: (t) =>
+        isActive(t) && (
+          <SubmitButton
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            busy={cancel.running?.[0].id === t.id}
+            icon={<X aria-hidden="true" />}
+            onClick={() => cancel.run(t)}
+          >
+            Cancel
+          </SubmitButton>
+        ),
+    },
+  ];
+  return (
+    <LoadedCard
+      title="Background work"
+      description="Jobs, eval runs, webhook deliveries, bucket copies and workflow runs: what is queued or running, then the newest that ended"
+      data={active.data && newest.data ? queueRows(active.data, newest.data) : null}
+      error={errorText(active.error) || errorText(newest.error)}
+      onRefresh={() => void refetch()}
+    >
+      {(tasks) => <DataGrid columns={columns} rows={tasks} rowKey={(t) => t.id} empty="Nothing has been queued yet" />}
+    </LoadedCard>
   );
 }
 
@@ -65,8 +137,9 @@ function deviceMemory(stats: Stats): string | null {
   return host ? `${stats.process.device === "mps" ? "unified" : "host"} memory: ${fmtGB(host.total_gb)}` : null;
 }
 
-function LimitsCard(props: { stats: Stats; client: ApiClient; refresh(): void }) {
-  const { client, refresh } = props;
+function LimitsCard(props: { stats: Stats; refresh(): void }) {
+  const client = useApi();
+  const { refresh } = props;
   const cache = props.stats.cache;
   const [memory, setMemory] = useState(String(cache.max_memory_gb));
   const [models, setModels] = useState(String(cache.max_models));
@@ -180,11 +253,12 @@ const failedOf = (s?: ModelStats): number => (s?.errors ?? 0) + (s?.client_error
 const LOADED: Status = { label: "Loaded", color: "var(--good)" };
 const NOT_LOADED: Status = { label: "Not loaded", color: "var(--axis)" };
 
-function ModelsCard(props: { stats: Stats; client: ApiClient; catalog: CatalogInfo; refresh(): void }) {
-  const { client, catalog, refresh } = props;
+function ModelsCard(props: { stats: Stats; catalog: CatalogInfo; refresh(): void }) {
+  const client = useApi();
+  const { catalog, refresh } = props;
   const [modelId, setModelId] = useState("");
   const [task, setTask] = useValidTask(catalog.tasks);
-  const taskLabel = useTaskLabels(client);
+  const taskLabel = useTaskLabels();
   const [dtype, setDtype] = useState("auto");
 
   // ``from`` names the button that asked (the form, or a row's key), to disable it alone.
@@ -234,11 +308,26 @@ function ModelsCard(props: { stats: Stats; client: ApiClient; catalog: CatalogIn
           <>
             <StatusLabel status={LOADED} live />
             <div className="mt-0.5 pl-4 text-xs text-muted-foreground">
-              {`${r.loaded.kind === "server" ? "server" : r.loaded.torch_dtype} · ${r.loaded.memory_usage != null ? `${fmtGB(r.loaded.memory_usage)} · ` : ""}${fmtAgo(r.loaded.loaded_at)}`}
+              {`${r.loaded.kind === "server" ? "server" : r.loaded.torch_dtype} · ${r.loaded.memory_usage != null ? `${fmtGB(r.loaded.memory_usage)} · ` : ""}${fmtAgo(r.loaded.loaded_at)}${r.loaded.pinned ? " · pinned" : ""}`}
             </div>
           </>
         ) : (
           <StatusLabel status={NOT_LOADED} className="text-muted-foreground" />
+        ),
+    },
+    {
+      key: "waiting",
+      label: "Waiting",
+      align: "right",
+      className: (r) => (r.loaded?.waiting ? "" : "text-muted-foreground"),
+      render: (r) =>
+        r.loaded?.waiting ? (
+          <>
+            {fmtInt(r.loaded.waiting)}
+            {r.loaded.estimated_wait_ms != null && <div className="mt-0.5 text-xs text-muted-foreground">{`~${fmtMs(r.loaded.estimated_wait_ms)}`}</div>}
+          </>
+        ) : (
+          "–"
         ),
     },
     { key: "requests", label: "Requests", align: "right", render: (r) => fmtInt(r.stats?.requests ?? 0) },

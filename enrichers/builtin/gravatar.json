@@ -1,6 +1,5 @@
 {
   "name": "gravatar",
-  "kind": "http",
   "description": "The public Gravatar profile of an email address (keyless; 100 per hour)",
   "docs": "https://docs.gravatar.com/api/profiles/rest-api/",
   "inputs": [

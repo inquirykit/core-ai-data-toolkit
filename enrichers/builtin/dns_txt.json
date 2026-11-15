@@ -1,6 +1,5 @@
 {
   "name": "dns_txt",
-  "kind": "http",
   "description": "TXT records of a domain (Cloudflare DNS over HTTPS, keyless)",
   "docs": "https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/",
   "inputs": [

@@ -1,5 +1,5 @@
 """
-The browser pages (/admin, /admin/setup, /playground).
+The browser pages (/admin, /admin/setup).
 
 They are a React app in frontend/, built into api/static (``npm run build``;
 the container images build it themselves). The pages hold no data and need no

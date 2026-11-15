@@ -1,6 +1,5 @@
 {
   "name": "epss",
-  "kind": "http",
   "description": "Probability that a CVE is exploited in the next 30 days (FIRST EPSS, keyless)",
   "docs": "https://api.first.org/epss/",
   "inputs": [

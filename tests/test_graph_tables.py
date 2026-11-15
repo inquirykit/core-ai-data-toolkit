@@ -3,14 +3,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-pytest.importorskip("arcadedb_embedded")
 
 from api import app as app_module  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def client():
-    app_module.app.state.database.start_jvm()
     with TestClient(app_module.app) as c:
         yield c
 
@@ -48,7 +46,7 @@ def test_graph_is_chosen_at_creation_and_listed(client, crm):
     assert tables["people"]["graph"] is True and tables["notes"]["graph"] is False
     assert [(e["name"], e["count"]) for e in ns["edges"]] == [("knows", 2), ("works_at", 2)]
     assert ns["size_bytes"] == sum(t["size_bytes"] for t in ns["tables"]) + sum(e["size_bytes"] for e in ns["edges"])
-    # _edges adds the tables each type joins, which the namespace's description leaves out.
+    # _edges adds the tables each type joins, which the workspace's description leaves out.
     assert "joins" not in ns["edges"][0]
     edges = client.get("/db/crm/_edges").json()["edges"]
     assert [{k: v for k, v in e.items() if k != "joins"} for e in edges] == ns["edges"]
@@ -168,51 +166,45 @@ def test_graph_view_loads_rows_and_the_edges_among_them(client, crm):
         assert client.get(path).status_code == status, path
 
 
-def test_queries_name_tables_and_edges_as_the_api_does(client, crm):
-    def query(q, language="sql", **params):
-        r = client.post("/db/crm/_query", json={"language": language, "query": q, "params": params})
+def test_queries_read_the_workspace_s_tables_and_edges_in_sql(client, crm):
+    def query(q, **params):
+        r = client.post("/db/crm/_query", json={"query": q, "params": params})
         assert r.status_code == 200, r.text
         return r.json()["rows"]
 
-    assert query("SELECT name FROM people WHERE id = :id", id="ann") == [{"name": "Ann"}]
-    # An edge type as a quoted string, as out() takes it; a value through params is left alone.
-    assert query("SELECT id, out('works_at').name AS at FROM people WHERE name = :n ORDER BY id", n="Ann") == [
-        {"id": "ann", "at": ["Acme"]}]
-    assert sorted(query("SELECT in('works_at').id AS staff FROM companies")[0]["staff"]) == ["ann", "cy"]
-    rows = query("MATCH {type: people, as: a, where: (id = 'ann')}.out('knows'){as: b}.out('knows'){as: c} "
-                 "RETURN a.id AS a, c.id AS c")
-    assert rows == [{"a": "ann", "c": "cy"}]
-    # Whole rows and edges come back as the API shows them, with type names mapped back.
-    rows = query("MATCH (p:people)-[e:works_at]->(c:companies) RETURN p, e, c, labels(c) AS l ORDER BY p.id",
-                 language="cypher")
-    assert rows[0] == {"p": {"table": "people", "row": {"id": "ann", "name": "Ann"}},
-                       "e": {"type": "works_at", "from": "people/ann", "to": "companies/acme", "role": "CTO"},
-                       "c": {"table": "companies", "row": {"id": "acme", "name": "Acme"}}, "l": ["companies"]}
-    # A parameter or a property called like a table is left alone.
-    assert query("SELECT name FROM people WHERE id = :people", people="ann") == [{"name": "Ann"}]
-    assert query("MATCH (p:people) WHERE p.id = $people RETURN p.name AS people", language="cypher", people="ann") == [
-        {"people": "Ann"}]
-    # Cypher parameters are $name.
-    assert query("MATCH (p:people)-[:works_at]->(c:companies) WHERE p.name = $n RETURN p.id AS p, c.name AS c",
-                 language="cypher", n="Ann") == [{"p": "ann", "c": "Acme"}]
-    # A path is the list of its rows and edges, in order.
-    assert query("MATCH path = (a:people)-[:knows*2]->(c) WHERE a.id = $id RETURN path", language="cypher", id="ann") == [{
-        "path": [{"table": "people", "row": {"id": "ann", "name": "Ann"}},
-                 {"type": "knows", "from": "people/ann", "to": "people/bob", "since": 2020},
-                 {"table": "people", "row": {"id": "bob", "name": "Bob"}},
-                 {"type": "knows", "from": "people/bob", "to": "people/cy"},
-                 {"table": "people", "row": {"id": "cy", "name": "Cy"}}]}]
-    rows = query("SELECT *, @type AS t FROM (TRAVERSE out() FROM (SELECT FROM people WHERE id = :id) MAXDEPTH 2) "
-                 "WHERE $depth > 0", id="bob")
-    assert [(r["t"], r["id"]) for r in rows] == [("people", "cy"), ("companies", "acme")]
+    assert query("SELECT name FROM people WHERE id = $id", id="ann") == [{"name": "Ann"}]
+    # The edges are rows of _edges: the type, the two ends, and the edge's properties as JSON.
+    assert query("SELECT p.id, c._rest->>'name' AS at FROM people p JOIN _edges e ON e.from_table = 'people' AND e.from_id = p.id "
+                 "AND e.type = 'works_at' JOIN companies c ON c.id = e.to_id WHERE p.name = $n", n="Ann") == [
+        {"id": "ann", "at": "Acme"}]
+    assert sorted(r["from_id"] for r in query("SELECT from_id FROM _edges WHERE type = 'works_at' AND to_id = 'acme'")) \
+        == ["ann", "cy"]
+    assert query("SELECT a.from_id AS a, b.to_id AS c FROM _edges a JOIN _edges b ON b.from_id = a.to_id "
+                 "WHERE a.type = 'knows' AND b.type = 'knows' AND a.from_id = 'ann'") == [{"a": "ann", "c": "cy"}]
+    assert query("SELECT props->>'role' AS role FROM _edges WHERE type = 'works_at' AND from_id = 'ann'") == [
+        {"role": "CTO"}]
+    # A walk, as the traversal route takes it a step at a time.
+    rows = query("WITH RECURSIVE walk(t, i, d) AS (SELECT 'people', $id, 0 UNION SELECT e.to_table, e.to_id, d + 1 "
+                 "FROM walk JOIN _edges e ON e.from_table = walk.t AND e.from_id = walk.i WHERE d < 2) "
+                 "SELECT t, i FROM walk WHERE d > 0 ORDER BY t, i", id="bob")
+    assert [(r["t"], r["i"]) for r in rows] == [("companies", "acme"), ("people", "cy")]
+    # A parameter called like a table is a value.
+    assert query("SELECT name FROM people WHERE id = $people", people="ann") == [{"name": "Ann"}]
     # Read-only, limited, and a bad query is the client's error.
     r = client.post("/db/crm/_query", json={"query": "DELETE FROM people"})
-    assert r.status_code == 400 and "not idempotent" in r.json()["detail"]
+    assert r.status_code == 400 and "only a SELECT" in r.json()["detail"]
+    # A WITH whose part writes is a SELECT to DuckDB's parser: it is refused as it runs, here or in the service's
+    # own tables, and nothing is written.
+    for writes in ["WITH w AS (INSERT INTO people (id, _seq) VALUES ('eve', 0) RETURNING id) SELECT * FROM w",
+                   "WITH d AS (DELETE FROM people RETURNING id) SELECT * FROM d",
+                   "WITH u AS (UPDATE main.tk_table SET strict = true RETURNING name) SELECT * FROM u",
+                   "SELECT nextval('main.tk_seq')"]:
+        r = client.post("/db/crm/_query", json={"query": writes})
+        assert r.status_code == 400 and "only reads run here" in r.json()["detail"], r.text
     assert client.get("/db/crm/people/_count").json() == {"count": 3}
-    r = client.post("/db/crm/_query", json={"query": "MATCH (p:people) DELETE p", "language": "cypher"})
-    assert r.status_code == 400
+    assert client.get("/db/crm/people/_schema").json()["strict"] is False
     assert client.post("/db/crm/_query", json={"query": "SELECT FROM"}).status_code == 400
-    assert len(client.post("/db/crm/_query", json={"query": "SELECT FROM people", "limit": 2}).json()["rows"]) == 2
+    assert len(client.post("/db/crm/_query", json={"query": "SELECT * FROM people", "limit": 2}).json()["rows"]) == 2
     assert client.post("/db/nope/_query", json={"query": "SELECT 1"}).status_code == 404
 
 
@@ -248,7 +240,7 @@ def test_edges_are_replaced_deleted_and_go_with_their_rows(client, crm):
     assert client.get("/db/crm/people/cy/_edges").json()["edges"] == []
     assert client.delete("/db/crm").status_code == 204
     assert client.get("/db/crm/_edges").status_code == 404
-    assert "crm" not in {n["name"] for n in client.get("/db").json()["namespaces"]}
+    assert "crm" not in {n["name"] for n in client.get("/db").json()["workspaces"]}
 
 
 def test_graph_tables_survive_a_reload(client):
@@ -282,13 +274,11 @@ def test_a_new_table_is_a_graph_table_unless_made_plain_or_kept_by_the_service(c
     made = client.post("/db/kinds", json={"name": "made"}).json()
     plain = client.post("/db/kinds", json={"name": "plain", "graph": False}).json()
     assert made["graph"] is True and plain["graph"] is False
-    # Both are stored the same way, but a graph table's size counts its rows' edge lists, which a plain one lacks
-    # (they take room from the first edge on).
+    # Both are stored the same way; only a graph table's rows take edges.
     for table, row in [("made", "r1"), ("made", "r2"), ("plain", "r1"), ("plain", "r2")]:
         assert client.put(f"/db/kinds/{table}/{row}", json={}).status_code == 201
     assert client.put("/db/kinds/_edges", json={"edges": [edge("next", "made/r1", "made/r2")]}).status_code == 204
-    size = {t["name"]: t["size_bytes"] for t in client.get("/db/kinds").json()["tables"]}
-    assert size["made"] > size["plain"]
+    assert client.put("/db/kinds/_edges", json={"edges": [edge("next", "plain/r1", "plain/r2")]}).status_code == 400
     # A client's first write makes one too, and so does a schema put before any row.
     assert client.put("/db/kinds/written/w1", json={}).status_code == 201
     assert client.put("/db/kinds/declared/_schema", json={"fields": []}).json()["graph"] is True
@@ -296,50 +286,30 @@ def test_a_new_table_is_a_graph_table_unless_made_plain_or_kept_by_the_service(c
     graph = {t["name"]: t["graph"] for t in client.get("/db/kinds").json()["tables"]}
     assert graph == {"batch": True, "declared": True, "made": True, "plain": False, "written": True}
     # The service's own stores keep the plain tables they declare.
-    assert not any(t["graph"] for t in client.get("/db/jobs").json()["tables"])
+    assert not any(t["graph"] for t in client.get("/db/tasks").json()["tables"])
     assert client.delete("/db/kinds").status_code == 204
 
 
-def test_a_query_names_a_table_only_where_a_type_goes(client):
-    """A field, a value, an alias or a keyword called like a table or an edge type keeps its name; a table is named
-    after FROM, in a MATCH, in out('...') and as a Cypher label or relationship type."""
+def test_a_query_reads_its_workspace_s_tables_by_their_names(client):
+    """A bare name is a table of the query's workspace; a field or a value called like a table is what it is. A
+    table's undeclared fields are in _rest, as JSON."""
     assert client.post("/db", json={"name": "names"}).status_code == 201
     assert client.post("/db/names/_transaction", json={"puts": {
         "person": [{"id": "ann", "company": "acme", "tags": ["x"], "knows": 1}, {"id": "bob", "company": "company"}],
-        "company": [{"id": "acme", "name": "Acme"}], "tags": [{"id": "t1"}], "limit": [{"id": "l1"}]},
-        "edges": [edge("knows", "person/ann", "person/bob"), edge("works_at", "person/ann", "company/acme")]}).status_code == 204
+        "company": [{"id": "acme", "name": "Acme"}], "limit": [{"id": "l1"}]}}).status_code == 204
 
-    def query(q, language="sql"):
-        r = client.post("/db/names/_query", json={"language": language, "query": q})
+    def query(q):
+        r = client.post("/db/names/_query", json={"query": q})
         assert r.status_code == 200, (q, r.text)
         return r.json()["rows"]
 
-    # Fields, values and keywords called like a table or an edge type.
-    assert query("SELECT id FROM person WHERE company = 'acme'") == [{"id": "ann"}]
-    assert query("SELECT id FROM person WHERE company = 'company'") == [{"id": "bob"}]
-    assert query("SELECT tags, knows FROM person WHERE id = 'ann'") == [{"tags": ["x"], "knows": 1}]
-    assert query("SELECT id FROM person ORDER BY id limit 1") == [{"id": "ann"}]
-    assert query("MATCH (p:person {company: 'acme'}) RETURN p.knows AS knows", "cypher") == [{"knows": 1}]
-    assert query("MATCH (person:person) WHERE person:person RETURN person.id AS id ORDER BY id", "cypher") == [
-        {"id": "ann"}, {"id": "bob"}]
-    # Where a type goes.
-    assert query("SELECT expand(out('knows')) FROM person WHERE id = 'ann'") == [{"id": "bob", "company": "company"}]
-    assert query("SELECT count(*) AS n FROM person WHERE @type IN ['company', 'person']") == [{"n": 2}]
-    assert query("MATCH {type: person, as: p, where: (id = 'ann')}.out('knows'){as: f} RETURN f.id AS f") == [{"f": "bob"}]
-    assert query("MATCH (a:person)-[e:knows|works_at]->(b) RETURN b.id AS b ORDER BY b", "cypher") == [
-        {"b": "acme"}, {"b": "bob"}]
-    assert query("MATCH (a:person)-[e]->(b) WHERE type(e) = 'knows' RETURN b.id AS b", "cypher") == [{"b": "bob"}]
-    assert query("MATCH (n) WHERE 'company' IN labels(n) RETURN n.id AS id", "cypher") == [{"id": "acme"}]
+    assert query("SELECT id FROM person WHERE _rest->>'company' = 'acme'") == [{"id": "ann"}]
+    assert query("SELECT id FROM person WHERE _rest->>'company' = 'company'") == [{"id": "bob"}]
+    assert query("SELECT _rest->'tags' AS tags, (_rest->>'knows')::INTEGER AS knows FROM person WHERE id = 'ann'") == [
+        {"tags": ["x"], "knows": 1}]
+    # A word of SQL as a table's name, quoted.
+    assert query('SELECT id FROM "limit"') == [{"id": "l1"}]
     assert client.delete("/db/names").status_code == 204
-
-
-def test_a_queried_row_keeps_its_own_field_called_table(client):
-    """A query gives a row as {table, row}: a field of the row called table cannot pass for the table."""
-    assert client.post("/db", json={"name": "fields"}).status_code == 201
-    assert client.put("/db/fields/people/b", json={"table": "tags"}).status_code == 201
-    r = client.post("/db/fields/_query", json={"language": "cypher", "query": "MATCH (p:people) RETURN p"})
-    assert r.json()["rows"] == [{"p": {"table": "people", "row": {"id": "b", "table": "tags"}}}]
-    assert client.delete("/db/fields").status_code == 204
 
 
 def test_a_failed_write_leaves_no_table_or_relationship_it_made(client):
@@ -385,8 +355,8 @@ def test_an_edge_type_can_be_made_before_its_first_edge(client):
     assert client.delete("/db/made").status_code == 204
 
 
-def test_queries_need_the_admin_key_since_they_can_reach_other_namespaces(client, monkeypatch):
-    """A query names tables within its namespace, but SQL and Cypher reach any type, record ID or bucket."""
+def test_queries_need_the_admin_key_since_they_can_reach_other_workspaces(client, monkeypatch):
+    """A query reads its workspace's tables by their bare names, but SQL can name any schema."""
     from core.config import Config
 
     assert client.post("/db", json={"name": "other"}).status_code == 201
@@ -394,13 +364,12 @@ def test_queries_need_the_admin_key_since_they_can_reach_other_namespaces(client
     assert client.post("/db", json={"name": "mine"}).status_code == 201
     monkeypatch.setattr(Config, "API_KEY", "client-key")
     monkeypatch.setattr(Config, "ADMIN_API_KEY", "admin-key")
-    for language, query in [("sql", "SELECT FROM ns_other__secret"), ("cypher", "MATCH (n) RETURN n.token AS t")]:
-        body = {"language": language, "query": query}
-        assert client.post("/db/mine/_query", json=body).status_code == 401
-        assert client.post("/db/mine/_query", json=body, headers={"X-API-Key": "client-key"}).status_code == 401
+    body = {"query": "SELECT id, _rest FROM other.secret"}
+    assert client.post("/db/mine/_query", json=body).status_code == 401
+    assert client.post("/db/mine/_query", json=body, headers={"X-API-Key": "client-key"}).status_code == 401
     as_admin = {"X-API-Key": "admin-key"}
-    r = client.post("/db/mine/_query", json={"query": "SELECT FROM ns_other__secret"}, headers=as_admin)
-    assert r.status_code == 200 and r.json()["rows"] == [{"id": "s1", "token": "hunter2"}]
+    r = client.post("/db/mine/_query", json=body, headers=as_admin)
+    assert r.status_code == 200 and r.json()["rows"] == [{"id": "s1", "_rest": {"token": "hunter2"}}]
     assert client.post("/db/nope/_query", json={"query": "SELECT 1"}, headers=as_admin).status_code == 404
     monkeypatch.undo()
     assert client.delete("/db/mine").status_code == 204 and client.delete("/db/other").status_code == 204
@@ -408,9 +377,9 @@ def test_queries_need_the_admin_key_since_they_can_reach_other_namespaces(client
 
 def test_dropping_a_table_deletes_its_edges_a_batch_at_a_time(client, monkeypatch):
     """A graph table's rows go before its type, a batch per transaction, so no edge is left dangling."""
-    from db import tables as tables_module
+    from db import ddl
 
-    monkeypatch.setattr(tables_module, "SCAN_BATCH", 2)
+    monkeypatch.setattr(ddl, "SCAN_BATCH", 2)
     assert client.post("/db", json={"name": "dropping"}).status_code == 201
     people = [{"id": f"p{i}"} for i in range(5)]
     assert client.post("/db/dropping/_transaction", json={

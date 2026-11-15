@@ -3,7 +3,7 @@
 # Copy to model_servers.toml (or point MODEL_SERVERS_FILE at another file)
 # and restart. Each [models."<id>"] entry makes <id> a model clients can name
 # in /v1/chat/completions and /inference. Entries can also be added and
-# edited in /admin (Model servers); those are saved to MODEL_SERVERS_SAVED_FILE
+# edited in /admin (Model servers); those are saved to model_servers.json in DATA_DIR
 # and replace this file's entry of the same name until reverted.
 #
 # A model has one or more backends. When it loads, every backend is probed
@@ -30,6 +30,9 @@
 #   url, health_path, max_concurrency, request_timeout, on_evict ("unload": ask
 #   Ollama to unload the model when the cache evicts it), description.
 #   A backend with provider = "<name>" takes these unless it sets its own.
+#   An API key is not kept here: paste it into the provider in /admin, which
+#   keeps it encrypted, or set PROVIDER_<NAME>_API_KEY in the environment (see
+#   env.example).
 #
 # A model's keys:
 #   task             "text-generation", "vision-language" (images, audio),
@@ -38,7 +41,7 @@
 #                    get tools and response_format passed through.
 #   backends         the list of backends, in order. Without it, the model's
 #                    own backend keys (cmd or url beside task) are its one backend.
-#   description      one line the model browser in /admin and /playground shows
+#   description      one line the model browser in /admin shows
 #   tags             labels to filter by there, e.g. ["chat", "mlx"]
 #
 # A backend's keys (exactly one of provider, url, cmd, hub):
@@ -48,6 +51,9 @@
 #   cmd              command to start the server; {port} is replaced by a free port.
 #                    A string (split like a shell would) or a list.
 #   hub              a Hub model ID run in this process
+#   revision         the hub model's branch, tag or commit (default: main)
+#   max_length       tokens the hub model reads of each text or pair, the rest
+#                    cut (default: its own; embedding and rerank models)
 #   upstream_model   the "model" sent to the server (default: the model ID)
 #   memory_gb        what it counts against MAX_MEMORY_GB (default: estimated
 #                    from the weights of upstream_model or hub; 0 for url)
@@ -57,7 +63,8 @@
 #   health_path      GET path that answers 200 once the server is ready ("/v1/models")
 #   on_evict         "stop" (default), "sleep" for vLLM sleep mode (cmd, see
 #                    below), or "unload" for Ollama (provider, url)
-#   env              extra environment variables for a cmd server
+#   env              environment variables for a cmd server, beside what every
+#                    child gets of the service's (core/procs.py: no settings or keys)
 #   extra            fields added to each chat request, e.g. a thinking switch;
 #                    the request's own fields win
 #
@@ -197,6 +204,15 @@ tags = ["chat", "image", "audio", "mlx"]
 # cmd = "llama-server -hf ggml-org/embeddinggemma-2-GGUF:Q8_0 --embedding --host 127.0.0.1 --port {port}"
 # memory_gb = 0.5
 # health_path = "/health"
+
+# A reranker run in this process that reads 512 tokens of each pair (its own
+# limit is 8K), at a fixed commit of its repo:
+#
+# [models."bge-reranker"]
+# task = "rerank"
+# hub = "BAAI/bge-reranker-v2-m3"
+# revision = "<a commit of the repo>"
+# max_length = 512
 
 # --- Speech-to-text ------------------------------------------------------------
 # whisper.cpp's server answers OpenAI's path when told to:

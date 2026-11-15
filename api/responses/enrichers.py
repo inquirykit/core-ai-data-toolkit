@@ -1,9 +1,10 @@
 """/enrich and /enrichers."""
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import ConfigDict
 
+from enrichers import runner as enricher_runner
 from enrichers.spec import EnricherSpec, EntityType, Terms
 from .common import OPEN, Json, Out
 
@@ -38,7 +39,7 @@ class EnricherList(Out):
     types: List[EntityType]
 
 
-EnrichStatus = Literal["ok", "not_found", "error", "no_key", "disabled", "not_allowed", "rate_limited"]
+EnrichStatus = enricher_runner.Status
 
 
 class EnrichResult(Out):

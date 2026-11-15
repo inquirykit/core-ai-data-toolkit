@@ -16,17 +16,13 @@
 .claude/
 
 # Local state, logs and notes that are not part of the service
-data/config/
-data/arcadedb/
-data/enrichers/
-data/evidence/
-data/model_servers.json
-data/monitoring/
+data/
 log/
+dist/
 reports/
 research_notes/
 TODO.md
-# The image reads its model servers from /app/data/config (Dockerfile)
+# The image reads its model servers from /app/data, its data volume (Dockerfile)
 model_servers.toml
 
 # The images build the frontend themselves

@@ -1,7 +1,7 @@
 # Core AI & Data toolkit
 
 ![status: alpha](https://img.shields.io/badge/status-alpha-orange)
-![version: 0.2alpha23](https://img.shields.io/badge/version-0.2alpha23-blue)
+![version: 0.5alpha28](https://img.shields.io/badge/version-0.5alpha28-blue)
 
 A self-hosted service for small, efficient AI models (text encoders,
 classifiers, question answering, speech, small vision and chat models) and the
@@ -13,7 +13,7 @@ It is built for models that fit beside each other on one machine and for quick
 scripts, not for large LLMs. For those, run a dedicated server (Ollama,
 LM Studio, vLLM) and let the toolkit forward to it.
 
-> **Status: alpha (0.2alpha23).** This is under active development. APIs,
+> **Status: alpha (0.5alpha28).** This is under active development. APIs,
 > settings and stored data change without notice between versions.
 
 ## What it does
@@ -32,20 +32,31 @@ LM Studio, vLLM) and let the toolkit forward to it.
 - A playground to chat with models side by side or try the other tasks.
 
 **Store data**
-- `/db`: namespaced tables of JSON rows, with schemas, bulk writes and
-  transactions. Relationships (edges) link rows across tables, read by traversal or Cypher.
-- Collections: documents embedded with a model, searched by meaning within SQL
-  filters.
-- Everything lives in one embedded ArcadeDB database, browsable from the
-  dashboard, with a graph view.
+- `/db`: workspaces of tables of JSON rows, with schemas, bulk writes and
+  transactions. Relationships (edges) link rows across tables, read by traversal or SQL.
+- Vectors: a table's vector field, embedded from its text with a model on every
+  write (or given), searched by meaning within filters and full-text words.
+- Buckets: tables of files, a row per file with its bytes on disk, uploaded as
+  a stream and downloaded with byte ranges, and copied to a remote if you name
+  one (S3, R2, B2, GCS, Azure, a folder), which keeps the copies in step.
+- Views and dashboards: saved reads over a workspace (SQL, a table's rows, a
+  vector search) with parameters and a chart, table or graph, which a client
+  key runs within a time limit and a row cap, each answer cached for a while.
+- Everything lives in one embedded DuckDB database, a single file (a bucket's
+  bytes beside it, on disk), browsable and queried in SQL from the dashboard,
+  with a graph view.
 
 **Run work in the background**
 - Jobs: long-running scripts in their own process and Python environment, on a
-  schedule if you like. AutoGluon training is included, and the trained
-  predictors are served like models.
-- Evals: datasets from traces, files or saved chats; runs that batch their
-  examples and resume after a restart; scoring, with an optional LLM judge.
-- One queue for jobs, eval runs, judging and downloads, with priorities;
+  schedule if you like. Fine-tuning a small text classifier is included, and
+  AutoGluon has a section of its own: install it with a click, drop in a
+  table, pick the column (or a series to forecast), train, and the predictor
+  is served like any model.
+- Evals: datasets from traces, files or saved chats, labeled least confident
+  first; runs that batch their examples and resume after a restart; scoring
+  (a classifier's report with its confusion matrix, word error rate, ranking
+  metrics), with an optional LLM judge.
+- One queue for jobs, eval runs, judging, workflow runs and copies, with priorities;
   webhooks signed to the Standard Webhooks spec.
 
 **Look things up**
@@ -93,7 +104,7 @@ On first start the log shows a link to the setup wizard
 picks the models clients may use, and writes them to `.env`. Then open:
 
 - `http://localhost:8000/admin`: the dashboard
-- `http://localhost:8000/playground`: chat with models and try them out
+- `http://localhost:8000/admin#/playground`: chat with models and try them out
 - `http://localhost:8000/docs`: the interactive API reference
 
 `make` alone lists every command. Without make or uv:
@@ -168,7 +179,7 @@ models stay loaded, and in how much memory), and `PRELOAD_MODELS`.
 ```bash
 make dev        # run with auto-reload
 make test       # Python and frontend tests (no model downloads, no torch needed)
-make lint       # ruff and the frontend's type check
+make lint       # ruff, pyright on the wiring (api/app.py), and the frontend's type check
 cd frontend && npm run dev   # the pages with hot reload, calling the API on :8000
 ```
 

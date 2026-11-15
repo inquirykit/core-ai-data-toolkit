@@ -3,7 +3,7 @@ import type { Row } from "./data";
 
 // The sample tables the New form can start a table with: a schema, its rows and,
 // for people, a relationship between them. They are written through the API a
-// client uses (POST /db/{ns} with the fields, then one /_transaction). Rows come
+// client uses (POST /db/{ws} with the fields, then one /_transaction). Rows come
 // from short word lists and a seeded random generator, so a sample is the same
 // every time.
 

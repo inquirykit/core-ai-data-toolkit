@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useAction } from "../shared/action";
-import { createClient } from "../shared/api";
+import { ApiProvider, createClient } from "../shared/api";
 import { CopyButton, Field, Header, SubmitButton } from "../shared/components";
 import { ADMIN_KEY_STORAGE } from "../shared/session";
 import { PageMain } from "../shared/Shell";
@@ -45,7 +45,7 @@ export function SetupApp() {
     (status.isError ? { kind: "unreachable" } : status.data ? { kind: status.data.needed ? "wizard" : "already" } : { kind: "checking" });
 
   return (
-    <>
+    <ApiProvider value={client}>
       <Header page="Setup" />
       <PageMain className="max-w-3xl">
         {phase.kind === "checking" && (
@@ -66,7 +66,7 @@ export function SetupApp() {
         )}
         {phase.kind === "done" && <Done {...phase} />}
       </PageMain>
-    </>
+    </ApiProvider>
   );
 }
 

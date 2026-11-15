@@ -1,6 +1,5 @@
 {
   "name": "gleif",
-  "kind": "http",
   "description": "Legal entities whose name matches, with their LEI codes (GLEIF, keyless)",
   "docs": "https://www.gleif.org/en/lei-data/gleif-api",
   "inputs": [

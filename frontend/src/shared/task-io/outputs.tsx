@@ -221,6 +221,26 @@ export function DecisionOutput({ result }: OutputProps) {
   );
 }
 
+/** A tabular predictor's answer: each row's prediction and, for classification, its classes' probabilities. */
+export function PredictionOutput({ result }: OutputProps) {
+  const r = obj(result);
+  const predictions = Array.isArray(r.predictions) ? r.predictions : [];
+  const probabilities = Array.isArray(r.probabilities) ? r.probabilities : [];
+  return (
+    <div className="grid gap-3">
+      {predictions.map((p, i) => (
+        <div key={i} className="grid gap-2">
+          <p className={headlineClass}>
+            {predictions.length > 1 && <span className="text-muted-foreground">Row {i + 1}: </span>}
+            <strong>{p === null ? "(none)" : String(p)}</strong>
+          </p>
+          {probabilities[i] && <ProbBars rows={rankedScores(obj(probabilities[i]) as Record<string, number>)} top={String(p)} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Any other result: its text fields as text, the rest as JSON. */
 export function GenericOutput({ result }: OutputProps) {
   const r = obj(result);

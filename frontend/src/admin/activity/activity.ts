@@ -3,7 +3,7 @@
 // log filter. No React here, so it is tested directly (activity.test.ts).
 
 import { parseHash } from "../../shared/browser";
-import type { LogLine, RequestRow, TraceSummary } from "../../shared/types";
+import type { LogLine, RequestRow } from "../../shared/types";
 
 /** Unix seconds. */
 export interface Range {
@@ -122,7 +122,7 @@ export function clusterByX<T extends { x: number }>(items: T[], gap: number): T[
 }
 
 // --------------------------------------------------------------- requests
-/** A row of the requests table: a request's metadata, or a trace when the words are searched. */
+/** A row of the requests table: a request, with the first words of its kept input and output. */
 export interface RequestItem {
   key: string;
   ts: number;
@@ -132,9 +132,9 @@ export interface RequestItem {
   duration_ms: number;
   cold: boolean;
   error: string | null;
-  /** Opens the input and output (#/activity/<id>); missing for rows recorded before tracing existed */
+  /** Opens the input and output (#/activity/<id>), while they are kept */
   trace_id: string | null;
-  /** The first words of the input and output, known for traces only */
+  /** The first words of the input and output, while they are kept */
   preview: string | null;
   tags: string[];
 }
@@ -148,35 +148,15 @@ export const fromRequestRow = (r: RequestRow): RequestItem => ({
   duration_ms: r.duration_ms,
   cold: Boolean(r.cold),
   error: r.error,
-  trace_id: r.trace_id ?? null,
-  preview: null,
-  tags: [],
+  trace_id: r.trace_id,
+  preview: r.preview,
+  tags: r.tags,
 });
 
-export const fromTrace = (t: TraceSummary): RequestItem => ({
-  key: `t${t.id}`,
-  ts: t.ts,
-  model_id: t.model_id,
-  task: t.task,
-  status: t.status,
-  duration_ms: t.duration_ms,
-  cold: t.cold,
-  error: t.error,
-  trace_id: t.id,
-  preview: t.preview,
-  tags: t.tags,
-});
-
-/**
- * Whether the table has to come from the traces (GET /admin/traces) rather
- * than the request metadata: only traces have words to search and tags.
- */
-export const searchesTraces = (words: string, tag: string): boolean => Boolean(words.trim() || tag.trim());
-
-/** The trace #/activity/<id> opens, if any (#/traces/<id> is the old address and still works). */
+/** The trace #/activity/<id> opens, if any. */
 export function traceFromHash(hash: string): string | null {
   const [section, id] = parseHash(hash).parts;
-  return (section === "activity" || section === "traces") && id ? id : null;
+  return section === "activity" && id ? id : null;
 }
 
 // ------------------------------------------------------------------- logs

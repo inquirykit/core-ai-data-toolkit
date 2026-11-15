@@ -20,14 +20,14 @@ export interface AuditFilters {
 
 export const NO_FILTERS: AuditFilters = { method: "", outcome: "", actor: "", route: "" };
 
-/** Entries per page; "Older" asks for the next ones before the last shown. */
+/** Entries per page; "Older" asks for the next page. */
 export const AUDIT_PAGE = 100;
 
-/** The query of GET /admin/audit: the filters that are set, and the page (entries before ``beforeId``). */
-export function auditQuery(filters: AuditFilters, beforeId?: number) {
+/** The query of GET /admin/audit: the filters that are set, and the page (the previous page's ``next``). */
+export function auditQuery(filters: AuditFilters, cursor?: string) {
   return {
     limit: AUDIT_PAGE,
-    before_id: beforeId,
+    cursor,
     method: filters.method || undefined,
     outcome: filters.outcome || undefined,
     actor: (filters.actor || undefined) as Exclude<AuditActor, ""> | undefined,

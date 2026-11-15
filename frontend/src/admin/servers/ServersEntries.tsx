@@ -17,7 +17,7 @@ export function EntriesCard(props: { data: ModelServers | null; loc: ServersLoca
       description={data ? `${data.models.length} · ${loaded} loaded` : "Loading…"}
       label="Model servers"
       onRefresh={props.reload}
-      action={data?.editable && <NewLink href={serversHash({ view: "new" })} />}
+      action={data && <NewLink href={serversHash({ view: "new" })} />}
       loaded={Boolean(data || props.error)}
       // Without data the failure is the whole view, on the right.
       error={data ? props.error : ""}

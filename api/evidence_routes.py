@@ -1,9 +1,8 @@
 """
 /evidence: signed, hash-chained records of web pages a browser extension
-captures (see evidence/), kept by workspace.
+captures (see evidence/), kept by workspace: the /db workspaces, each holding
+its ledger in kept tables (evidence_cases, evidence_captures...).
 
-    GET  /evidence/workspaces                    the workspaces ("default" always exists)
-    POST /evidence/workspaces                    {id?, name}: a new workspace (admin)
     GET  /evidence/cases                         the workspace's cases ("inbox" always exists)
     POST /evidence/cases                         {name}: a new case
     GET  /evidence/cases/{id}/captures           the case's captures, newest first
@@ -19,9 +18,15 @@ captures (see evidence/), kept by workspace.
     GET  /evidence/public-key                    the signing key's public half, PEM
     POST /evidence/timestamp-pending             try again for records without a time stamp, all workspaces (admin)
 
-The routes about cases and captures act in one workspace: ``?workspace=<id>``,
-the default one when left out (as clients from before workspaces do). A
-capture is found only in its own workspace.
+The routes about cases and captures act in one workspace: ``?workspace=``
+its /db name (POST /db makes one), the default one when left out (as the
+browser extension does). A capture is found only in its own workspace. A
+workspace's ledger is made on its first evidence write; until then it reads as
+an empty one, with only the inbox. A workspace that holds a ledger can never be
+dropped, so in a workspace other than the default one that first write takes
+the admin key (403 with the client key): a client key writes evidence in the
+default workspace and in those that hold their ledger already, never making
+an admin's workspace one that cannot be dropped.
 
 Annotations (tags and analyst notes added after a capture was taken) and a
 case's todos are mutable and kept apart from the records: they never enter
@@ -43,7 +48,6 @@ metadata field.
 import json
 import logging
 import time
-import uuid
 from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -57,8 +61,7 @@ from core.config import Config
 from core.errors import Forbidden, NotFound, Refused
 from evidence import Ledger, timestamp_one, timestamp_pending, verify_all, verify_uploads
 from evidence.enrich import enrichment
-from evidence.record import DEFAULT_WORKSPACE_ID, MAX_WORKSPACE_ID
-from db.tables import MAX_SEARCH
+from db.tables import DEFAULT, MAX_NAME, MAX_SEARCH
 from . import deps
 from . import responses
 
@@ -67,13 +70,12 @@ logger = logging.getLogger(__name__)
 EXTENSION_SCHEMES = ("chrome-extension://", "moz-extension://")
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 MAX_CASE_NAME = 200
-MAX_WORKSPACE_NAME = 200
 MAX_TAGS, MAX_TAG = 64, 64
 MAX_NOTES, MAX_NOTE = 200, 20000
 MAX_TODOS, MAX_TODO = 500, 2000
 
 
-def check_origin(origin: Optional[str] = Header(None)) -> None:
+async def check_origin(origin: Optional[str] = Header(None)) -> None:
     """A request from a browser must come from an extension (or an allowed origin); one without an Origin passes."""
     if origin is None:
         return
@@ -92,18 +94,37 @@ def check_origin(origin: Optional[str] = Header(None)) -> None:
 # Content-Type says, as they were before they were pydantic models: clients other than the extension send none.
 router = APIRouter(prefix="/evidence", tags=["evidence"], dependencies=[Depends(check_origin), *deps.CLIENT],
                    strict_content_type=False)
+# This module's routes that only the admin's key opens.
+admin_router = APIRouter(prefix="/evidence", tags=["evidence"], dependencies=[Depends(check_origin), *deps.ADMIN],
+                         strict_content_type=False)
 
 
 async def _ledger(
     store: deps.Evidence,
-    workspace: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=MAX_WORKSPACE_ID,
-                           description="The workspace (GET /evidence/workspaces); the default one when left out"),
+    workspace: str = Query(DEFAULT, min_length=1, max_length=MAX_NAME,
+                           description="The workspace, by its name (GET /db); the default one when left out"),
 ) -> Ledger:
-    """The ledger of the request's workspace; 404 for one that is not there."""
+    """The ledger of the request's workspace; 404 for none."""
     return await store.ledger(workspace)
 
 
 WorkspaceLedger = Annotated[Ledger, Depends(_ledger)]
+
+
+async def _ledger_to_write(ledger: WorkspaceLedger, request: Request) -> Ledger:
+    """The request's ledger, for a write that makes it when the workspace holds none yet (a case, a capture, todos).
+    That makes the workspace one that can never be dropped, so in a workspace other than the default one it takes
+    the admin key; a client key writes in those that hold their ledger already. 403 otherwise."""
+    if ledger.workspace == DEFAULT or await ledger.opened():
+        return ledger
+    if deps.caller(request).level in ("admin", "open"):
+        return ledger
+    raise Forbidden(f"The workspace {ledger.workspace} holds no evidence yet, and its first evidence write would make "
+                    "it one that cannot be dropped: only the admin key makes that write (a case made with it opens "
+                    "the workspace to evidence)")
+
+
+LedgerToWrite = Annotated[Ledger, Depends(_ledger_to_write)]
 
 
 # ----------------------------------------------------------------- bodies
@@ -132,11 +153,6 @@ def _tags(value: List[str]) -> List[str]:
     if len(tags) > MAX_TAGS:
         raise ValueError(f"at most {MAX_TAGS} tags")
     return tags
-
-
-class NewWorkspace(BaseModel):
-    id: Optional[str] = Field(None, max_length=MAX_WORKSPACE_ID, description="Your application's id for it; unset: one is made")
-    name: Annotated[str, _trimmed("workspace name", MAX_WORKSPACE_NAME)]
 
 
 class NewCase(BaseModel):
@@ -168,30 +184,17 @@ class TodosBody(BaseModel):
     todos: List[Todo] = Field(..., max_length=MAX_TODOS)
 
 
-# -------------------------------------------------------------- workspaces
-@router.get("/workspaces", **responses.answering(responses.EvidenceWorkspaces))
-async def list_workspaces(store: deps.Evidence) -> Dict[str, Any]:
-    """The workspaces; ``default`` always exists."""
-    return {"workspaces": await store.list_workspaces()}
-
-
-@router.post("/workspaces", **responses.answering(responses.WorkspaceCreated), status_code=201, dependencies=deps.ADMIN)
-async def create_workspace(body: NewWorkspace, store: deps.Evidence) -> Dict[str, Any]:
-    """Make a workspace, with its own ledger: give the id of the workspace it stands for (your application's), or let
-    one be made. 409 if the id is taken."""
-    return {"workspace": await store.create_workspace(body.id or str(uuid.uuid4()), body.name)}
-
-
 # ------------------------------------------------------------------ cases
 @router.get("/cases", **responses.answering(responses.EvidenceCases))
 async def list_cases(ledger: WorkspaceLedger) -> Dict[str, Any]:
-    """The workspace's cases; ``inbox`` always exists."""
+    """The workspace's cases; ``inbox`` always exists (before the workspace's first evidence write, alone)."""
     return {"cases": await ledger.list_cases()}
 
 
 @router.post("/cases", **responses.answering(responses.CaseCreated))
-async def create_case(body: NewCase, ledger: WorkspaceLedger) -> Dict[str, Any]:
-    """Make a case in the workspace."""
+async def create_case(body: NewCase, ledger: LedgerToWrite) -> Dict[str, Any]:
+    """Make a case in the workspace. In a workspace other than the default one that holds no evidence yet, the
+    admin key alone writes (403), as the write makes its ledger."""
     return {"case": await ledger.create_case(body.name)}
 
 
@@ -269,11 +272,12 @@ async def _read_multipart(request: Request) -> Tuple[Any, Dict[str, bytes]]:
 # --------------------------------------------------------------- captures
 @router.post("/captures")
 async def create_capture(
-    request: Request, ledger: WorkspaceLedger, tsa: deps.EvidenceTsa, enrichers: deps.OptionalEnrichers
+    request: Request, ledger: LedgerToWrite, tsa: deps.EvidenceTsa, enrichers: deps.Enrichers
 ) -> Dict[str, Any]:
     """Store a capture: verify the uploads, enrich, sign and chain the record, then time stamp it. The body is
     multipart: ``metadata`` (JSON with ``caseId`` and ``artifacts``, each with the SHA-256 the browser computed) and one
-    ``file`` per artifact, named after it."""
+    ``file`` per artifact, named after it. In a workspace other than the default one that holds no evidence yet, the
+    admin key alone writes (403), as the write makes its ledger."""
     metadata, files = await _read_multipart(request)
     if not isinstance(metadata, dict):
         raise Refused("metadata must be a JSON object")
@@ -288,7 +292,7 @@ async def create_capture(
     appended = await ledger.append(case_id, metadata, artifacts, found)
     canonical = appended.pop("recordJson")
     appended["timestamp"] = await timestamp_one(ledger, tsa, appended["captureId"], canonical, appended["recordHash"])
-    logger.info("Evidence capture %s (workspace %s, seq %d) stored in %.1fs", appended["captureId"], ledger.workspace_id,
+    logger.info("Evidence capture %s (workspace %s, seq %d) stored in %.1fs", appended["captureId"], ledger.workspace,
                 appended["seq"], time.monotonic() - started)
     return appended
 
@@ -343,8 +347,9 @@ async def list_todos(case_id: str, ledger: WorkspaceLedger) -> Dict[str, Any]:
 
 
 @router.put("/cases/{case_id}/todos", **responses.answering(responses.CaseTodos))
-async def set_todos(case_id: str, body: TodosBody, ledger: WorkspaceLedger) -> Dict[str, Any]:
-    """Replace the case's to-do list (a todo left out is deleted). Never touches a record."""
+async def set_todos(case_id: str, body: TodosBody, ledger: LedgerToWrite) -> Dict[str, Any]:
+    """Replace the case's to-do list (a todo left out is deleted). Never touches a record. In a workspace other than
+    the default one that holds no evidence yet, the admin key alone writes (403), as the write makes its ledger."""
     return await ledger.set_todos(case_id, [t.model_dump() for t in body.todos])
 
 
@@ -362,7 +367,7 @@ async def public_key(store: deps.Evidence):
     return PlainTextResponse(pem, media_type="application/x-pem-file")
 
 
-@router.post("/timestamp-pending", **responses.answering(responses.TimestampRetry), dependencies=deps.ADMIN)
+@admin_router.post("/timestamp-pending", **responses.answering(responses.TimestampRetry))
 async def retry_timestamps(store: deps.Evidence, tsa: deps.EvidenceTsa) -> Dict[str, Any]:
     """Ask the TSA again for every record without a token, in every workspace."""
     if not tsa.enabled:

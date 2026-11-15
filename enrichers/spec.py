@@ -6,10 +6,11 @@ a file hash, ...) and asks an outside service about it. Most such services are
 one request returning JSON, so an enricher is data, not code: a request
 template with ``{value}`` and ``{secret}`` filled in, and ``outputs`` that pick
 fields out of the reply with JMESPath expressions. The dashboard's Enrichers
-section edits these; enrichers/store.py keeps them as files.
+section edits these; enrichers/store.py keeps them.
 
-A few enrichers cannot be a request (reverse DNS, local databases); they are
-Python with the same contract, ``kind: "local"`` (see enrichers/local/).
+Every enricher is such a request. Lookups that look local are requests too:
+reverse DNS and the other DNS records ask a DNS-over-HTTPS resolver
+(builtin/ptr.json, dns_*.json).
 """
 
 import hashlib
@@ -20,6 +21,8 @@ from typing import Any, Callable, Dict, List, Literal, Optional, get_args
 
 import jmespath
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from core import procs
 
 
 class EntityType(str, Enum):
@@ -49,7 +52,9 @@ TERMS = get_args(Terms)
 Filter = Literal["lower", "upper", "strip", "md5", "sha1", "sha256", "reverse_ptr"]
 
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
-ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,62}$")
+# Saving an enricher's key sets its variable in the service's own environment, so the name says it is a key: never
+# one that steers the process, such as HTTP_PROXY, SSL_CERT_FILE or PATH.
+SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,55}_(KEY|TOKEN|SECRET)$")
 _TTL = re.compile(r"^(\d+)\s*(s|m|h|d)$")
 _RATE = re.compile(r"^(\d+)\s*/\s*(s|sec|second|m|min|minute|h|hour|d|day)$")
 _UNIT_S = {"s": 1, "sec": 1, "second": 1, "m": 60, "min": 60, "minute": 60, "h": 3600, "hour": 3600, "d": 86400, "day": 86400}
@@ -125,14 +130,23 @@ class EnricherSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., pattern=NAME.pattern, description="Lower case letters, digits and _")
-    kind: Literal["http"] = Field("http", description="The only kind: one HTTP request (kept so saved files load)")
     description: str = Field("", max_length=500)
     docs: Optional[str] = Field(None, max_length=500, description="Where the service's API is documented")
     inputs: List[EntityType] = Field(..., min_length=1, description="The entity types it takes")
     terms: Terms = Field("open", description="What the source's terms allow; Config.ENRICHER_TERMS filters on it")
     attribution: Optional[str] = Field(None, max_length=300, description="The credit the terms ask for, if any")
-    secret: Optional[str] = Field(None, pattern=ENV_NAME.pattern, description="Environment variable holding the API key")
+    secret: Optional[str] = Field(None, pattern=SECRET_NAME.pattern,
+                                  description="Environment variable holding the API key, ending in _KEY, _TOKEN or _SECRET")
     secret_optional: bool = Field(False, description="Run without the key too (a keyless tier)")
+
+    @field_validator("secret")
+    @classmethod
+    def _kept_from_children(cls, value: Optional[str]) -> Optional[str]:
+        """A file written by hand is held to it too: a key every child process gets (HF_TOKEN) is no enricher's."""
+        if value is not None and procs.passed(value):
+            raise ValueError(f"{value} is passed to the service's child processes: name a variable of its own")
+        return value
+
     enabled: bool = True
     ttl: str = Field("24h", description="How long a result is cached: 90s, 15m, 24h, 7d")
     rate_limit: Optional[str] = Field(None, description="Most requests per period, e.g. 1000/day or 45/min")

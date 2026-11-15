@@ -8,18 +8,19 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { ConfirmButton, Field, Heading, Notice, SelectField, SubmitButton } from "../../shared/components";
 import type { ModelServerInfo, ModelServerProbe, ModelServers, ModelTask } from "../../shared/types";
-import { emptyBackend, entryForm, entryFromForm, formKey, ORIGIN, serversHash, TASKS, validateEntry, type BackendForm, type EntryForm } from "./servers";
+import { emptyBackend, entryForm, entryFromForm, formKey, ORIGIN, serversHash, validateEntry, type BackendForm, type EntryForm } from "./servers";
 import { BackendEditor } from "./ServersBackendEditor";
 
 /**
  * The form for one entry (``loaded`` null for a new one): its task and its
  * backends in order. Test probes the form as it stands; saving PUTs it whole.
  */
-export function EntryEditor(props: { client: ApiClient; data: ModelServers; loaded: ModelServerInfo | null; initial: EntryForm; reload(): Promise<unknown> }) {
-  const { client, data, loaded } = props;
+export function EntryEditor(props: { data: ModelServers; loaded: ModelServerInfo | null; initial: EntryForm; reload(): Promise<unknown> }) {
+  const client = useApi();
+  const { data, loaded } = props;
   const [form, setForm] = useState(props.initial);
   const [probe, setProbe] = useState<{ key: string; result: ModelServerProbe } | null>(null);
   const isNew = !loaded;
@@ -98,7 +99,7 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
               ? "A model ID clients can name, and the backends that can serve it, tried in order."
               : [ORIGIN[loaded.origin], loaded.status, loaded.serving && `served by ${loaded.serving}`].filter(Boolean).join(" · ")}
           </CardDescription>
-          {!isNew && data.editable && (
+          {!isNew && (
             <CardAction>
               <Button type="button" variant="outline" size="sm" asChild>
                 <a href={serversHash({ view: "new", dup: loaded.model_id })}>
@@ -111,7 +112,6 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
         </CardHeader>
         <form onSubmit={save.run}>
           <CardContent className="grid gap-6">
-            {!data.editable && <Notice notice={{ text: "Read-only: MODEL_SERVERS_SAVED_FILE is empty, so changes cannot be saved." }} />}
             <Notice notice={save.notice.text ? save.notice : test.notice} />
 
             <section className="grid gap-3">
@@ -126,7 +126,7 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
                   triggerClassName="font-mono text-xs"
                   value={form.task}
                   onChange={(v) => set({ task: v as ModelTask })}
-                  options={(data.tasks.length ? (data.tasks as ModelTask[]) : TASKS).map((t) => ({ value: t, label: t, className: "font-mono text-xs" }))}
+                  options={(data.tasks as ModelTask[]).map((t) => ({ value: t, label: t, className: "font-mono text-xs" }))}
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -169,7 +169,7 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
             </section>
           </CardContent>
           <CardFooter className="mt-6 flex flex-wrap items-center gap-3 border-t pt-4 [.border-t]:pt-4">
-            {loaded && data.editable && loaded.origin === "saved" && (
+            {loaded?.origin === "saved" && (
               <ConfirmButton
                 size="default"
                 title={`Delete ${loaded.model_id}?`}
@@ -178,7 +178,7 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
                 onConfirm={remove.run}
               />
             )}
-            {loaded && data.editable && loaded.origin === "replaced" && (
+            {loaded?.origin === "replaced" && (
               <ConfirmButton
                 size="default"
                 label="Revert to the file"
@@ -196,7 +196,7 @@ export function EntryEditor(props: { client: ApiClient; data: ModelServers; load
               <SubmitButton type="button" variant="outline" busy={test.busy} icon={<Radar aria-hidden="true" />} onClick={test.run}>
                 Test
               </SubmitButton>
-              <SubmitButton busy={save.busy} disabled={!data.editable || (!isNew && !dirty)}>
+              <SubmitButton busy={save.busy} disabled={!isNew && !dirty}>
                 {isNew ? "Create" : "Save"}
               </SubmitButton>
             </div>

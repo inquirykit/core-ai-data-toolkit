@@ -12,7 +12,7 @@ import json
 from typing import Any, Dict, List
 
 from . import signing, tsa
-from .record import DEFAULT_WORKSPACE_ID, GENESIS_HASH, is_canonical, sha256_hex
+from .record import GENESIS_HASH, is_canonical, sha256_hex
 from .store import Ledger
 
 
@@ -45,7 +45,7 @@ def verify_all(store: Ledger) -> Dict[str, Any]:
             record = None
             report("error", f"record is not valid JSON: {e}")
         if record is not None:
-            _check_body(row, record, data, prev_hash, fingerprint, store.workspace_id, report)
+            _check_body(row, record, data, prev_hash, fingerprint, store.workspace, report)
         _check_files(store, row, data, record, report)
 
         token = store.tsr_of(row)
@@ -64,7 +64,7 @@ def verify_all(store: Ledger) -> Dict[str, Any]:
         prev_hash = row["record_hash"]
 
     return {
-        "workspace": store.workspace_id,
+        "workspace": store.workspace,
         "ok": not any(i["severity"] == "error" for i in issues),
         "records": len(records),
         "timestamped": timestamped,
@@ -88,8 +88,7 @@ def _check_body(row, record, data: bytes, prev_hash: str, fingerprint: str, work
         report("error", "captureId inside record does not match index")
     if record.get("caseId") != row["case_id"]:
         report("error", "caseId inside record does not match index")
-    # v2 records, from before workspaces, name none: they are the default workspace's.
-    if record.get("workspaceId", DEFAULT_WORKSPACE_ID) != workspace_id:
+    if record.get("workspaceId") != workspace_id:
         report("error", "workspaceId inside record does not match its workspace")
     service = record.get("service")
     if not isinstance(service, dict) or service.get("signingKeySha256") != fingerprint:

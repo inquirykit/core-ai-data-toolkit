@@ -1,7 +1,7 @@
 """
 The errors a request's caller can act on, each knowing what it means over HTTP.
 
-The stores, the job runner, the model cache and the Hub downloads raise these;
+The stores, the job runner and the model cache raise these;
 api/app.py answers every one with its ``status``, ``headers`` and message, so a
 route never turns an error into a status by hand. Each also is the builtin a
 caller would have caught (a NotFound is a LookupError, a Refused a ValueError),
@@ -49,7 +49,7 @@ class Unauthorized(ServiceError, PermissionError):
 
 
 class Forbidden(ServiceError, PermissionError):
-    """The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only namespace."""
+    """The key is good, but this is not allowed: a model outside ALLOWED_MODELS, a read-only workspace."""
 
     status = 403
 

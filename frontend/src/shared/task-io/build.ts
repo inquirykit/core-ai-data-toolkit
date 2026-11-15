@@ -229,3 +229,36 @@ export function decisionSummary(answer: Record<string, unknown>): { headline: st
   if (Array.isArray(answer.prediction_set) && answer.prediction_set.length > 1) flags.push(`could be any of: ${answer.prediction_set.join(", ")}`);
   return { headline, probs, flags };
 }
+
+// ------------------------------------------------------- tabular prediction
+/** How a tabular predictor's column is entered: a number, true or false, or text. */
+export type TabularKind = "number" | "bool" | "text";
+
+/**
+ * A tabular predictor's input fields: each column it was trained on, by its type there (AutoGluon's: int, float,
+ * bool, object, category, datetime). A true/false column is sent as a boolean: AutoGluon reads the text "true" as
+ * neither, and predicts as if the value were something else.
+ */
+export function tabularFields(columns: Record<string, string>): { name: string; kind: TabularKind }[] {
+  return Object.entries(columns).map(([name, type]) => ({ name, kind: type === "int" || type === "float" ? "number" : type === "bool" ? "bool" : "text" }));
+}
+
+/** One row from the fields as typed, an empty field as missing; with each class's probability if asked. */
+export function tabularInput(fields: { name: string; kind: TabularKind }[], values: Record<string, string>, probabilities: boolean): Built {
+  const row: Record<string, unknown> = {};
+  for (const f of fields) {
+    const raw = (values[f.name] ?? "").trim();
+    if (!raw) row[f.name] = null;
+    else if (f.kind === "text") row[f.name] = raw;
+    else if (f.kind === "bool") {
+      if (!/^(true|false)$/i.test(raw)) return fail(`${f.name} is true or false.`);
+      row[f.name] = raw.toLowerCase() === "true";
+    } else if (Number.isFinite(Number(raw))) row[f.name] = Number(raw);
+    else return fail(`${f.name} is a number.`);
+  }
+  return { input: { rows: [row], probabilities }, problem: "" };
+}
+
+/** A training row's values as the fields hold them, as text. */
+export const tabularValues = (sample: Record<string, unknown> | null | undefined): Record<string, string> =>
+  Object.fromEntries(Object.entries(sample ?? {}).map(([k, v]) => [k, v == null ? "" : String(v)]));

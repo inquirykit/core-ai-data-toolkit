@@ -39,7 +39,10 @@ service uses are imported here, so ``models.servers`` is the one module to
 import.
 """
 
-from .entries import parse_specs  # noqa: F401  (the names the rest of the service uses, through models.servers)
+from .entries import (  # noqa: F401  (the names the rest of the service uses, through models.servers)
+    MODEL_ID, PROVIDER_NAME, TASKS, ModelEntry, Provider, ServerSpec, ServerStore, dump_entry, is_key_variable,
+    key_variable, new_commands, parse_specs, provider_key,
+)
 from .model import NoBackend, ServerModel, probe  # noqa: F401
 from .processes import _free_port, _processes, _sleeping, stop_all  # noqa: F401
 from .registry import (  # noqa: F401

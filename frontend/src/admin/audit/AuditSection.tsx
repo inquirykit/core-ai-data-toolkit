@@ -7,7 +7,7 @@ import { History } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { EmptyCard, SelectInput, StatusLabel } from "../../shared/components";
 import { fmtAgo, fmtClock, fmtMs } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
@@ -61,7 +61,17 @@ const COLUMNS: GridColumn<AuditEntry>[] = [
     ),
   },
   { key: "status", label: "Outcome", className: "whitespace-nowrap", render: (e) => <StatusLabel status={outcomeOf(e.status)} /> },
-  { key: "actor", label: "Key", className: "whitespace-nowrap", render: (e) => actorLabel(e.actor) },
+  {
+    key: "actor",
+    label: "Key",
+    className: "whitespace-nowrap",
+    render: (e) => (
+      <>
+        {actorLabel(e.actor)}
+        {e.key_id && <div className="font-mono text-xs text-muted-foreground" title="The client key's id (API keys)">{e.key_id}</div>}
+      </>
+    ),
+  },
   {
     key: "from",
     label: "From",
@@ -82,15 +92,17 @@ const COLUMNS: GridColumn<AuditEntry>[] = [
   { key: "duration", label: "Took", align: "right", className: "whitespace-nowrap tabular-nums text-muted-foreground", render: (e) => fmtMs(e.duration_ms) },
 ];
 
-export function AuditSection({ client }: { client: ApiClient }) {
+export function AuditSection() {
+  const client = useApi();
   const [filters, setFilters] = useState<AuditFilters>(NO_FILTERS);
   const [route, setRoute] = useState("");
-  // Paged by the last id of the page before (undefined: the newest page); new filters start from the newest.
-  const pages = useCursorPages<number>(filters);
+  // Paged by each page's next (undefined: the newest page); new filters start from the newest.
+  const pages = useCursorPages(filters);
   const query = client.useQuery("get", "/admin/audit", { params: { query: auditQuery(filters, pages.cursor) } });
   const data = query.data ?? null;
   const error = errorText(query.error);
   const entries = data?.entries ?? null;
+  const next = data?.next ?? undefined;
 
   const filter = (patch: Partial<AuditFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const submit = (event: FormEvent) => {
@@ -105,7 +117,7 @@ export function AuditSection({ client }: { client: ApiClient }) {
         title="The audit log is off"
         body={
           <>
-            Set <code>AUDIT_RETENTION_DAYS</code> above 0 (and <code>ARCADEDB_PATH</code>) and restart the server.
+            Set <code>AUDIT_RETENTION_DAYS</code> above 0 and restart the server.
           </>
         }
       />
@@ -149,16 +161,16 @@ export function AuditSection({ client }: { client: ApiClient }) {
       }
       after={
         entries &&
-        (pages.hasPrevious || entries.length === AUDIT_PAGE) && (
+        (pages.hasPrevious || next) && (
           <Pager
             start={pages.index * AUDIT_PAGE}
             shown={entries.length}
             count={null}
             hasPrevious={pages.hasPrevious}
-            hasNext={entries.length === AUDIT_PAGE}
+            hasNext={Boolean(next)}
             loading={query.isFetching}
             onPrevious={pages.previous}
-            onNext={() => pages.next(entries[entries.length - 1]?.id)}
+            onNext={() => pages.next(next)}
           />
         )
       }

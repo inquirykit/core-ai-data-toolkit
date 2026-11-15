@@ -1,6 +1,5 @@
 {
   "name": "ipinfo_lite",
-  "kind": "http",
   "description": "Country and ASN of an IP address (IPinfo Lite, unlimited with a free token)",
   "docs": "https://ipinfo.io/developers",
   "inputs": [

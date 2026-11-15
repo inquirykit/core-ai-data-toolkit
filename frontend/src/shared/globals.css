@@ -1,14 +1,18 @@
-/* Shared by every page: /admin, /admin/setup and /playground.
+/* Shared by every page: /admin and /admin/setup.
    Tailwind v4 with the shadcn/ui theme (zinc neutrals, indigo primary), plus the chart and status
-   colors, which charts.tsx also reads as CSS variables. */
+   colors, which charts.tsx also reads as CSS variables. This is the modern style; the others
+   (theme.ts) are styles/<name>.css, each setting these variables again under its data-style. */
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./styles/terminal.css";
+@import "./styles/metro.css";
 /* The form widgets of RJSF's shadcn theme (schema-form-view.tsx) carry Tailwind classes of their own. */
 @source "../../node_modules/@rjsf/shadcn/dist";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --font-body: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
@@ -28,23 +32,22 @@
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.585 0.233 277.117);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.511 0.262 276.966);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.585 0.233 277.117);
 
   /* The product's accent: the logo gradient and text selection. */
   --brand-1: oklch(0.585 0.233 277.117);
   --brand-2: oklch(0.627 0.265 303.9);
 
-  /* Charts and status: one series color, then status hues. */
+  /* Charts and status: the series colors, then status hues. A chart of one series uses --series-1; one of several
+     (the Overview's routing picture, a line per task) takes them in this order, which is checked for colorblind
+     readers in each theme, and green and red are left to the status hues. */
   --grid: oklch(0.94 0.003 286.32);
   --axis: oklch(0.871 0.006 286.286);
   --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #6250d6;
   --good: #0ca30c;
   --warning: #fab219;
   --serious: #ec835a;
@@ -58,6 +61,7 @@
   --nav-monitor: #2a78d6;
   --nav-models: oklch(0.56 0.24 285);
   --nav-data: #0f8a7e;
+  --nav-automate: oklch(0.58 0.2 345);
   --nav-system: oklch(0.552 0.016 285.938);
   --glass: oklch(0.985 0.002 260 / 0.45);
   --glass-edge: oklch(1 0 0 / 0.7);
@@ -103,14 +107,6 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.673 0.182 276.935);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.585 0.233 277.117);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.673 0.182 276.935);
 
   --brand-1: oklch(0.673 0.182 276.935);
   --brand-2: oklch(0.714 0.203 305.504);
@@ -118,12 +114,18 @@
   --grid: oklch(0.27 0.006 286.033);
   --axis: oklch(0.37 0.013 285.805);
   --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #9085e9;
   --good-text: #22c55e;
   --critical-text: #f87171;
 
   --nav-monitor: #5b9ee8;
   --nav-models: oklch(0.7 0.17 285);
   --nav-data: #2bb5a6;
+  --nav-automate: oklch(0.72 0.15 345);
   --nav-system: oklch(0.705 0.015 286.067);
   --glass: oklch(0.2 0.03 260 / 0.45);
   --glass-edge: oklch(1 0 0 / 0.1);
@@ -149,7 +151,8 @@
 }
 
 @theme inline {
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  /* A variable, so a style can set the pages' font. */
+  --font-sans: var(--font-body);
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -173,14 +176,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
   --color-brand-1: var(--brand-1);
   --color-brand-2: var(--brand-2);
   --color-grid: var(--grid);
@@ -311,14 +306,14 @@
   to { transform: translate(22%, -14%) scale(1.12); }
 }
 
-/* A menu item's icon tile in its group's hue (--hue, from Shell.tsx): tinted, solid on the page shown. */
+/* A menu item's icon tile in its group's hue (--hue, from Shell.tsx): tinted, solid on the page shown or one of its tabs. */
 .nav-tile {
   color: var(--hue);
   background: color-mix(in oklab, var(--hue) 14%, transparent);
   /* Only the hover grows; the colors switch at once, since halfway through a fade the icon is its tile's color and blinks out. */
   transition: scale 0.2s;
 }
-[aria-current="page"] > .nav-tile {
+[aria-current] > .nav-tile {
   color: white;
   background: var(--hue);
   box-shadow: 0 3px 8px -2px color-mix(in oklab, var(--hue) 60%, transparent);

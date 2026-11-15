@@ -3,9 +3,9 @@
 // the requests (RequestsTable.tsx), per-model figures (ModelsTable.tsx) and
 // model events (EventsFeed.tsx) of that range, plus the server's log
 // (LogView.tsx). A request opens its input and output (TraceDialog.tsx, at
-// #/activity/<trace id>); searching the requests' words lists the traces that
-// hold them instead of the request metadata. It polls on its own, since what
-// it asks for depends on the range.
+// #/activity/<trace id>); searching their words finds the requests whose kept
+// inputs or outputs hold them. It polls on its own, since what it asks for
+// depends on the range.
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ApiClient } from "../../shared/api";
+import { useApi, type ApiClient } from "../../shared/api";
 import { useDebounced, useHash } from "../../shared/browser";
 import { Segmented, SelectInput, StatusDot } from "../../shared/components";
 import { fmtInt, fmtMs, fmtPct, plural } from "../../shared/format";
@@ -31,13 +31,11 @@ import {
   filterLogs,
   fmtRange,
   fromRequestRow,
-  fromTrace,
   mergeLogs,
   panRange,
   presetOf,
   presetView,
   rangeOf,
-  searchesTraces,
   traceFromHash,
   viewOf,
   zoomRange,
@@ -83,13 +81,15 @@ interface Fetched {
   context: Timeline | null;
   events: ModelEvent[];
   requests: RequestItem[];
-  /** Whether the requests came from the traces (a words or tag search) */
+  /** Whether the requests were found by their words (only those with kept inputs and outputs can be) */
   searched: boolean;
+  // Whether requests' inputs and outputs are kept, and how long (null until the first load)
+  capture: TraceCapture | null;
 }
 
 /** What shows before the first load. */
 const NO_LINES: LogLine[] = [];
-const NOTHING: Fetched = { key: "", at: 0, data: null, context: null, events: [], requests: [], searched: false };
+const NOTHING: Fetched = { key: "", at: 0, data: null, context: null, events: [], requests: [], searched: false, capture: null };
 
 /** The server log so far: each load adds the lines after the last one. */
 interface FetchedLogs {
@@ -98,8 +98,8 @@ interface FetchedLogs {
 }
 
 /**
- * The requests of a range: their metadata, or, when words or a tag are
- * searched, the traces that match (only they have the words).
+ * The requests of a range, those whose kept input or output holds the words searched for, and whether (and how
+ * long) inputs and outputs are kept.
  */
 async function fetchRequests(
   client: ApiClient,
@@ -109,24 +109,17 @@ async function fetchRequests(
   words: string,
   tag: string,
   signal: AbortSignal,
-): Promise<[RequestItem[], boolean]> {
+): Promise<[RequestItem[], TraceCapture]> {
   // An empty filter is left out of the query.
-  if (searchesTraces(words, tag)) {
-    const body = await client.get("/admin/traces", {
-      params: { query: { since: r.since, until: r.until, limit: REQUEST_LIMIT, status: status || undefined, model: model || undefined, q: words || undefined, tag: tag || undefined } },
-      signal,
-    });
-    return [body.traces.map(fromTrace), true];
-  }
   const body = await client.get("/admin/requests", {
-    params: { query: { since: r.since, until: r.until, limit: REQUEST_LIMIT, status: status || undefined, model: model || undefined } },
+    params: { query: { since: r.since, until: r.until, limit: REQUEST_LIMIT, status: status || undefined, model: model || undefined, q: words || undefined, tag: tag || undefined } },
     signal,
   });
-  return [body.requests.map(fromRequestRow), false];
+  return [body.requests.map(fromRequestRow), body.capture];
 }
 
-export function ActivitySection(props: { client: ApiClient; monitoring: boolean | null }) {
-  const { client } = props;
+export function ActivitySection(props: { monitoring: boolean | null }) {
+  const client = useApi();
   const [view, setView] = useState<View>(presetView(DEFAULT_SPAN));
   const [presetSpan, setPresetSpan] = useState(DEFAULT_SPAN);
   const [clock, setClock] = useState(now);
@@ -148,9 +141,6 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
   const buckets = bucketsFor(Math.max(0, chartWidth - CHART_MARGINS));
   const live = view.until == null;
 
-  // Whether requests leave traces, and for how long: said once, in the footnote and the detail.
-  const traces = client.useQuery("get", "/admin/traces", { params: { query: { limit: 1 } } });
-  const capture = traces.data?.capture ?? null;
 
   // --------------------------------------------------------------- fetching
   // After a pause (a drag changes the range many times a second, typing a
@@ -165,13 +155,13 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
       const r = rangeOf(view, at);
       // The navigator shows at least a week, and always contains the range.
       const contextSpan = Math.max(CONTEXT_SPAN_S, at - r.since);
-      const [data, events, [requests, searched], context] = await Promise.all([
+      const [data, events, [requests, capture], context] = await Promise.all([
         client.get("/admin/timeline", { params: { query: { since: r.since, until: r.until, buckets } }, signal }),
         client.get("/admin/events", { params: { query: { since: r.since, until: r.until, limit: 500 } }, signal }),
         fetchRequests(client, r, status, model, words, tag, signal),
         client.get("/admin/timeline", { params: { query: { since: at - contextSpan, until: at, buckets: 120 } }, signal }),
       ]);
-      return { key, at, data, context, events: events.events, requests, searched };
+      return { key, at, data, context, events: events.events, requests, searched: Boolean(words), capture };
     },
     ...poll(REFRESH_MS),
   });
@@ -206,7 +196,7 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
   };
   const reset = () => choosePreset(presetSpan);
 
-  const { data, context, events, requests, searched } = fetched;
+  const { data, context, events, requests, searched, capture } = fetched;
   const totals = data?.totals;
   const failed = totals ? totals.client_errors + totals.errors : 0;
   const visibleLogs = useMemo(
@@ -221,7 +211,7 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
           <Info aria-hidden="true" />
           <AlertDescription>
             <p>
-              Monitoring is off (<code>ARCADEDB_PATH</code> is empty or <code>MONITORING_RETENTION_DAYS</code> is 0), so there is no request history to chart. The server log
+              Monitoring is off (<code>MONITORING_RETENTION_DAYS</code> is 0), so there is no request history to chart. The server log
               still shows.
             </p>
           </AlertDescription>
@@ -232,8 +222,8 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
           <Info aria-hidden="true" />
           <AlertDescription>
             <p>
-              Inputs and outputs are not kept: <code>TRACE_RETENTION_DAYS</code> is 0. Requests still list, but open to nothing, and
-              searching their words finds only what was kept before.
+              Inputs and outputs are not kept: <code>TRACE_RETENTION_DAYS</code> or <code>MONITORING_RETENTION_DAYS</code> is 0. Requests
+              still list, but open to nothing, and searching their words finds only what was kept before.
             </p>
           </AlertDescription>
         </Alert>
@@ -393,7 +383,7 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
 
           <TabsContent value="requests">
             <div className="max-h-[600px] overflow-y-auto">
-              <RecentRequests requests={requests} withPreview={searched} onOpen={(id) => (location.hash = `#/activity/${encodeURIComponent(id)}`)} />
+              <RecentRequests requests={requests} filtered={Boolean(status || model || words || tag)} onOpen={(id) => (location.hash = `#/activity/${encodeURIComponent(id)}`)} />
             </div>
             <Footnote>{requestsNote(requests.length, searched, capture)}</Footnote>
           </TabsContent>
@@ -421,7 +411,7 @@ export function ActivitySection(props: { client: ApiClient; monitoring: boolean 
         </Tabs>
       </Card>
 
-      <TraceDialog client={client} id={open} capture={capture} onClose={() => (location.hash = "#/activity")} />
+      <TraceDialog id={open} capture={capture} onClose={() => (location.hash = "#/activity")} />
     </>
   );
 }

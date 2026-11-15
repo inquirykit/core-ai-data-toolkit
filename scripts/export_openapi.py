@@ -11,6 +11,7 @@ tests/test_openapi_snapshot.py fails when the committed file is out of date.
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,9 +31,10 @@ def render(spec: dict) -> str:
 def main() -> None:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    # Defaults only: no .env, no setup wizard, no database (so no JVM), no enrichers.
-    os.environ.update(ENV_FILE=os.devnull, SETUP_WIZARD="false", ARCADEDB_PATH="", ENRICHERS_DIR="")
-    Path(sys.argv[1]).write_text(render(schema()))
+    # Defaults only: no .env, no setup wizard, and an empty DATA_DIR (the app opens nothing in it to make its schema).
+    with tempfile.TemporaryDirectory() as data:
+        os.environ.update(ENV_FILE=os.devnull, SETUP_WIZARD="false", DATA_DIR=data)
+        Path(sys.argv[1]).write_text(render(schema()))
 
 
 if __name__ == "__main__":

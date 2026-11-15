@@ -21,7 +21,9 @@ Within the first group that applies, the class registered for ``task`` wins
 request is rejected rather than handed to a class built for something else.
 
 Listed IDs can carry a ``ModelCard`` (a description and tags), which the
-model browser in /admin and /playground shows (GET /models/catalog).
+model browser in /admin shows (GET /models/catalog). Besides the IDs it
+registers, a class can list IDs that come and go (``BaseModel.listed``: the
+models jobs here trained).
 """
 
 import fnmatch
@@ -197,9 +199,15 @@ def entry_for(model_id: str, task: str) -> Entry:
 
 
 def claimed_tasks(model_id: str) -> List[str]:
-    """Tasks some class claims ``model_id`` for by ID or pattern (not by fallback)."""
+    """Tasks some class claims ``model_id`` for by ID or pattern (not by fallback). When a class that claims it by
+    pattern also lists it (``BaseModel.listed``), only the tasks it lists it for: a predictor a job trained serves the
+    one task it was trained for, whatever else its pattern covers."""
     candidates, specific = _candidates(model_id)
-    return list(dict.fromkeys(e.task for e in candidates)) if specific else []
+    if not specific:
+        return []
+    tasks = list(dict.fromkeys(e.task for e in candidates))
+    own = [t for t in tasks if any(card.id == model_id for e in candidates if e.task == t for card in e.cls.listed(t))]
+    return own or tasks
 
 
 def operator_chose(model_id: str) -> bool:
@@ -207,6 +215,12 @@ def operator_chose(model_id: str) -> bool:
     (``BaseModel.operator_chose``): clients may then use it whatever ALLOWED_MODELS says."""
     candidates, specific = _candidates(model_id)
     return specific and any(cls.operator_chose(model_id) for cls in dict.fromkeys(e.cls for e in candidates))
+
+
+def prompts(model_id: str) -> Dict[str, str]:
+    """The prompts the class serving ``model_id`` for embedding says it wants (``BaseModel.prompts``). It may fetch
+    a file from the Hub, so it blocks."""
+    return resolve(model_id, "embedding").prompts(model_id)
 
 
 def known_tasks() -> List[str]:
@@ -220,16 +234,18 @@ def catalog() -> Dict[str, List[str]]:
 
 
 def cards() -> Dict[str, Dict[str, ModelCard]]:
-    """task -> {model ID -> its card}, in the order the IDs were first registered.
+    """task -> {model ID -> its card}, in the order the IDs were first registered, each class's listed ones
+    (``BaseModel.listed``) after those it registers.
 
     When an ID is registered again (a model server taking over a model
-    file's ID), the later card wins but keeps what it leaves out.
+    file's ID), the later card wins but keeps what it leaves out. Listing
+    may read files (the jobs' folders), so it blocks.
     """
     discover()
     out: Dict[str, Dict[str, ModelCard]] = {task: {} for task in known_tasks()}
     for entry in _entries:
         listed = out[entry.task]
-        for card in entry.cards:
+        for card in (*entry.cards, *entry.cls.listed(entry.task)):
             earlier = listed.get(card.id)
             listed[card.id] = card if earlier is None else earlier.merged(card)
     return out

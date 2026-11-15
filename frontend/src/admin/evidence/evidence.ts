@@ -1,5 +1,6 @@
 // What the Evidence section (EvidenceSection.tsx) needs that is not drawing:
-// where the hash points (a case, a capture, or a search across the cases),
+// where the hash points (a case, a capture, or a search across the cases, in
+// a workspace),
 // short forms of hashes and times, the words of a capture's time stamp state
 // and of an enrichment item, a search's words to mark in a snippet, and the
 // verify report's one-line summary.
@@ -11,7 +12,7 @@ import type { CaptureSummary, EnrichmentItem, VerifyReport } from "../../shared/
 
 // ------------------------------------------------------------------ hash
 export interface EvidenceLocation {
-  /** The workspace whose ledger is shown: "?workspace=" in the hash, the default one without */
+  /** The workspace whose ledger is shown, by its /db name: "?workspace=" in the hash, the default one without */
   workspace: string;
   /** The case whose captures are listed; null before one is chosen (then the inbox) */
   caseId: string | null;
@@ -41,10 +42,10 @@ const SORTS: SearchSort[] = ["relevance", "newest", "oldest"];
 const SEARCH_PART = "_search";
 
 export const INBOX = "inbox";
-/** The workspace that held every capture before there were workspaces; clients that name none use it. */
+/** The default workspace's name: clients that name none (the browser extension) capture there. */
 export const DEFAULT_WORKSPACE = "default";
 
-/** What "#/evidence", "#/evidence/<case>" and "#/evidence/<case>/<capture>" point at, each with "?workspace=<id>"
+/** What "#/evidence", "#/evidence/<case>" and "#/evidence/<case>/<capture>" point at, each with "?workspace=<name>"
  * for a workspace other than the default one. */
 export function locationFromHash(hash: string): EvidenceLocation {
   const { parts, params } = parseHash(hash);

@@ -8,13 +8,11 @@ the previous record's hash in its workspace's chain. It is serialized once, as
 RFC 8785 canonical JSON, and those exact bytes are hashed, signed and stored;
 nothing ever re-serializes them.
 
-v3 records name their workspace (``workspaceId``). v2 records, from before
-workspaces, have none: they are all in the default workspace.
+A record names its workspace (``workspaceId``), which ``verify`` checks.
 """
 
 import hashlib
 import json
-import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -30,11 +28,7 @@ GENESIS_HASH = "0" * 64
 DEFAULT_CASE_ID = "inbox"
 DEFAULT_CASE_NAME = "Inbox"
 DEFAULT_WORKSPACE_ID = "default"
-DEFAULT_WORKSPACE_NAME = "Default"
 MAX_ARTIFACT_NAME = 100
-# Lower-case letters and digits in groups joined by single hyphens, so a UUID fits.
-WORKSPACE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-MAX_WORKSPACE_ID = 36
 
 
 @dataclass
@@ -54,15 +48,14 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
-def check_workspace_id(value: Any) -> str:
-    if not isinstance(value, str) or len(value) > MAX_WORKSPACE_ID or not WORKSPACE_ID.match(value):
-        raise Refused(f"a workspace id is 1-{MAX_WORKSPACE_ID} lower-case letters and digits, "
-                                 "in groups joined by single hyphens (a UUID, say)")
-    return value
+def iso_time(seconds: float) -> str:
+    """A Unix time as UTC, millisecond precision, Z suffix: 2026-10-18T12:00:00.123Z."""
+    when = datetime.fromtimestamp(seconds, timezone.utc)
+    return when.strftime("%Y-%m-%dT%H:%M:%S.") + f"{when.microsecond // 1000:03d}Z"
 
 
 def now_iso() -> str:
-    """UTC, millisecond precision, Z suffix: 2026-10-18T12:00:00.123Z."""
+    """Now, as ``iso_time`` writes it."""
     now = datetime.now(timezone.utc)
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 

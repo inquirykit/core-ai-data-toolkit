@@ -5,9 +5,10 @@ import time
 
 import pytest
 
+from models.batching import Slots
 from models.cache import CapacityError
 from models.events import RequestContext, request_context
-from tasks import HIGH, LOW, NORMAL
+from core.priorities import HIGH, LOW, NORMAL
 from models.manager import ModelManager
 from tests.fakes import FakeModel, registered
 
@@ -150,5 +151,55 @@ def test_requests_for_a_model_with_no_room_give_up_at_their_own_deadline():
         assert all(isinstance(o, CapacityError) for o in outcomes)
         assert time.monotonic() - started < 0.6
         busy.cancel()
+
+    asyncio.run(scenario())
+
+
+# ------------------------------------------------------------- the model's slots
+def test_slots_go_most_urgent_first_and_one_that_stops_waiting_takes_none():
+    async def scenario():
+        slots = Slots(1)
+        got = []
+        release = asyncio.Event()
+
+        async def holder():
+            async with slots.take(LOW):
+                got.append("holder")
+                await release.wait()
+
+        async def wanting(name, priority):
+            async with slots.take(priority):
+                got.append(name)
+
+        held = asyncio.create_task(holder())
+        await asyncio.sleep(0)
+        waiting = [asyncio.create_task(wanting(name, priority))
+                   for name, priority in (("low", LOW), ("normal", NORMAL), ("gone", HIGH), ("high", HIGH))]
+        await asyncio.sleep(0)
+        waiting[2].cancel()
+        release.set()
+        await asyncio.gather(held, *waiting, return_exceptions=True)
+        assert got == ["holder", "high", "normal", "low"]
+        # The one that left took no slot with it.
+        assert slots._free == slots.size == 1
+
+    asyncio.run(scenario())
+
+
+def test_a_request_someone_waits_on_runs_before_bulk_requests_already_waiting():
+    # A model that answers one request at a time, busy: the high request that came last goes next.
+    async def scenario():
+        Slow.predict_delay = 0.1
+        mgr = manager()
+        answered = []
+
+        async def ask(name, priority, start):
+            request_context.set(RequestContext(priority=priority))
+            await asyncio.sleep(start)
+            await mgr.run_inference("A", "t", name)
+            answered.append(name)
+
+        await asyncio.gather(ask("first", HIGH, 0), ask("low1", LOW, 0.07), ask("low2", LOW, 0.08), ask("high", HIGH, 0.09))
+        assert answered == ["first", "high", "low1", "low2"]
 
     asyncio.run(scenario())

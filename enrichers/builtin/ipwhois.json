@@ -1,6 +1,5 @@
 {
   "name": "ipwhois",
-  "kind": "http",
   "description": "Country, city, ASN and ISP of an IP address (ipwho.is, keyless)",
   "docs": "https://ipwhois.io/documentation",
   "inputs": [

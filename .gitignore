@@ -13,9 +13,9 @@ api/static/
 /model_servers.toml
 
 # Job environments (scripts/setup_job_env.sh)
-envs/
+/envs/
 
-# Everything the service writes under data/: ArcadeDB, config, monitoring,
+# Everything the service writes under data/: the database, config, monitoring,
 # jobs and datasets, enrichers and their cache, evidence and the ledger's
 # signing key, model servers edited in /admin, images. Only data/images/.gitkeep
 # is kept, so the image dir exists on a fresh clone.
@@ -35,6 +35,9 @@ data/images/*
 .hypothesis/
 log/
 .DS_Store
+
+# Zips scripts/make_zip.sh writes
+dist/
 
 # Research notes and reports: kept locally, not published
 research_notes/

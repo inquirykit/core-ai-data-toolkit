@@ -1,6 +1,5 @@
 {
   "name": "nvd",
-  "kind": "http",
   "description": "CVSS scores, status and CISA KEV date of a CVE (NVD; a free key raises the rate limit)",
   "docs": "https://nvd.nist.gov/developers/vulnerabilities",
   "inputs": [

@@ -1,6 +1,5 @@
 {
   "name": "threatfox",
-  "kind": "http",
   "description": "Indicators of compromise matching a value (ThreatFox by abuse.ch)",
   "docs": "https://threatfox.abuse.ch/api/",
   "inputs": [

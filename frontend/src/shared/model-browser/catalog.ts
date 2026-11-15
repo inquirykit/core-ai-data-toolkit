@@ -117,3 +117,17 @@ export function defaultTask(tasks: CatalogTask[]): string {
 
 // Vision-language models also answer text-only chats.
 export const CHAT_TASKS = ["text-generation", "vision-language"];
+
+/** The start of a model ID that names a predictor an AutoGluon job trained: "autogluon:<job id>" (jobs/autogluon/_common.py;
+ * tests/test_trained_models.py ties the two). */
+export const AUTOGLUON_PREFIX = "autogluon:";
+
+/** The Models section opened on one model's details (its Load and Try): ``#/models?model=<id>&task=<task>``. */
+export const modelHref = (id: string, task: string): string => `#/models?${new URLSearchParams({ model: id, task })}`;
+
+/** The model a Models section link names, if any. */
+export function modelFromParams(params: URLSearchParams): { id: string; task: string } | undefined {
+  const id = params.get("model");
+  const task = params.get("task");
+  return id && task ? { id, task } : undefined;
+}

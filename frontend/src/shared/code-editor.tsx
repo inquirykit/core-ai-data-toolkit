@@ -1,11 +1,11 @@
-// The editor for code the pages take: SQL and Cypher queries, JSON (a row, a
+// The editor for code the pages take: SQL queries, JSON (a row, a
 // request body, params) and JSON Lines. CodeMirror is large, so the editor
 // itself (code-editor-view.tsx) loads the first time a page shows one; until
 // then its frame stands in, the size the editor will be.
 import { lazy, Suspense, type Ref } from "react";
 import { cn } from "@/lib/utils";
 
-export type CodeLanguage = "json" | "jsonl" | "sql" | "cypher";
+export type CodeLanguage = "json" | "jsonl" | "sql";
 
 /** What a page can do with the editor beyond its value: put text at the cursor (a table's name), focus it. */
 export interface CodeEditorHandle {

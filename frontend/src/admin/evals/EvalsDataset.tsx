@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { useTaskLabels } from "../../shared/categories";
 import { downloadResponse } from "../../shared/browser";
 import { CodeEditor } from "../../shared/code-editor";
@@ -25,7 +25,6 @@ import type { Status } from "../../shared/types";
 import { fmtAgo, fmtInt, plural, statusOf } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { Dataset, Example, Priority, Run } from "../../shared/types";
-import { PRIORITY_OPTIONS } from "../jobs/jobs";
 import {
   RUN_STATUS,
   compareHref,
@@ -38,9 +37,13 @@ import {
   runProgress,
 } from "./evals";
 import { MODEL_IDS_LIST, type CatalogInfo } from "../catalog";
+import { LabelTab } from "./EvalsLabel";
+import { TrainDialog } from "./EvalsTrain";
+import { PRIORITY_OPTIONS } from "../../shared/tasks";
 
-export function DatasetView(props: { client: ApiClient; dataset: Dataset; catalog: CatalogInfo; onChange(): Promise<unknown> }) {
-  const { client, dataset } = props;
+export function DatasetView(props: { dataset: Dataset; catalog: CatalogInfo; onChange(): Promise<unknown> }) {
+  const client = useApi();
+  const { dataset } = props;
   const [tab, setTab] = useState(dataset.examples && !dataset.runs ? "examples" : dataset.runs ? "runs" : "examples");
 
   // Polled while runs are in progress, to keep their rows moving.
@@ -96,6 +99,7 @@ export function DatasetView(props: { client: ApiClient; dataset: Dataset; catalo
           {dataset.description || "No description"} · {fmtInt(detail?.examples ?? dataset.examples)} examples · {fmtInt(detail?.run_list.length ?? dataset.runs)} runs
         </CardDescription>
         <CardAction className="flex gap-2">
+          <TrainDialog dataset={dataset} />
           <SubmitButton type="button" variant="outline" size="sm" busy={exportJsonl.busy} icon={<Download aria-hidden="true" />} onClick={exportJsonl.run}>
             Export JSONL
           </SubmitButton>
@@ -108,26 +112,32 @@ export function DatasetView(props: { client: ApiClient; dataset: Dataset; catalo
           />
         </CardAction>
       </CardHeader>
-      <Tabs value={tab} onValueChange={setTab} className="gap-0">
+      {/* Labeling changes the examples: they load again when their tab opens. */}
+      <Tabs value={tab} onValueChange={(t) => (setTab(t), t === "examples" && loadedExamples.refetch())} className="gap-0">
         <div className="border-b px-4 py-3">
           <TabsList>
             <TabsTrigger value="examples">Examples</TabsTrigger>
+            <TabsTrigger value="label">Label</TabsTrigger>
             <TabsTrigger value="runs">Runs</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="examples">
-          <ExamplesTab client={client} dataset={dataset} examples={examples} onChange={examplesChanged} />
+          <ExamplesTab dataset={dataset} examples={examples} onChange={examplesChanged} />
+        </TabsContent>
+        <TabsContent value="label">
+          <LabelTab dataset={dataset} runs={detail?.run_list ?? []} onChange={props.onChange} />
         </TabsContent>
         <TabsContent value="runs">
-          <RunsTab client={client} dataset={dataset} runs={detail?.run_list ?? null} catalog={props.catalog} onChange={changed} />
+          <RunsTab dataset={dataset} runs={detail?.run_list ?? null} catalog={props.catalog} onChange={changed} />
         </TabsContent>
       </Tabs>
     </Card>
   );
 }
 
-function ExamplesTab(props: { client: ApiClient; dataset: Dataset; examples: Example[] | null; onChange(): Promise<unknown> }) {
-  const { client, dataset, examples } = props;
+function ExamplesTab(props: { dataset: Dataset; examples: Example[] | null; onChange(): Promise<unknown> }) {
+  const client = useApi();
+  const { dataset, examples } = props;
   const [input, setInput] = useState('{"text": ""}');
   const [reference, setReference] = useState("");
   const [task, setTask] = useState("");
@@ -198,11 +208,12 @@ function ExamplesTab(props: { client: ApiClient; dataset: Dataset; examples: Exa
       key: "reference",
       label: "Reference",
       className: "max-w-xs whitespace-normal",
-      render: (e) => (
-        <span className={cn("[overflow-wrap:anywhere]", open !== e.id && "line-clamp-2")}>
-          {referencePreview(e.reference, 2000) || <span className="text-muted-foreground">none</span>}
-        </span>
-      ),
+      render: (e) =>
+        open === e.id ? (
+          <ReferenceEditor key={e.id} dataset={dataset} example={e} onChange={props.onChange} />
+        ) : (
+          <span className="line-clamp-2 [overflow-wrap:anywhere]">{referencePreview(e.reference, 2000) || <span className="text-muted-foreground">none</span>}</span>
+        ),
     },
     {
       key: "from",
@@ -290,6 +301,39 @@ function ExamplesTab(props: { client: ApiClient; dataset: Dataset; examples: Exa
   );
 }
 
+/** An opened example's reference, to correct or take away (it is then one to label again). */
+function ReferenceEditor(props: { dataset: Dataset; example: Example; onChange(): Promise<unknown> }) {
+  const client = useApi();
+  const start = typeof props.example.reference === "string" ? props.example.reference : props.example.reference == null ? "" : JSON.stringify(props.example.reference);
+  const [text, setText] = useState(start);
+  const save = useAction(
+    async (reference: unknown) => {
+      await client.patch("/admin/datasets/{dataset_id}/examples/{example_id}", {
+        params: { path: { dataset_id: props.dataset.id, example_id: props.example.id } },
+        body: { reference },
+      });
+      await props.onChange();
+    },
+    { failed: "Could not change the reference" },
+  );
+  return (
+    // A click here edits, not closes the row.
+    <div className="grid gap-2" onClick={(e) => e.stopPropagation()}>
+      <Textarea aria-label="Reference" value={text} onChange={(e) => setText(e.target.value)} rows={2} />
+      <div className="flex gap-2">
+        <SubmitButton type="button" size="sm" busy={save.busy} disabled={text === start} onClick={() => save.run(parseReference(text))}>
+          Save
+        </SubmitButton>
+        {props.example.reference != null && (
+          <Button type="button" size="sm" variant="ghost" disabled={save.busy} onClick={() => save.run(null)}>
+            Take away
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const RUN_COLUMNS: GridColumn<Run>[] = [
   {
     key: "run",
@@ -312,16 +356,17 @@ const RUN_COLUMNS: GridColumn<Run>[] = [
   { key: "started", label: "Started", className: "text-muted-foreground tabular-nums", render: (r) => (r.started ? fmtAgo(r.started) : "–") },
 ];
 
-function RunsTab(props: { client: ApiClient; dataset: Dataset; runs: Run[] | null; catalog: CatalogInfo; onChange(): Promise<unknown> }) {
-  const { client, dataset, runs } = props;
-  const taskLabel = useTaskLabels(client);
+function RunsTab(props: { dataset: Dataset; runs: Run[] | null; catalog: CatalogInfo; onChange(): Promise<unknown> }) {
+  const client = useApi();
+  const { dataset, runs } = props;
+  const taskLabel = useTaskLabels();
   const [model, setModel] = useState("");
   const [task, setTask] = useState("");
   const [params, setParams] = useState("{}");
   const [name, setName] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
   const [pair, setPair] = useState<[string, string]>(["", ""]);
-  const done = runs?.filter((r) => r.status === "done") ?? [];
+  const done = runs?.filter((r) => r.status === "succeeded") ?? [];
 
   const start = useAction(
     async (event: FormEvent) => {

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { downloadResponse } from "../../shared/browser";
 import { errorText } from "../../shared/query";
 import { CodeBlock, Disclosure, Facts, Notice, StatusLabel, SubmitButton, type Fact } from "../../shared/components";
@@ -17,7 +17,8 @@ import { pretty } from "../../shared/json";
 import { DEFAULT_WORKSPACE, enrichmentLine, evidenceHash, shortHash, workspaceQuery } from "./evidence";
 import { DetailSkeleton } from "../layout";
 
-export function CaptureView({ client, workspace, caseId, captureId }: { client: ApiClient; workspace: string; caseId: string; captureId: string }) {
+export function CaptureView({ workspace, caseId, captureId }: { workspace: string; caseId: string; captureId: string }) {
+  const client = useApi();
   const query = client.useQuery(
     "get",
     "/evidence/captures/{capture_id}",

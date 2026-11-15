@@ -40,12 +40,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, Tuple
 
+from core.background import to_its_end
 from core.errors import Unavailable
-from tasks import HIGH
+from core.priorities import HIGH, LOW
 
 from . import memory
 from .base import BaseModel, ModelInfo, NullMonitor
-from .batching import Batcher
+from .batching import Batcher, Slots
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class Entry:
     info: ModelInfo
     size: int  # bytes counted against the budget
     inflight: int = 0  # requests holding this entry, waiting or running
-    slots: asyncio.Semaphore = field(default=None)  # requests running at once
+    slots: Slots = field(default=None)  # requests running at once, given out most urgent first
     pinned: bool = False  # never evicted (idle timeout and room-making skip it)
     avg_ms: Optional[float] = None  # running average request time; None until one finishes
     # Seconds a single request waits for others to share a forward pass with; 0 answers each alone.
@@ -88,7 +89,7 @@ class Entry:
     draining: bool = False
 
     def __post_init__(self):
-        self.slots = asyncio.Semaphore(max(1, self.model.max_concurrency))
+        self.slots = Slots(self.model.max_concurrency)
         if self.batch_wait_s > 0 and self.model.batches:
             self.batcher = Batcher(self.model, self.slots, self.note, self.batch_wait_s,
                                    max_size=getattr(self.model, "batch_size", 32))
@@ -103,27 +104,44 @@ class Entry:
         return max(0, self.inflight - self.max_concurrency)
 
     @property
+    def waiting(self) -> int:
+        """Requests waiting for the model now: for a slot, and when it batches, for a batch too (the batcher's own wait
+        for a slot is for those, so it is not counted again)."""
+        if self.batcher is None:
+            return self.queued
+        return self.batcher.waiting + self.slots.ahead(LOW) - int(self.batcher.asking)
+
+    @property
     def estimated_wait_ms(self) -> Optional[float]:
-        """How long the next request would wait for a slot; None before any request has finished."""
+        """How long the next request would wait for a slot; None before any request has finished. When the model
+        batches, a batch running or waiting for a slot is one pass, however many it holds, and so is each request that
+        waits for a slot of its own (the batch route's, a stream)."""
         if self.avg_ms is None:
             return None
+        if self.batcher is not None:
+            if not self.slots.full:
+                return 0.0
+            passes = self.slots.ahead(LOW) + self.batcher.waiting // self.batcher.max_size + 1
+            return passes * self.avg_ms / self.max_concurrency
         return (self.queued + 1) * self.avg_ms / self.max_concurrency if self.inflight >= self.max_concurrency else 0.0
 
     def note(self, ms: float) -> None:
         """Fold one request's time into the running average (recent ones weigh more)."""
         self.avg_ms = ms if self.avg_ms is None else 0.8 * self.avg_ms + 0.2 * ms
 
-    def admit(self, batched: bool) -> None:
-        """Refuse a request checked out of this entry that would wait longer than ``max_wait_s``: Overloaded (503),
-        with a Retry-After. ``batched``: it joins the batcher's queue, which empties a batch at a time; else it waits
-        for a slot behind the requests ahead of it. Before a request has finished nothing says how long one takes, so
-        nothing is refused."""
+    def admit(self, batched: bool, priority: int = LOW) -> None:
+        """Refuse a request of ``priority`` checked out of this entry that would wait longer than ``max_wait_s``:
+        Overloaded (503), with a Retry-After. ``batched``: it joins the batcher's queue, which empties a batch at a
+        time; else it waits for a slot. Either way only the requests as urgent or more go before it, so only theirs
+        is its wait. Before a request has finished nothing says how long one takes, so nothing is refused."""
         if batched and self.batcher is not None:
-            ahead, expected = self.batcher.waiting, self.batcher.expected_wait_s()
+            ahead, expected = self.batcher.waiting_at(priority), self.batcher.expected_wait_s(priority)
         else:
-            # Checked out already, so ``queued`` counts it: each max_concurrency of them ahead is a request's time.
-            ahead = self.inflight - 1
-            expected = None if self.avg_ms is None else self.queued * self.avg_ms / self.max_concurrency / 1000
+            # With every slot held, it waits for those ahead and then for a slot to free: each max_concurrency of them
+            # is a request's time.
+            ahead = self.slots.ahead(priority)
+            expected = None if self.avg_ms is None else (
+                (ahead + 1) * self.avg_ms / self.max_concurrency / 1000 if self.slots.full else 0.0)
         if self.max_wait_s and expected is not None and expected > self.max_wait_s:
             raise Overloaded(
                 f"{ahead} requests are ahead of this one for the model, about {expected:.0f} s of work",
@@ -402,11 +420,13 @@ class ModelCache:
         if entry is None:
             return
         try:
-            await entry.model.stop()
+            # To its end: a cancel (the request that evicts it went away) must not leave it half stopped, out of the cache.
+            await to_its_end(entry.model.stop())
         except Exception:
             logger.exception("Error while unloading model %s", key)
-        self.monitor.record_event(kind=kind, model_key=key, detail=detail)
-        logger.info("Unloaded model: %s (%s)", key, detail)
+        finally:
+            self.monitor.record_event(kind=kind, model_key=key, detail=detail)
+            logger.info("Unloaded model: %s (%s)", key, detail)
         await self._notify()
 
     async def _wait_idle(self, key: str) -> None:
@@ -549,10 +569,16 @@ class ModelCache:
                     "in_use": e.inflight,
                     "kind": e.model.kind,
                     "backend": e.model.backend,
+                    "upstream": e.model.upstream,
+                    "peer": e.model.peer,
+                    "revision": e.model.revision,
                     "pinned": e.pinned,
                     "max_concurrency": e.max_concurrency,
-                    # Requests waiting for a slot, and the wait the next one can expect.
+                    "batch_size": e.batcher.max_size if e.batcher is not None else None,
+                    # Requests waiting for a slot (the metrics' model_queued), those waiting for the model at all
+                    # (for a batch, when it batches), and the wait the next one can expect.
                     "queued": e.queued,
+                    "waiting": e.waiting,
                     "avg_request_ms": e.avg_ms,
                     "estimated_wait_ms": e.estimated_wait_ms,
                 }

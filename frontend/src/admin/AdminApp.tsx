@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ApiProvider } from "../shared/api";
 import { Boundary } from "../shared/boundary";
 import { useHash } from "../shared/browser";
 import { LoginForm, Segmented, StatusDot } from "../shared/components";
@@ -61,6 +60,7 @@ export function AdminApp() {
   const stats = client.useQuery("get", "/admin/stats", { params: { query: { window } } }, { ...poll(REFRESH_MS), enabled: live });
   const statsError = errorText(stats.error);
   const updated = statsError ? `Update failed: ${statsError}` : stats.dataUpdatedAt ? `Updated ${fmtTime(stats.dataUpdatedAt / 1000)}` : "";
+  // Above the ApiProvider below, so given the client.
   const menu = useMenuStatus(client, stats.data ?? null, statsError, live);
 
   const configError = errorText(config.error);
@@ -68,7 +68,7 @@ export function AdminApp() {
   const view = SECTIONS[section];
 
   return (
-    <>
+    <ApiProvider value={client}>
       <Shell
         active={section}
         badges={menu.badges}
@@ -84,15 +84,8 @@ export function AdminApp() {
             </>
           )
         }
-        footer={
-          live &&
-          session.hasKey && (
-            <Button type="button" variant="outline" size="sm" className="md:w-full" onClick={session.signOut}>
-              <LogOut aria-hidden="true" />
-              Sign out
-            </Button>
-          )
-        }
+        // From the first frame while a key is kept, so the menu does not move when the first loads come.
+        onSignOut={!login && session.hasKey ? session.signOut : undefined}
       >
         {login ? (
           <LoginForm
@@ -109,12 +102,11 @@ export function AdminApp() {
           />
         ) : (
           config.data && (
-            <PageMain>
+            <PageMain className={view.fill ? "flex-1 pb-0 lg:pb-0" : undefined}>
               {/* A section that throws shows what failed in its place, the menu still works, and a link followed
                   (another section, another view of it) draws it again. */}
               <Boundary what={navItem(section).label} resetKey={hash}>
                 {view.render({
-                  client,
                   config: config.data,
                   stats: stats.data ?? null,
                   catalog: catalog.data ?? NO_CATALOG,
@@ -133,6 +125,6 @@ export function AdminApp() {
             <option key={id} value={id} />
           ))}
       </datalist>
-    </>
+    </ApiProvider>
   );
 }

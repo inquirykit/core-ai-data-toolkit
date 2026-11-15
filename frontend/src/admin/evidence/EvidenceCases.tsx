@@ -5,7 +5,7 @@ import { ChevronRight, FolderOpen, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { errorText } from "../../shared/query";
 import { Notice, StatusLabel, SubmitButton } from "../../shared/components";
 import { fmtIso, plural } from "../../shared/format";
@@ -16,13 +16,13 @@ import { ListCard, LoadedCard, NavRow } from "../layout";
 import { LedgerCard } from "./EvidenceLedger";
 
 export function CasesCard(props: {
-  client: ApiClient;
   workspace: string;
   cases: EvidenceCase[] | null;
   active: string;
   error: string;
   reload(): Promise<unknown>;
 }) {
+  const client = useApi();
   const { cases, active } = props;
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -32,7 +32,7 @@ export function CasesCard(props: {
       event.preventDefault();
       const trimmed = name.trim();
       if (!trimmed) return;
-      const made = await props.client.post("/evidence/cases", { params: { query: workspaceQuery(props.workspace) }, body: { name: trimmed } });
+      const made = await client.post("/evidence/cases", { params: { query: workspaceQuery(props.workspace) }, body: { name: trimmed } });
       setName("");
       setAdding(false);
       await props.reload();
@@ -117,7 +117,8 @@ const CAPTURE_COLUMNS: GridColumn<CaptureSummary>[] = [
   },
   { key: "open", headClassName: "w-8", render: () => <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" /> },
 ];
-export function CaseView({ client, workspace, current }: { client: ApiClient; workspace: string; current: EvidenceCase }) {
+export function CaseView({ workspace, current }: { workspace: string; current: EvidenceCase }) {
+  const client = useApi();
   const query = client.useQuery(
     "get",
     "/evidence/cases/{case_id}/captures",
@@ -154,7 +155,7 @@ export function CaseView({ client, workspace, current }: { client: ApiClient; wo
           </div>
         )}
       </LoadedCard>
-      <LedgerCard client={client} workspace={workspace} />
+      <LedgerCard workspace={workspace} />
     </div>
   );
 }

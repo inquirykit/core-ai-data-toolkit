@@ -1,23 +1,9 @@
-"""/evidence: workspaces, cases, captures, annotations, todos and the verify report."""
+"""/evidence: cases, captures, annotations, todos and the verify report."""
 
 from typing import List, Literal, Optional
 
 
 from .common import Json, Out
-
-
-class EvidenceWorkspace(Out):
-    id: str
-    name: str
-    createdAt: str
-
-
-class EvidenceWorkspaces(Out):
-    workspaces: List[EvidenceWorkspace]
-
-
-class WorkspaceCreated(Out):
-    workspace: EvidenceWorkspace
 
 
 class EvidenceCase(Out):

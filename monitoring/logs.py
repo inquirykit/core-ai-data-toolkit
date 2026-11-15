@@ -4,6 +4,10 @@ The server's latest log lines, in memory, for the /admin "Activity & logs" page.
 A ``logging.Handler`` that keeps the newest ``capacity`` records in a ring.
 Nothing is written to disk: the buffer is this process's, and starts empty on
 each restart. The dashboard polls it with ``after_id`` to get only new lines.
+
+A record logged with ``extra=CONSOLE_ONLY`` goes to the console alone, never
+here: the setup code, which /admin/logs would hand to anyone before setup,
+while the admin's routes need no key yet.
 """
 
 import logging
@@ -12,6 +16,7 @@ from collections import deque
 from typing import Any, Dict, List, Optional
 
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+CONSOLE_ONLY = {"console_only": True}
 
 
 class LogBuffer(logging.Handler):
@@ -26,6 +31,8 @@ class LogBuffer(logging.Handler):
         self.setFormatter(logging.Formatter("%(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "console_only", False):
+            return
         try:
             message = self.format(record)
         except Exception:  # noqa: BLE001 - a broken record must not take the server down

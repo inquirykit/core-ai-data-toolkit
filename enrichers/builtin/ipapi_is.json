@@ -1,6 +1,5 @@
 {
   "name": "ipapi_is",
-  "kind": "http",
   "description": "Company, ASN and, with a key, datacenter/VPN/proxy/Tor/abuser flags (ipapi.is)",
   "docs": "https://ipapi.is/developers.html",
   "inputs": [

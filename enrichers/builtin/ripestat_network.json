@@ -1,6 +1,5 @@
 {
   "name": "ripestat_network",
-  "kind": "http",
   "description": "The prefix and AS numbers announcing an IP address (RIPEstat, keyless)",
   "docs": "https://stat.ripe.net/docs/02.data-api/network-info.html",
   "inputs": [

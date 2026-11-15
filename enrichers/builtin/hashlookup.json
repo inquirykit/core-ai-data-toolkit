@@ -1,6 +1,5 @@
 {
   "name": "hashlookup",
-  "kind": "http",
   "description": "Whether a hash is a known-good file, with a trust score (CIRCL hashlookup, keyless)",
   "docs": "https://hashlookup.circl.lu/",
   "inputs": [

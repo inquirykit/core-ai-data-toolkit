@@ -1,33 +1,31 @@
 """
 Generic embedding model: serves any Hub ID for embedding that no other model
-file claims. Pooling follows the model's sentence-transformers config
-(1_Pooling/config.json: mean, CLS or last token), mean when it has none;
-vectors are L2-normalized, as OpenAI's are. The IDs below are only what
-/models/list suggests.
+file claims, through sentence-transformers, which runs the steps the model's
+repo declares (its pooling, a Dense layer after it, its normalizing), and
+pools by mean a plain encoder that declares none. Vectors are L2-normalized,
+as OpenAI's are. A model server entry's in-process backend can give it a
+revision and a max_length (models/servers/entries.py); a repo with its own
+code loads only if TRUST_REMOTE_CODE_MODELS lists it. The IDs below are only
+what /models/list suggests.
 """
 
 import json
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 from models import BaseModel, ModelCard, register
-from models.base import fit_max_length
+from models.base import length_batches, token_counts
 from models.contracts import EmbeddingInput, EmbeddingOutput
 
 
-def pooling_mode(model_id: str) -> str:
-    """"mean", "cls" or "last", from the model's sentence-transformers pooling config."""
+def st_config(model_id: str, name: str, revision: Optional[str] = None) -> Optional[Any]:
+    """The model's sentence-transformers file ``name`` as JSON, or None when it has none (or it can't be read)."""
     try:
         from huggingface_hub import hf_hub_download
 
-        with open(hf_hub_download(model_id, "1_Pooling/config.json")) as f:
-            config = json.load(f)
+        with open(hf_hub_download(model_id, name, revision=revision)) as f:
+            return json.load(f)
     except Exception:
-        return "mean"
-    if config.get("pooling_mode_cls_token"):
-        return "cls"
-    if config.get("pooling_mode_lasttoken"):
-        return "last"
-    return "mean"
+        return None
 
 
 @register(task="embedding", fallback=True, ids=[
@@ -53,42 +51,55 @@ def pooling_mode(model_id: str) -> str:
               ["english", "similarity"]),
 ])
 class EmbeddingModel(BaseModel):
-    """Any Transformers encoder AutoModel loads"""
+    """Any model sentence-transformers' SentenceTransformer loads"""
 
+    # Requests the Batcher gathers into one predict_batch() (models/batching.py), so a search's one text shares a
+    # forward pass with the others arriving then; inside it, texts per pass, and characters per pass once padded.
     batch_size = 32
+    pass_size = 32
+    batch_chars = 64_000
+    load_settings = ("revision", "max_length")
+
+    @classmethod
+    def prompts(cls, model_id: str, revision: Optional[str] = None) -> Dict[str, str]:
+        """The prompts in the model's config_sentence_transformers.json (Qwen3-Embedding's query instruction,
+        EmbeddingGemma's task prefixes), by name."""
+        config = st_config(model_id, "config_sentence_transformers.json", revision)
+        prompts = config.get("prompts") if isinstance(config, dict) else None
+        if not isinstance(prompts, dict):
+            return {}
+        return {name: text for name, text in prompts.items() if isinstance(name, str) and isinstance(text, str)}
 
     def load(self):
-        from transformers import AutoModel, AutoTokenizer
+        from sentence_transformers import SentenceTransformer
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=False)
-        self.model = self.load_pretrained(AutoModel)
-        fit_max_length(self.tokenizer, self.model)
-        self.pooling = pooling_mode(self.model_id)
-
-    def _pool(self, hidden: Any, mask: Any) -> Any:
-        import torch
-
-        if self.pooling == "cls":
-            return hidden[:, 0]
-        if self.pooling == "last":
-            # The last real token of each row, wherever the padding is.
-            last = mask.shape[1] - 1 - mask.flip(1).argmax(1)
-            return hidden[torch.arange(hidden.shape[0], device=hidden.device), last]
-        weights = mask.unsqueeze(-1).to(hidden.dtype)
-        return (hidden * weights).sum(1) / weights.sum(1).clamp(min=1e-9)
+        self.model = self.load_sentence_transformers(SentenceTransformer)
 
     def predict(self, request: EmbeddingInput) -> EmbeddingOutput:
+        return self.predict_batch([request])[0]
+
+    def predict_batch(self, requests: List[EmbeddingInput]) -> List[EmbeddingOutput]:
+        """Every request's texts embedded together, in forward passes of similar lengths. The texts go in as
+        given: a /db vector field has put its prompt before them, so the model's default prompt is not added."""
         import torch
         import torch.nn.functional as F
+        from sentence_transformers.util import batch_to_device
 
-        vectors: List[List[float]] = []
-        tokens = 0
-        with torch.no_grad():
-            for start in range(0, len(request.texts), self.batch_size):
-                batch = request.texts[start:start + self.batch_size]
-                encoded = self.tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(self.model.device)
-                hidden = self.model(**encoded).last_hidden_state
-                pooled = F.normalize(self._pool(hidden, encoded["attention_mask"]).float(), dim=-1)
-                vectors.extend(pooled.cpu().tolist())
-                tokens += int(encoded["attention_mask"].sum())
-        return EmbeddingOutput(embeddings=vectors, tokens=tokens)
+        texts = [(r, text) for r, request in enumerate(requests) for text in request.texts]
+        vectors: List[Any] = [None] * len(texts)
+        tokens = [0] * len(requests)
+        with torch.inference_mode():
+            for batch in length_batches([len(text) for _, text in texts], self.pass_size, self.batch_chars):
+                features = self.model.preprocess([texts[i][1] for i in batch])
+                counts = token_counts(features, len(batch))
+                out = self.model(batch_to_device(features, self.model.device))
+                pooled = F.normalize(out["sentence_embedding"].float(), dim=-1)
+                for i, vector, n in zip(batch, pooled.cpu().tolist(), counts):
+                    vectors[i] = vector
+                    tokens[texts[i][0]] += n
+        results, start = [], 0
+        for r, request in enumerate(requests):
+            results.append(EmbeddingOutput(embeddings=vectors[start:start + len(request.texts)], tokens=tokens[r]))
+            start += len(request.texts)
+        return results
+

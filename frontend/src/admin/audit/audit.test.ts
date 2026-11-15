@@ -4,9 +4,9 @@ import { actorLabel, AUDIT_PAGE, auditQuery, NO_FILTERS, outcomeOf } from "./aud
 
 describe("the audit log's query", () => {
   it("holds the filters that are set and the page", () => {
-    expect(auditQuery(NO_FILTERS)).toEqual({ limit: AUDIT_PAGE, before_id: undefined, method: undefined, outcome: undefined, actor: undefined, route: undefined });
-    expect(queryString(auditQuery({ method: "DELETE", outcome: "refused", actor: "wrong", route: " /db " }, 42))).toBe(
-      "limit=100&before_id=42&method=DELETE&outcome=refused&actor=wrong&route=%2Fdb",
+    expect(auditQuery(NO_FILTERS)).toEqual({ limit: AUDIT_PAGE, cursor: undefined, method: undefined, outcome: undefined, actor: undefined, route: undefined });
+    expect(queryString(auditQuery({ method: "DELETE", outcome: "refused", actor: "wrong", route: " /db " }, "abc"))).toBe(
+      "limit=100&cursor=abc&method=DELETE&outcome=refused&actor=wrong&route=%2Fdb",
     );
   });
 });

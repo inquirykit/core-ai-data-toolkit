@@ -5,13 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { CodeBlock, Facts, Field, Notice, SubmitButton } from "../../shared/components";
 import type { EnricherTest, EnricherTestBody, EntityType } from "../../shared/types";
 import { OutputValue, ResultCard, type TypeChoice, TypeSelect } from "./EnrichersLookup";
 
 /** Runs the saved enricher against one value, without the cache, and shows the request it made. */
-export function TestCard({ client, name, types, blocked }: { client: ApiClient; name: string; types: EntityType[]; blocked: string }) {
+export function TestCard({ name, types, blocked }: { name: string; types: EntityType[]; blocked: string }) {
+  const client = useApi();
   const [value, setValue] = useState("");
   const [type, setType] = useState<TypeChoice>("");
   const [test, setTest] = useState<EnricherTest | null>(null);

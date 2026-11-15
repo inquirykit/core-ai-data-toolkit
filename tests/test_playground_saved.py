@@ -12,8 +12,6 @@ from core.errors import Refused
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app_module.app) as c:
-        # The test client's thread cannot start the JVM; the main thread does it here.
-        app_module.app.state.database.start_jvm()
         yield c
 
 
@@ -74,13 +72,19 @@ def test_presets_are_saved_by_name(client):
     assert client.get("/playground/presets").json()["presets"] == []
 
 
-def test_saving_needs_the_client_key_and_the_database(client, monkeypatch):
-    monkeypatch.setattr(Config, "API_KEY", "secret")
+def test_the_saved_chats_are_the_admins(client, monkeypatch):
+    # As under /db/playground: a client key, a machine's, neither reads nor changes them.
+    monkeypatch.setattr(Config, "API_KEY", "client")
+    monkeypatch.setattr(Config, "ADMIN_API_KEY", "admin")
+    saved = client.post("/playground/conversations", json=CHAT, headers={"X-API-Key": "admin"}).json()
+    as_client = {"X-API-Key": "client"}
+    assert client.get("/playground/conversations", headers=as_client).status_code == 401
+    assert client.get(f"/playground/conversations/{saved['id']}", headers=as_client).status_code == 401
+    assert client.delete(f"/playground/conversations/{saved['id']}", headers=as_client).status_code == 401
+    assert client.get("/playground/presets", headers=as_client).status_code == 401
     assert client.get("/playground/presets").status_code == 401
-    assert client.get("/playground/presets", headers={"X-API-Key": "secret"}).status_code == 200
-    monkeypatch.setattr(Config, "API_KEY", None)
-    monkeypatch.setattr(client.app.state, "playground", None)
-    assert client.get("/playground/presets").status_code == 503
+    assert client.get(f"/playground/conversations/{saved['id']}", headers={"X-API-Key": "admin"}).status_code == 200
+    assert client.delete(f"/playground/conversations/{saved['id']}", headers={"X-API-Key": "admin"}).status_code == 204
 
 
 def test_example_from_a_conversation():
@@ -121,31 +125,14 @@ def test_a_conversation_becomes_a_dataset_example(client, monkeypatch):
     client.delete(f"/playground/conversations/{saved['id']}", headers={"X-API-Key": "admin"})
 
 
-def test_the_playground_namespace_is_kept_by_the_service(client):
+def test_the_playground_workspace_is_kept_by_the_service(client):
     """Saved chats and presets change through /playground only: /db shows them, read-only, from the start."""
     ns = client.get("/db/playground").json()
     assert ns["managed"]
     assert sorted((t["name"], t["graph"]) for t in ns["tables"]) == [("conversations", False), ("presets", False)]
-    # A stray row could break the lists, and a dropped namespace every save after it: both are refused.
+    # A stray row could break the lists, and a dropped workspace every save after it: both are refused.
     assert client.put("/db/playground/conversations/junk", json={"hello": 1}).status_code == 403
     assert client.delete("/db/playground").status_code == 403
     assert client.post("/db", json={"name": "playground"}).status_code == 409
     assert client.get("/playground/conversations").status_code == 200
 
-
-def test_the_store_takes_over_the_namespace_it_made_through_db(arcade):
-    """Until 2026-10 the playground made its namespace through /db; the store adopts that one, rows and all
-    (PlaygroundStore.ADOPT), where it would refuse an admin's."""
-    import asyncio
-
-    from db.tables import SWITCHED_OFF, TableStore
-    from playground import PlaygroundStore
-
-    before = TableStore(arcade)
-    before._create_namespace("playground")
-    asyncio.run(before.upsert("playground", "presets", {"id": "p1", "name": "Old", "system": "Be brief."}))
-    assert asyncio.run(TableStore(arcade).owner("playground")) is None
-    store = PlaygroundStore(arcade, TableStore(arcade))
-    assert [p["name"] for p in asyncio.run(store.presets())] == ["Old"]
-    # The database now marks it as kept: a run that does not declare it still keeps it from clients.
-    assert asyncio.run(TableStore(arcade).owner("playground")) == SWITCHED_OFF

@@ -29,19 +29,11 @@ async def favicon():
 
 @router.get("/health")
 async def health_check(manager: deps.Manager):
-    """Health check: the device models run on and the model cache's state."""
-    return {
-        "status": "healthy",
-        "device": manager.device,
-        "cache_status": manager.get_cache_status(),
-    }
+    """Health check: the service answers, and the device models run on. Anyone may ask, so it says nothing of the
+    models loaded or where they are served (GET /models/status does, with the admin key)."""
+    return {"status": "healthy", "device": manager.device}
 
 
 @router.get("/admin", include_in_schema=False)
 async def dashboard():
     return page("admin.html")
-
-
-@router.get("/playground", include_in_schema=False)
-async def playground():
-    return page("playground.html")

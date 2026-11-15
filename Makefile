@@ -21,15 +21,16 @@ test:  ## Unit tests, Python and frontend (no model downloads, no torch needed)
 	uv run pytest
 	cd frontend && npm test
 
-lint:  ## Unused imports and variables, undefined names (ruff); the frontend's types (tsc)
+lint:  ## Unused imports and variables, undefined names (ruff); the wiring's types (pyright on api/app.py); the frontend's types (tsc)
 	uv run ruff check .
+	uvx pyright==1.1.414 --pythonpath "$$(uv run python -c 'import sys; print(sys.executable)')" api/app.py
 	cd frontend && npm run typecheck
 
 lock:  ## After editing pyproject.toml: refresh uv.lock and the requirements.txt the image installs
 	uv lock
 	uv export --no-dev --no-hashes --no-emit-project -o requirements.txt
 
-up:  ## Build the image and start the container (JOB_ENVS=autogluon adds the AutoGluon jobs)
+up:  ## Build the image and start the container
 	$(COMPOSE) up --build -d
 
 down:  ## Stop the container (volumes with weights and settings are kept)
@@ -38,4 +39,7 @@ down:  ## Stop the container (volumes with weights and settings are kept)
 logs:  ## Follow the container's logs
 	$(COMPOSE) logs -f
 
-.PHONY: help install run dev test lint lock up down logs
+zip:  ## Zip the project's files (what git tracks, no .env or data/) into dist/
+	scripts/make_zip.sh
+
+.PHONY: help install run dev test lint lock up down logs zip

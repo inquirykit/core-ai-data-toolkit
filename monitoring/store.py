@@ -1,11 +1,17 @@
 """
-Request metrics and model events for the /admin dashboard, in the ArcadeDB
+The request log and model events for the /admin dashboard, in the DuckDB
 database.
 
-Only metadata is recorded here (model, task, outcome, duration); a request's
-input and output are its trace in evals/store.py, linked by trace_id and kept
-for fewer days. Recording never blocks: rows go onto a queue that one
-background thread writes in batches (db.BatchWriter).
+A request is a row of tk_request: its model, task, outcome, duration, tokens,
+and the tags, session and backend that served it. Each of its inputs (one,
+or a batch's) is a trace in tk_trace while traces are kept: the input and
+output, cut down to keep (models/capture.py), and their words, which a
+search scans (as the /db tables' index splits them: db/schema.py). A
+request's row is kept MONITORING_RETENTION_DAYS, its traces
+TRACE_RETENTION_DAYS (never longer than their request); requests whose
+context skips traces (an eval run's, a workflow's) have none. Recording
+never blocks: rows go onto a queue that one background thread writes in
+batches (db.BatchWriter), where the inputs are cut down too.
 
 Each batch also adds its requests to an hourly summary (tk_request_hour: per
 hour, model and task, the counts, tokens and a latency histogram), in the same
@@ -21,51 +27,72 @@ import math
 import os
 import time
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, get_args
 
+from core.errors import NotFound
 from db import Database, QueuedStore, Where, on_pool
-from db.engine import content
+from db.tables import words_held
+from models.capture import as_map, compact, input_text, output_text, storable, text_of
+from models.events import RequestStatus
+
 
 logger = logging.getLogger(__name__)
 
 REQUEST = "tk_request"
+TRACE = "tk_trace"
 HOUR = "tk_request_hour"
 EVENT = "tk_event"
+# The first characters of a request's input and output a list shows.
+PREVIEW_CHARS = 240
 SCHEMA: Dict[str, Dict[str, Any]] = {
     REQUEST: {
         "props": {
-            "id": "LONG", "ts": "DOUBLE", "model_id": "STRING", "task": "STRING",
-            "status": "STRING",            # ok | client_error | error
+            "id": "BIGINT", "ts": "DOUBLE", "model_id": "VARCHAR", "task": "VARCHAR",
+            "status": "VARCHAR",            # ok | client_error | error
             "duration_ms": "DOUBLE",
             "cold": "BOOLEAN",             # the model was loaded for this request
-            "error": "STRING",             # exception class name
-            "trace_id": "STRING",          # the request's trace (evals/), when tracing is on
+            "error": "VARCHAR",             # exception class name
+            "trace_id": "VARCHAR",          # its first input's trace, when it has one
             "prompt_tokens": "INTEGER",    # token counts of generation requests, when the model reports them
             "completion_tokens": "INTEGER",
+            "tags": "VARCHAR[]",           # X-Trace-Tag, X-Session-Id (models/events.py)
+            "session": "VARCHAR",
+            "backend": "VARCHAR",          # which of a model server's backends answered
+            "source": "VARCHAR",           # where it came from: api, admin, data, workflow, eval (models/events.py)
         },
         "indexes": [("id", True), ("ts", False)],
     },
+    TRACE: {
+        "props": {
+            "id": "VARCHAR", "request_id": "BIGINT", "ts": "DOUBLE",
+            "input": "JSON", "output": "JSON",
+            "text": "VARCHAR",              # the input's and output's words, for a search and the preview
+            "input_chars": "INTEGER", "output_chars": "INTEGER",
+            "error": "VARCHAR",             # the request's error, with its text
+        },
+        "indexes": [("id", True), ("request_id", False), ("ts", False)],
+    },
     HOUR: {
         "props": {
-            "hour": "LONG",                # Unix time the hour starts at
-            "model_id": "STRING", "task": "STRING",
+            "hour": "BIGINT",                # Unix time the hour starts at
+            "model_id": "VARCHAR", "task": "VARCHAR",
             "ok": "INTEGER", "client_error": "INTEGER", "error": "INTEGER",  # its requests, by status
-            "cold_starts": "INTEGER", "prompt_tokens": "LONG", "completion_tokens": "LONG",
+            "cold_starts": "INTEGER", "prompt_tokens": "BIGINT", "completion_tokens": "BIGINT",
             "last_request": "DOUBLE",
-            "latency": "STRING",           # the durations' histogram, JSON {bucket: count} (see latency_bucket)
+            "latency": "VARCHAR",           # the durations' histogram, JSON {bucket: count} (see latency_bucket)
+            "sources": "VARCHAR",           # where its requests came from, JSON {source: count} (REQUEST's source)
         },
         "indexes": [("hour, model_id, task", True), ("hour", False)],
     },
     EVENT: {
         "props": {
-            "id": "LONG", "ts": "DOUBLE",
-            "kind": "STRING",              # load | load_failed | unload | evict | limits
-            "model_key": "STRING", "duration_ms": "DOUBLE", "detail": "STRING", "pid": "INTEGER",
+            "id": "BIGINT", "ts": "DOUBLE",
+            "kind": "VARCHAR",              # load | load_failed | unload | evict | limits
+            "model_key": "VARCHAR", "duration_ms": "DOUBLE", "detail": "VARCHAR", "pid": "INTEGER",
         },
         "indexes": [("id", True), ("ts", False)],
     },
 }
-REQUEST_COLUMNS = "ts, model_id, task, status, duration_ms, cold, prompt_tokens, completion_tokens"
 # Ranges up to this long are summarized from their requests (when the request history still has them).
 RAW_SPAN_S = 6 * 3600
 # The hourly summary is kept this long, or as long as the requests when that is longer.
@@ -78,7 +105,8 @@ ACCURACY = 0.01
 GAMMA = (1 + ACCURACY) / (1 - ACCURACY)
 FASTEST_MS = 0.001  # shorter durations count as this
 
-STATUSES = ("ok", "client_error", "error")
+STATUSES = get_args(RequestStatus)
+
 # What a tally adds up, besides its latency histogram and last request.
 SUMS = (*STATUSES, "cold_starts", "prompt_tokens", "completion_tokens")
 
@@ -100,17 +128,10 @@ def percentile(histogram: Dict[int, int], q: float) -> Optional[float]:
     return None
 
 
-def _column(row: Any, name: str) -> Any:
-    """``row[name]``, or None for rows without that column."""
-    try:
-        return row[name]
-    except (KeyError, IndexError):
-        return None
-
 
 def tally() -> Dict[str, Any]:
     """Nothing counted yet."""
-    return {**dict.fromkeys(SUMS, 0), "last_request": None, "latency": Counter()}
+    return {**dict.fromkeys(SUMS, 0), "last_request": None, "latency": Counter(), "sources": Counter()}
 
 
 def add(into: Dict[str, Any], part: Dict[str, Any]) -> None:
@@ -120,22 +141,31 @@ def add(into: Dict[str, Any], part: Dict[str, Any]) -> None:
     if part["last_request"] is not None:
         into["last_request"] = max(into["last_request"] or 0, part["last_request"])
     into["latency"].update(part["latency"])
+    into["sources"].update(part["sources"])
 
 
 def of_request(row: Any) -> Dict[str, Any]:
-    """A request row as a tally of one, at its time. Rows from before the token columns existed lack them."""
+    """A request row as a tally of one, at its time."""
     return {
         "at": row["ts"], "model_id": row["model_id"], "task": row["task"],
         **{status: int(row["status"] == status) for status in STATUSES},
         "cold_starts": int(bool(row["cold"])),
-        "prompt_tokens": _column(row, "prompt_tokens"), "completion_tokens": _column(row, "completion_tokens"),
+        "prompt_tokens": row["prompt_tokens"], "completion_tokens": row["completion_tokens"],
         "last_request": row["ts"], "latency": {latency_bucket(row["duration_ms"]): 1},
+        # A request from before the log kept where it came from is "other".
+        "sources": {row.get("source") or "other": 1},
     }
+
+
+def of_tallied(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A tally the database made of a point's requests to one model and task (``summary``), at its last request."""
+    return {**row, "last_request": row["at"], "latency": row["latency"] or {}, "sources": row["sources"] or {}}
 
 
 def of_hour(row: Dict[str, Any]) -> Dict[str, Any]:
     """An hourly summary row as a tally, at its hour's start."""
-    return {**row, "at": row["hour"], "latency": {int(b): n for b, n in json.loads(row["latency"] or "{}").items()}}
+    return {**row, "at": row["hour"], "latency": {int(b): n for b, n in json.loads(row["latency"] or "{}").items()},
+            "sources": json.loads(row.get("sources") or "{}")}
 
 
 def hours_of(rows: Iterable[Any]) -> Dict[Tuple[int, str, str], Dict[str, Any]]:
@@ -157,7 +187,7 @@ def hourly_buckets(since: float, until: float, buckets: int) -> Tuple[float, flo
 
 def summarize(parts: Iterable[Dict[str, Any]], since: float, until: float, buckets: int = 60,
               bucket_s: Optional[float] = None) -> Dict[str, Any]:
-    """Totals, per-model stats and a timeline of ``buckets`` points from tallies (of_request, of_hour).
+    """Totals, per-model stats and a timeline of ``buckets`` points from tallies (of_request, of_tallied, of_hour).
 
     The points start at ``since``, each ``bucket_s`` long (an even share of the range when left out); a part
     counts in the point its ``at`` falls in.
@@ -193,10 +223,11 @@ def summarize(parts: Iterable[Dict[str, Any]], since: float, until: float, bucke
             "ok": total["ok"],
             "error_rate": total["error"] / totals["requests"] if totals["requests"] else 0.0,
             "requests_per_min": totals["requests"] / ((until - since) / 60),
+            "sources": dict(total["sources"]),
         },
         "models": sorted(({"model_key": m["model_key"], "model_id": m["model_id"], "task": m["task"], **counts(m),
                            "cold_starts": m["cold_starts"], "last_request": m["last_request"]}
-                          for m in per_model.values()), key=lambda m: m["requests"], reverse=True),
+                          for m in per_model.values()), key=lambda m: (-m["requests"], m["model_key"])),
         "timeline": [{"start": since + i * bucket_s, **{s: p[s] for s in STATUSES}, **latency(p)}
                      for i, p in enumerate(timeline)],
     }
@@ -205,29 +236,66 @@ def summarize(parts: Iterable[Dict[str, Any]], since: float, until: float, bucke
 def _hour_row(key: Tuple[int, str, str], counted: Dict[str, Any]) -> Dict[str, Any]:
     hour, model_id, task = key
     return {"hour": hour, "model_id": model_id, "task": task, **{name: counted[name] for name in SUMS},
-            "last_request": counted["last_request"], "latency": json.dumps(counted["latency"], separators=(",", ":"))}
+            "last_request": counted["last_request"], "latency": json.dumps(counted["latency"], separators=(",", ":")),
+            "sources": json.dumps(counted["sources"], separators=(",", ":"))}
 
 
 class MonitoringStore(QueuedStore):
-    """Records request metrics and model events; see the module docstring. The dashboard pages events by id."""
+    """The request log and model events; see the module docstring. The dashboard pages events by id."""
 
     SCHEMA = SCHEMA
     RETAINED = ((REQUEST, "ts"), (EVENT, "ts"))
-    MIGRATIONS = (("monitoring-hourly-summary", "_summarize_past_hours"),)
 
-    def __init__(self, database: Database, retention_days: float = 7.0, max_queue: int = 10_000):
+    def __init__(self, database: Database, retention_days: float = 7.0, trace_days: float = 3.0,
+                 trace_max_chars: int = 8000, max_queue: int = 10_000):
         super().__init__(database, "monitoring-writer", retention_days, max_queue, batch_size=500)
+        self.trace_days = trace_days
+        self.trace_max_chars = trace_max_chars
+
+    @property
+    def tracing(self) -> bool:
+        """Whether requests' inputs and outputs are kept (TRACE_RETENTION_DAYS > 0)."""
+        return self.trace_days > 0
+
+    @property
+    def traces_kept_days(self) -> float:
+        """How long a trace is kept: TRACE_RETENTION_DAYS, never longer than its request."""
+        return min(self.trace_days, self.retention_days)
 
     # --------------------------------------------------------------- writing
     def record_request(
         self, model_id: str, task: str, status: str, duration_ms: float, cold: bool, error: Optional[str] = None,
-        trace_id: Optional[str] = None, prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None,
+        prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None, *, tags: Iterable[str] = (),
+        session: Optional[str] = None, backend: Optional[str] = None, source: Optional[str] = None,
+        calls: Iterable[tuple] = (), message: Optional[str] = None,
     ) -> None:
+        """Queue the request's row, and a trace of each of ``calls`` (its trace id, input and output) while traces are
+        kept; ``message`` is its error with its text. Never blocks: the inputs and outputs go on the queue as they
+        are, and are cut down to keep by the writer."""
+        calls = list(calls) if self.tracing else []
+        text = lambda value: None if value is None else storable(value)  # noqa: E731 (what a client named)
         self.writer.put((REQUEST, {
-            "id": self._next_id(), "ts": time.time(), "model_id": model_id, "task": task, "status": status,
-            "duration_ms": float(duration_ms), "cold": bool(cold), "error": error, "trace_id": trace_id,
-            "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-        }))
+            "id": self._next_id(), "ts": time.time(), "model_id": text(model_id), "task": text(task), "status": status,
+            "duration_ms": float(duration_ms), "cold": bool(cold), "error": error,
+            "trace_id": calls[0][0] if calls else None, "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens, "tags": [storable(t) for t in tags], "session": text(session),
+            "backend": text(backend), "source": source,
+        }, calls, text(message)))
+
+    def _traces_of(self, request: Dict[str, Any], calls: List[tuple], error: Optional[str]) -> List[Dict[str, Any]]:
+        """A request's inputs and outputs as the rows of TRACE, cut down to keep."""
+        docs = []
+        for trace_id, given, answered in calls:
+            inp = compact(given, self.trace_max_chars)
+            out = compact(answered, self.trace_max_chars) if answered is not None else None
+            docs.append({
+                "id": trace_id, "request_id": request["id"], "ts": request["ts"], "input": as_map(inp),
+                "output": None if out is None else as_map(out),
+                "text": text_of([input_text(inp), output_text(out) if out is not None else ""]),
+                "input_chars": len(json.dumps(inp, ensure_ascii=False)),
+                "output_chars": 0 if out is None else len(json.dumps(out, ensure_ascii=False)), "error": error,
+            })
+        return docs
 
     def record_event(
         self, kind: str, model_key: str, duration_ms: Optional[float] = None, detail: Optional[str] = None
@@ -238,12 +306,15 @@ class MonitoringStore(QueuedStore):
         }))
 
     def _write(self, items: List[Any]) -> None:
-        hours = hours_of(doc for type_name, doc in items if type_name == REQUEST)
+        requests = [item for item in items if item[0] == REQUEST]
+        hours = hours_of(doc for _, doc, *_ in requests)
+        traces = [t for _, doc, calls, error in requests for t in self._traces_of(doc, calls, error)]
         db = self._db()
 
         def work() -> None:
-            for type_name, doc in items:
-                self._insert(db, type_name, doc)
+            self._insert_many(db, REQUEST, [doc for _, doc, *_ in requests])
+            self._insert_many(db, TRACE, traces)
+            self._insert_many(db, EVENT, [item[1] for item in items if item[0] == EVENT])
             self._add_hours(db, hours)
 
         self._commit(db, work)
@@ -252,7 +323,7 @@ class MonitoringStore(QueuedStore):
         """Count ``hours`` (hours_of) into the hourly summary, in the caller's transaction."""
         if not hours:
             return
-        rows = self._rows(db, f"SELECT FROM {HOUR} WHERE hour IN :hours", {"hours": sorted({k[0] for k in hours})})
+        rows = self._rows(db, f"SELECT * FROM {HOUR} WHERE hour = ANY($hours)", {"hours": sorted({k[0] for k in hours})})
         kept = {(r["hour"], r["model_id"], r["task"]): r for r in rows}
         for key, counted in hours.items():
             if key not in kept:
@@ -261,32 +332,17 @@ class MonitoringStore(QueuedStore):
             merged = tally()
             add(merged, counted)
             add(merged, of_hour(kept[key]))
-            row = _hour_row(key, merged)
-            db.command("sql", f"UPDATE {HOUR} CONTENT {content(row)} WHERE hour = :hour AND model_id = :model_id "
-                              f"AND task = :task", row)
-
-    def _summarize_past_hours(self, db) -> None:
-        """The hourly summary of the requests recorded before there was one, a day of them at a time."""
-        bounds = self._rows(db, f"SELECT min(ts) AS first, max(ts) AS last FROM {REQUEST}")
-        if not bounds or bounds[0].get("first") is None:
-            return
-        hours: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
-        day = bounds[0]["first"] // 86400 * 86400
-        while day <= bounds[0]["last"]:
-            hours.update(hours_of(self._rows(db, f"SELECT {REQUEST_COLUMNS} FROM {REQUEST} WHERE ts >= :a AND ts < :b",
-                                             {"a": day, "b": day + 86400})))
-            day += 86400
-
-        def work() -> None:
-            db.command("sql", f"DELETE FROM {HOUR}")  # left by a run that failed part way
-            for key, counted in hours.items():
-                self._insert(db, HOUR, _hour_row(key, counted))
-
-        self._commit(db, work)
+            row = self._values(HOUR, _hour_row(key, merged))
+            db.execute(f"UPDATE {HOUR} SET {', '.join(f'{k} = ${k}' for k in row)} WHERE hour = $hour AND "
+                       "model_id = $model_id AND task = $task", row)
 
     def _prune(self) -> int:
+        """Requests and events past the retention, traces past theirs (never kept longer than their request: all of
+        them while traces are off), and hours past theirs."""
+        now = time.time()
         kept_days = max(self.retention_days, HOURS_KEPT_DAYS)
-        return super()._prune() + self._delete_older(HOUR, "hour", time.time() - kept_days * 86400)
+        traces = self._delete_older(TRACE, "ts", now - self.traces_kept_days * 86400)
+        return super()._prune() + traces + self._delete_older(HOUR, "hour", now - kept_days * 86400)
 
     # --------------------------------------------------------------- reading
     @on_pool
@@ -294,11 +350,21 @@ class MonitoringStore(QueuedStore):
         """summarize() over the range: from its requests when it is at most RAW_SPAN_S long and the request
         history still has them, else from the hourly summary, starting at the hour ``since`` falls in."""
         if until - since <= RAW_SPAN_S and since >= time.time() - self.retention_days * 86400:
-            rows = self._select(f"SELECT {REQUEST_COLUMNS} FROM {REQUEST} WHERE ts >= :since AND ts <= :until",
-                                {"since": since, "until": until})
-            return summarize(map(of_request, rows), since, until, buckets)
+            # Tallied by the database, a row per model, task and point of the timeline: the dashboard asks every few
+            # seconds, and a busy hour's requests read into Python one by one would cost seconds each time.
+            bucket_s = max((until - since) / buckets, 1.0)
+            statuses = ", ".join(f"count(*) FILTER (WHERE status = '{s}') AS {s}" for s in STATUSES)
+            rows = self._select(
+                f"SELECT model_id, task, max(ts) AS at, {statuses}, count(*) FILTER (WHERE cold) AS cold_starts, "
+                "sum(prompt_tokens) AS prompt_tokens, sum(completion_tokens) AS completion_tokens, "
+                # latency_bucket(), as the hourly summary counts it
+                "histogram(ceil(ln(greatest(duration_ms, $fastest)) / ln($gamma))::INTEGER) AS latency, "
+                f"histogram(coalesce(source, 'other')) AS sources FROM {REQUEST} WHERE ts >= $since AND ts <= $until "
+                "GROUP BY model_id, task, floor((ts - $since) / $bucket_s)",
+                {"since": since, "until": until, "bucket_s": bucket_s, "fastest": FASTEST_MS, "gamma": GAMMA})
+            return summarize(map(of_tallied, rows), since, until, buckets, bucket_s)
         start, bucket_s, points = hourly_buckets(since, until, buckets)
-        rows = self._select(f"SELECT FROM {HOUR} WHERE hour >= :start AND hour < :until",
+        rows = self._select(f"SELECT * FROM {HOUR} WHERE hour >= $start AND hour < $until",
                             {"start": start, "until": until})
         return summarize(map(of_hour, rows), start, until, points, bucket_s)
 
@@ -312,7 +378,7 @@ class MonitoringStore(QueuedStore):
     ) -> List[Dict[str, Any]]:
         """Newest first; with ``after_id``, only events newer than that one; ``since``/``until`` bound ``ts``."""
         where = Where().add("id", ">", after_id).add("ts", ">=", since).add("ts", "<=", until)
-        return self._select(f"SELECT FROM {EVENT}{where} ORDER BY id DESC LIMIT {int(limit)}", where.params)
+        return self._select(f"SELECT * FROM {EVENT}{where} ORDER BY id DESC LIMIT {int(limit)}", where.params)
 
     @on_pool
     def recent_requests(
@@ -322,8 +388,41 @@ class MonitoringStore(QueuedStore):
         until: Optional[float] = None,
         status: Optional[str] = None,
         model: Optional[str] = None,
+        tag: Optional[str] = None,
+        session: Optional[str] = None,
+        q: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Newest first. ``status`` matches exactly; ``model`` is a case-insensitive substring of the model ID or task."""
-        where = (Where("id IS NOT NULL").add("ts", ">=", since).add("ts", "<=", until).add("status", "=", status)
-                 .like(["model_id", "task"], model))
-        return self._select(f"SELECT FROM {REQUEST}{where} ORDER BY id DESC LIMIT {int(limit)}", where.params)
+        """Newest first, each with the first words of its first trace (``preview``), or of the trace that holds the
+        words of ``q`` (and ``trace_id`` that one's). ``status``, ``tag`` and ``session`` match exactly; ``model`` is
+        a case-insensitive substring of the model ID or task; ``q`` holds words one of its traces holds, which only a
+        request with traces can."""
+        where = (Where("r.id IS NOT NULL").add("r.ts", ">=", since).add("r.ts", "<=", until)
+                 .add("r.status", "=", status).add("r.session", "=", session).contains("r.tags", tag)
+                 .like(["r.model_id", "r.task"], model))
+        if not q:
+            # The newest first, then their previews: a join of those alone.
+            return self._select(f"SELECT r.*, left(t.text, {PREVIEW_CHARS}) AS preview FROM (SELECT * FROM {REQUEST} r"
+                                f"{where} ORDER BY r.id DESC LIMIT {int(limit)}) r LEFT JOIN {TRACE} t ON t.id = r.trace_id "
+                                "ORDER BY r.id DESC", where.params)
+        # The traces that hold the words, within the range (a trace is its request's time), one per request (any one
+        # of a batch's that match: nothing keeps their order).
+        held, params = words_held("x.text", q)
+        bounds = [f"x.ts {op} ${name}" for op, name, value in ((">=", "m_since", since), ("<=", "m_until", until))
+                  if value is not None]
+        return self._select(f"WITH m AS (SELECT request_id, min(id) AS trace_id FROM {TRACE} x WHERE "
+                            f"{' AND '.join([held, *bounds])} GROUP BY request_id) SELECT r.* EXCLUDE (trace_id), "
+                            f"m.trace_id, left(t.text, {PREVIEW_CHARS}) AS preview FROM {REQUEST} r JOIN m ON "
+                            f"m.request_id = r.id JOIN {TRACE} t ON t.id = m.trace_id{where} ORDER BY r.id DESC "
+                            f"LIMIT {int(limit)}", {**where.params, **params, "m_since": since, "m_until": until})
+
+    @on_pool
+    def trace(self, trace_id: str) -> Dict[str, Any]:
+        """One input of a request with its output, and the request's model, outcome and timing; NotFound once it is
+        gone (TRACE_RETENTION_DAYS)."""
+        rows = self._select(f"SELECT t.id, t.ts, t.input, t.output, t.input_chars, t.output_chars, t.error, "
+                            f"left(t.text, {PREVIEW_CHARS}) AS preview, r.model_id, r.task, r.status, r.duration_ms, "
+                            f"r.cold, r.tags, r.session, r.backend FROM {TRACE} t JOIN {REQUEST} r ON r.id = t.request_id "
+                            "WHERE t.id = $id", {"id": trace_id})
+        if not rows:
+            raise NotFound(f"No trace {trace_id!r}")
+        return rows[0]

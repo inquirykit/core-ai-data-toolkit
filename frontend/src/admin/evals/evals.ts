@@ -95,21 +95,29 @@ export function referencePreview(reference: unknown, limit = 400): string {
 export function fmtScore(value: number | null | undefined, metric: string, label?: string | null): string {
   if (value == null) return "–";
   if (metric.startsWith("judge_vs_") && label) return label;
-  return `${Math.round(value * 100)}%`;
+  return fmtShare(value);
 }
 
 /** The mean of a metric over a run, as text: a share, or wins, ties and losses for a pairwise one. */
 export function fmtMean(summary: MetricSummary | undefined, metric: string): string {
   if (!summary || summary.mean == null) return "–";
   if (metric.startsWith("judge_vs_") && summary.wins != null) return `${summary.wins}W ${summary.ties ?? 0}T ${summary.losses ?? 0}L`;
-  return `${Math.round(summary.mean * 100)}%`;
+  return fmtShare(summary.mean);
 }
 
-/** good above 0.8, warning above 0.5, critical below; nothing for a missing score. */
-export function scoreTone(value: number | null | undefined): "good" | "warning" | "critical" | null {
+/** good above 0.8, warning above 0.5, critical below (for a metric where less is better, good below 0.2, warning
+ * below 0.5); nothing for a missing score. */
+export function scoreTone(value: number | null | undefined, lowerIsBetter = false): "good" | "warning" | "critical" | null {
   if (value == null) return null;
-  return value >= 0.8 ? "good" : value >= 0.5 ? "warning" : "critical";
+  const v = lowerIsBetter ? 1 - value : value;
+  return v >= 0.8 ? "good" : v >= 0.5 ? "warning" : "critical";
 }
+
+/** The text colour of a tone. */
+export const TONE_CLASS = { good: "text-good-text", warning: "text-warning", critical: "text-critical-text" } as const;
+
+/** A share as a whole percentage, "–" for none. */
+export const fmtShare = (value: number | null | undefined): string => (value == null ? "–" : `${Math.round(value * 100)}%`);
 
 /** "exact match", "vs <the other run's name>", "judge". */
 export function metricLabel(metric: string, runs: Pick<Run, "id" | "name">[] = []): string {
@@ -123,10 +131,9 @@ export function metricLabel(metric: string, runs: Pick<Run, "id" | "name">[] = [
 export const RUN_STATUS: Record<RunStatus, Status> = {
   queued: { label: "Queued", color: "var(--axis)" },
   running: { label: "Running", color: "var(--series-1)" },
-  done: { label: "Done", color: "var(--good)" },
+  succeeded: { label: "Done", color: "var(--good)" },
   failed: { label: "Failed", color: "var(--critical)" },
   cancelled: { label: "Cancelled", color: "var(--warning)" },
-  interrupted: { label: "Interrupted", color: "var(--warning)" },
 };
 
 /** What a run is doing now, for its row: "Running 3/10", "Judging 2/10", "Queued", or its status. */
@@ -155,4 +162,49 @@ export function parseReference(text: string): unknown {
     }
   }
   return t;
+}
+
+// ---------------------------------------------------------------- labeling
+/** Label choices typed as a list: split at commas and new lines, trimmed, each once. */
+export function parseLabels(text: string): string[] {
+  return [...new Set(text.split(/[,\n]/).map((l) => l.trim()).filter(Boolean))];
+}
+
+export interface Suggestion {
+  /** The label a classifier gave, if it gave one */
+  label: string | null;
+  confidence: number | null;
+  /** The answer as text: what a reference typed from it starts as */
+  text: string;
+}
+
+/** What a suggestion (a model's output for the example) proposes; null for none. */
+export function suggestionOf(output: unknown): Suggestion | null {
+  if (output == null) return null;
+  const o = typeof output === "object" && !Array.isArray(output) ? (output as Record<string, unknown>) : {};
+  const label = typeof o.label === "string" ? o.label : null;
+  const confidence = typeof o.confidence === "number" ? o.confidence : null;
+  return { label, confidence, text: label ?? outputPreview(output, 100_000) };
+}
+
+/** The label a key picks: 1 to 9 for the first nine choices; null for any other key. */
+export function labelForKey(key: string, labels: string[]): string | null {
+  const n = /^[1-9]$/.test(key) ? Number(key) : 0;
+  return n && n <= labels.length ? labels[n - 1] : null;
+}
+
+/** The choice a suggestion's label is, matched ignoring case; null when it is none of them. */
+export function matchingLabel(suggestion: Suggestion | null, labels: string[]): string | null {
+  const label = suggestion?.label?.trim().toLowerCase();
+  return label ? (labels.find((l) => l.toLowerCase() === label) ?? null) : null;
+}
+
+// ---------------------------------------------------------------- training
+/** The job's params the dataset gives itself: its training file, and the fields of each row in it. */
+export const TRAINING_FILE_FIELDS = ["train_file", "text_column", "label_column"];
+
+/** A job's params schema without the fields the dataset's training file fills in. */
+export function trainingSchema<S extends { properties?: Record<string, unknown>; required?: string[] }>(schema: S): S {
+  const properties = Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([k]) => !TRAINING_FILE_FIELDS.includes(k)));
+  return { ...schema, properties, required: (schema.required ?? []).filter((k) => !TRAINING_FILE_FIELDS.includes(k)) };
 }

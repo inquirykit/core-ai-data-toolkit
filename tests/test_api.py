@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from api import app as app_module
 from core.config import Config
-from tasks import HIGH, LOW
+from core.priorities import HIGH, LOW
 from models.families.generic.transformers_model import TransformersModel
 from models.families.vision.fastvlm import FastVLMModel
 from tests.fakes import FakeModel, swapped
@@ -23,10 +23,10 @@ def client():
     (IMAGES / "ok.png").unlink()
 
 
-def test_health(client):
-    body = client.get("/health").json()
-    assert body["status"] == "healthy"
-    assert "memory_backend" in body["cache_status"]
+def test_health_says_it_answers_and_nothing_of_the_models(client, monkeypatch):
+    client.post("/inference", json=generate())  # a model loaded
+    monkeypatch.setattr(Config, "API_KEY", "client-key")
+    assert client.get("/health").json() == {"status": "healthy", "device": app_module.app.state.manager.device}
 
 
 def generate(text="hi", model_id="some/model", **params):
@@ -299,3 +299,66 @@ def test_models_can_be_pinned(client):
     assert client.get("/models/status").json()["model_details"]["pin/me:text-generation"]["pinned"] is False
     assert client.put("/models/not/loaded/text-generation/pin", json={"pinned": True}).status_code == 404
     assert client.delete("/models/pin/me/text-generation").status_code == 200
+
+
+def test_every_store_with_a_retention_is_pruned_and_every_writer_closed():
+    """A store that records per request or per event has a prune() (its retention), which lifespan runs hourly, and one
+    that records in the background (QueuedStore) a writer, which lifespan closes before the database at shutdown: a
+    store missing from api/app.py's lists would grow for good, or lose its queue."""
+    import inspect
+
+    from db.engine import QueuedStore
+
+    state = app_module.app.state
+    services = [s for s in vars(state)["_state"].values() if not isinstance(s, (list, dict, str))]
+    reached = {id(o): o for s in services for o in (s, *getattr(s, "__dict__", {}).values())}.values()
+
+    def prunes(o):
+        prune = getattr(type(o), "prune", None)
+        return callable(prune) and len(inspect.signature(prune).parameters) == 1  # self alone: its own retention
+
+    assert [type(o).__name__ for o in reached if prunes(o) and not any(o is p for p in state.pruned)] == []
+    assert [type(o).__name__ for o in reached if isinstance(o, QueuedStore)
+            and not any(o is w for w in state.writers)] == []
+    assert len(state.pruned) >= 4 and len(state.writers) >= 2
+
+
+def test_a_request_sent_in_process_leaves_its_callers_context_as_it_was():
+    """The judge asks the service's own /v1 through httpx's ASGITransport, which runs the app in the caller's task: the
+    request's context (its tags, priority, source) is the request's, and the caller's comes back after it."""
+    import asyncio
+
+    import httpx
+
+    from models.events import RequestContext, request_context
+
+    async def scenario():
+        mine = RequestContext(skip=True, source="eval")
+        request_context.set(mine)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app_module.app), base_url="http://toolkit",
+                                     headers={"X-Trace-Tag": "judge"}) as client:
+            assert (await client.get("/health")).status_code == 200
+        return mine, request_context.get()
+
+    mine, after = asyncio.run(scenario())
+    assert after is mine
+
+
+def test_every_response_name_is_the_one_its_module_has():
+    """api/responses/__init__.py takes every module's names, so two modules holding one name would hide one of them
+    (the later wins): a model, a Literal a route validates with, or a module named like a submodule. The routes and the
+    schema would then use the wrong one."""
+    import importlib
+    import pkgutil
+
+    from api import responses
+
+    hidden = []
+    for info in pkgutil.iter_modules(responses.__path__):
+        module = importlib.import_module(f"{responses.__name__}.{info.name}")
+        if getattr(responses, info.name) is not module:
+            hidden.append(f"api/responses/{info.name}.py itself")
+        for name, value in vars(module).items():
+            if not name.startswith("_") and getattr(responses, name) is not value:
+                hidden.append(f"api/responses/{info.name}.py: {name}")
+    assert hidden == [], "response names another module's hides:\n" + "\n".join(hidden)

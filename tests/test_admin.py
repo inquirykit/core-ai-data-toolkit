@@ -46,10 +46,28 @@ def test_stats_reflect_requests_and_loaded_models(client):
     assert body["process"]["pid"] > 0
 
 
-def test_request_inputs_are_never_recorded(client):
+def test_a_request_says_whether_an_app_or_the_admin_sent_it(client, monkeypatch):
+    """An app's request (a client key, or none needed) is "api" in the request log; the admin key's (the playground,
+    /admin) "admin". A /db table's, a workflow's and an eval's say theirs (test_vectors, test_workflows, test_evals)."""
+    infer(client)
+    monkeypatch.setattr(Config, "ADMIN_API_KEY", "adm")
+    infer(client, Authorization="Bearer adm")
+    flush(client)
+    rows = client.get("/admin/requests?limit=2", headers={"Authorization": "Bearer adm"}).json()["requests"]
+    assert [r["source"] for r in rows] == ["admin", "api"]
+
+
+def test_a_request_input_is_kept_only_as_its_trace(client, monkeypatch):
+    """While traces are kept, a request's input is its trace (the requests list shows its first words); with traces
+    off, nothing of it. The stats never hold it."""
     infer(client)
     flush(client)
-    assert "secret prompt" not in client.get("/admin/requests").text
+    assert "secret prompt" in client.get("/admin/requests?limit=1").json()["requests"][0]["preview"]
+    monkeypatch.setattr(client.app.state.monitoring, "trace_days", 0)
+    infer(client)
+    flush(client)
+    newest = client.get("/admin/requests?limit=1").json()["requests"][0]
+    assert newest["preview"] is None and newest["trace_id"] is None
     assert "secret prompt" not in client.get("/admin/stats").text
 
 

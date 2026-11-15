@@ -7,7 +7,7 @@ import { useState, type FormEvent } from "react";
 import { ChevronRight, FlaskConical, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { useHash } from "../../shared/browser";
 import { errorText } from "../../shared/query";
 import { EmptyCard, Field, Notice, SubmitButton } from "../../shared/components";
@@ -20,7 +20,8 @@ import { RunView } from "./EvalsRun";
 import { DetailSkeleton, ListCard, MasterDetail, NavRow, NoRows } from "../layout";
 import type { CatalogInfo } from "../catalog";
 
-export function EvalsSection({ client, catalog }: { client: ApiClient; catalog: CatalogInfo }) {
+export function EvalsSection({ catalog }: { catalog: CatalogInfo }) {
+  const client = useApi();
   const loc = useHash(evalsFromHash);
   const query = client.useQuery("get", "/admin/datasets", undefined, { select: (d) => d.datasets });
   const datasets = query.data ?? null;
@@ -29,17 +30,17 @@ export function EvalsSection({ client, catalog }: { client: ApiClient; catalog: 
 
   const current = datasets?.find((d) => d.id === loc.dataset);
   return (
-    <MasterDetail list={<DatasetsCard datasets={datasets} current={loc.dataset} client={client} error={error} reload={reload} />}>
+    <MasterDetail list={<DatasetsCard datasets={datasets} current={loc.dataset} error={error} reload={reload} />}>
       {!datasets ? (
         <DetailSkeleton />
       ) : loc.dataset && !current ? (
         <EmptyCard icon={FlaskConical} title="No such dataset" body="It may have been deleted. Pick one on the left." />
       ) : current && loc.compare ? (
-        <CompareView key={loc.compare.join()} client={client} dataset={current} runs={loc.compare} />
+        <CompareView key={loc.compare.join()} dataset={current} runs={loc.compare} />
       ) : current && loc.run ? (
-        <RunView key={loc.run} client={client} dataset={current} runId={loc.run} onChange={reload} />
+        <RunView key={loc.run} dataset={current} runId={loc.run} onChange={reload} />
       ) : current ? (
-        <DatasetView key={current.id} client={client} dataset={current} catalog={catalog} onChange={reload} />
+        <DatasetView key={current.id} dataset={current} catalog={catalog} onChange={reload} />
       ) : (
         <EmptyCard
           icon={FlaskConical}
@@ -52,13 +53,14 @@ export function EvalsSection({ client, catalog }: { client: ApiClient; catalog: 
 }
 
 // ---------------------------------------------------------------- datasets
-function DatasetsCard(props: { datasets: Dataset[] | null; current: string | null; client: ApiClient; error: string; reload(): Promise<unknown> }) {
+function DatasetsCard(props: { datasets: Dataset[] | null; current: string | null; error: string; reload(): Promise<unknown> }) {
+  const client = useApi();
   const [name, setName] = useState("");
 
   const create = useAction(
     async (event: FormEvent) => {
       event.preventDefault();
-      const created = await props.client.post("/admin/datasets", { body: { name: name.trim() } });
+      const created = await client.post("/admin/datasets", { body: { name: name.trim() } });
       setName("");
       await props.reload();
       location.hash = evalsHref(created.id);

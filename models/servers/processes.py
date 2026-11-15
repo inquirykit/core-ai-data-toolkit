@@ -19,6 +19,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from core import procs
+from core.background import to_its_end
 
 from .entries import Backend
 
@@ -84,6 +85,10 @@ async def wake(model_id: str, backend: Backend) -> Optional[Tuple[asyncio.subpro
                 (await client.post("/wake_up")).raise_for_status()
             logger.info("Woke model server for %s", model_id)
             return process, base_url
+        except asyncio.CancelledError:
+            # The load it was woken for went away: out of _sleeping already, it is stopped, not left running for nobody.
+            await to_its_end(stop(process))
+            raise
         except Exception:
             logger.warning("Could not wake %s; starting a new server", model_id, exc_info=True)
     await stop(process)
@@ -133,4 +138,6 @@ async def unload_upstream(client: Any, label: str, model: str) -> None:
         response.raise_for_status()
         logger.info("Asked %s to unload %s", label, model)
     except Exception as e:
-        logger.warning("Could not ask %s to unload %s: %s", label, model, e)
+        # Its type and status, not its text: httpx's names the URL whole, a user and password in it too.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        logger.warning("Could not ask %s to unload %s: %s%s", label, model, type(e).__name__, f" {status}" if status else "")

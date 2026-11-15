@@ -1,5 +1,6 @@
 """Schedules (cron and interval) and webhooks on finished jobs and runs."""
 
+import asyncio
 import json
 import threading
 import time
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 
 import tests.fake_jobs  # noqa: F401  registers the test-* jobs
 from api import app as app_module
-from jobs import schedule
+from tasks import schedule
 from tests.test_jobs import wait
 from tests.waits import until
 
@@ -76,7 +77,7 @@ def test_schedules_are_created_run_and_deleted(client):
     assert (job["retries"], job["retry_delay_s"], job["timeout_s"]) == (2, 5, 600)
     wait(client, job["id"])
     again = client.get(f"/jobs/schedules/{sched['id']}").json()
-    assert again["last_job_id"] == job["id"] and again["last_status"] == "succeeded"
+    assert again["last_task_id"] == job["id"] and again["last_status"] == "succeeded"
     assert again["next_run"] == sched["next_run"]
 
     # Update: switch to an interval, disabled, which clears the next run.
@@ -88,6 +89,21 @@ def test_schedules_are_created_run_and_deleted(client):
     assert client.delete(f"/jobs/schedules/{sched['id']}").status_code == 204
     assert client.get(f"/jobs/schedules/{sched['id']}").status_code == 404
     assert client.get("/jobs/schedules").json()["schedules"] == []
+
+
+def test_a_change_that_leaves_the_cadence_keeps_the_next_run(client):
+    """Each save pushed the next run a whole period out: an hourly schedule saved more often never ran."""
+    body = {"job": "test-echo", "params": {"text": "x"}, "interval_s": 3600}
+    sched = client.post("/jobs/schedules", json=body).json()
+    hooked = client.put(f"/jobs/schedules/{sched['id']}", json={**body, "webhook_url": "http://127.0.0.1:9/hook"})
+    assert hooked.json()["next_run"] == sched["next_run"]
+    # A new cadence counts from now; so does a schedule switched off and on again.
+    assert client.put(f"/jobs/schedules/{sched['id']}", json={**body, "interval_s": 7200}).json()["next_run"] \
+        == pytest.approx(time.time() + 7200, abs=5)
+    assert client.put(f"/jobs/schedules/{sched['id']}", json={**body, "enabled": False}).json()["next_run"] is None
+    assert client.put(f"/jobs/schedules/{sched['id']}", json=body).json()["next_run"] \
+        == pytest.approx(time.time() + 3600, abs=5)
+    client.delete(f"/jobs/schedules/{sched['id']}")
 
 
 @pytest.mark.parametrize("body, detail", [
@@ -109,18 +125,79 @@ def test_due_schedules_submit_their_job_once(client):
     sched = client.post("/jobs/schedules", json={"job": "test-echo", "params": {"text": "tick", "steps": 1}, "interval_s": 60}).json()
     # Not due yet.
     assert client.portal.call(runner.scheduler.tick) == []
-    client.portal.call(runner.store.mark_schedule_run, sched["id"], 0, None, time.time() - 1)
+    client.portal.call(runner.tasks.store.mark_schedule_run, sched["id"], 0, None, time.time() - 1)
     submitted = client.portal.call(runner.scheduler.tick)
     assert [j["schedule_id"] for j in submitted] == [sched["id"]]
     row = client.get(f"/jobs/schedules/{sched['id']}").json()
-    assert row["last_job_id"] == submitted[0]["id"] and row["next_run"] > time.time() + 50
+    assert row["last_task_id"] == submitted[0]["id"] and row["next_run"] > time.time() + 50
     # Due again while that job is still going: skipped, next run moved on.
-    client.portal.call(runner.store.mark_schedule_run, sched["id"], 0, None, time.time() - 1)
-    client.portal.call(runner.store.claim, submitted[0]["id"])  # pretend it runs
+    client.portal.call(runner.tasks.store.mark_schedule_run, sched["id"], 0, None, time.time() - 1)
+    client.portal.call(runner.tasks.store.claim, submitted[0]["id"])  # pretend it runs
     assert client.portal.call(runner.scheduler.tick) == []
     assert client.get(f"/jobs/schedules/{sched['id']}").json()["next_run"] > time.time() + 50
-    client.portal.call(runner.store.finish, submitted[0]["id"], "succeeded")
+    client.portal.call(runner.tasks.store.finish, submitted[0]["id"], "succeeded")
     client.delete(f"/jobs/schedules/{sched['id']}")
+
+
+def test_any_kind_that_declares_itself_is_scheduled_and_one_undeclared_is_left_alone(own_db):
+    from core.errors import Refused
+    from db.tables import TableStore
+    from tasks.store import TaskStore
+
+    store = TaskStore(own_db, TableStore(own_db))
+
+    async def submit(name, params, **fields):
+        return await store.insert(f"t{time.time_ns()}", name, params, schedule_id=fields["schedule_id"], kind="echo")
+
+    def check(name, params):
+        if not name.strip():
+            raise ValueError("an echo needs something to say")
+        return name.upper(), {**params, "checked": True}
+
+    echo = schedule.Schedulable("echo", check=check, submit=submit)
+    job = schedule.Schedulable("job", check=lambda name, params: (name, params), submit=submit)
+
+    async def go():
+        both = schedule.Scheduler(store)
+        both.add(echo)
+        both.add(job)
+        said = await both.create(schedule.ScheduleSpec(job="hello", params={"n": 1}, interval_s=60), "echo")
+        assert (said["kind"], said["job"], said["params"], said["name"]) == ("echo", "HELLO", {"n": 1, "checked": True}, "HELLO")
+        for kind, runs, detail in (("nope", "x", "cannot be scheduled"), ("echo", " ", "something to say")):
+            with pytest.raises(Refused, match=detail):
+                await both.create(schedule.ScheduleSpec(job=runs, interval_s=60), kind)
+        # A schedule made without a kind is a job's.
+        jobs = await both.create(schedule.ScheduleSpec(job="nightly", interval_s=60))
+        assert jobs["kind"] == "job"
+
+        # A service that declares only echo: the job's schedule is neither submitted nor moved on.
+        only_echo = schedule.Scheduler(store)
+        only_echo.add(echo)
+        later = time.time() + 120
+        submitted = await only_echo.tick(now=later)
+        assert [(t["kind"], t["job"], t["schedule_id"]) for t in submitted] == [("echo", "HELLO", said["id"])]
+        assert (await store.schedule(jobs["id"]))["next_run"] == jobs["next_run"]
+        with pytest.raises(Refused, match="cannot be scheduled"):
+            await only_echo.run(jobs["id"])
+
+    asyncio.run(go())
+
+
+def test_interval_schedules_keep_their_pace(client):
+    runner = client.app.state.jobs
+    sched = client.post("/jobs/schedules", json={"job": "test-echo", "params": {"text": "pace", "steps": 1}, "interval_s": 600}).json()
+    # The tick finds the run 12 s late (ticks come every POLL_S): the next run is still due + 600, not now + 600.
+    due = time.time() - 12
+    client.portal.call(runner.tasks.store.mark_schedule_run, sched["id"], 0, None, due)
+    [job] = client.portal.call(runner.scheduler.tick)
+    assert client.get(f"/jobs/schedules/{sched['id']}").json()["next_run"] == pytest.approx(due + 600, abs=0.01)
+    wait(client, job["id"])
+    client.delete(f"/jobs/schedules/{sched['id']}")
+    # Runs missed while the service was down: one is made, and the next is the first on the grid still to come.
+    assert schedule.following(None, 600, due=1000.0, now=2900.0) == 3400.0
+    assert schedule.following(None, 600, due=1000.0, now=1000.0) == 1600.0
+    # Cron goes by the clock, as before.
+    assert schedule.following("*/15 * * * *", None, ts(2026, 10, 17, 10, 15), ts(2026, 10, 17, 10, 15, 12)) == ts(2026, 10, 17, 10, 30)
 
 
 # ------------------------------------------------------------------ webhooks
@@ -180,7 +257,7 @@ def test_finished_jobs_are_posted_to_webhooks(client, receiver, monkeypatch):
     wait_received(3)
     assert {b["data"]["status"] for _, b in Receiver.received[1:]} == {"cancelled"}
 
-    describe = client.get("/jobs/webhooks").json()
+    describe = client.get("/queue/webhooks").json()
     assert describe["urls"] == [receiver] and describe["secret_set"] is True and "job.finished" in describe["events"]
 
 
@@ -220,12 +297,12 @@ def test_a_delivery_answered_410_is_not_tried_again(client, receiver):
     task = delivery(client, receiver, "failed")
     assert task["error"] == "HTTP 410" and task["retried"] == 0 and len(Receiver.received) == 1
     # The dashboard lists it among the latest deliveries.
-    listed = {d["id"]: d for d in client.get("/jobs/webhooks").json()["deliveries"]}
+    listed = {d["id"]: d for d in client.get("/queue/webhooks").json()["deliveries"]}
     assert {k: listed[task["id"]][k] for k in ("event", "about", "url", "status", "error", "retries")} == {
         "event": "run.finished", "about": "r1", "url": receiver, "status": "failed", "error": "HTTP 410", "retries": 10}
 
 
-def test_a_delivery_outlives_a_restart(arcade, receiver):
+def test_a_delivery_outlives_a_restart(own_db, receiver):
     import asyncio
     from db.tables import TableStore
     from tasks.runner import TaskRunner
@@ -233,7 +310,7 @@ def test_a_delivery_outlives_a_restart(arcade, receiver):
     from tasks.webhooks import Webhooks
     from tests.waits import until_async
 
-    store = TaskStore(arcade, TableStore(arcade))
+    store = TaskStore(own_db, TableStore(own_db))
 
     async def scenario():
         # Two sent before the runner started: the service stopped first, and died while the second was going out.
@@ -261,14 +338,14 @@ def test_a_delivery_outlives_a_restart(arcade, receiver):
     assert rows[0]["attempts"] == 0 and rows[1]["attempts"] == 1, "the one under way counts as resumed"
 
 
-def test_finished_deliveries_are_deleted_after_their_days(arcade):
+def test_finished_deliveries_are_deleted_after_their_days(own_db):
     import asyncio
     from db.tables import TableStore
     from tasks.runner import TaskRunner
     from tasks.store import TaskStore
     from tasks.webhooks import Webhooks
 
-    store = TaskStore(arcade, TableStore(arcade))
+    store = TaskStore(own_db, TableStore(own_db))
     runner = TaskRunner(store)
     Webhooks(tasks=runner)
 
@@ -290,20 +367,24 @@ def test_finished_deliveries_are_deleted_after_their_days(arcade):
 
 
 def test_webhook_test_reports_the_answer(client, receiver):
-    r = client.post("/jobs/webhooks/test", json={"url": receiver})
+    r = client.post("/queue/webhooks/test", json={"url": receiver})
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True, "status": 200, "error": None}
     assert Receiver.received[0][1]["event"] == "test"
     Receiver.status = 500
-    assert client.post("/jobs/webhooks/test", json={"url": receiver}).json()["ok"] is False
-    assert client.post("/jobs/webhooks/test", json={"url": "http://127.0.0.1:9/nothing"}).json()["ok"] is False
-    assert client.post("/jobs/webhooks/test", json={"url": "ftp://x"}).status_code == 400
+    assert client.post("/queue/webhooks/test", json={"url": receiver}).json()["ok"] is False
+    assert client.post("/queue/webhooks/test", json={"url": "http://127.0.0.1:9/nothing"}).json()["ok"] is False
+    assert client.post("/queue/webhooks/test", json={"url": "ftp://x"}).status_code == 400
 
 
-def test_signature_is_hmac_of_the_body():
+def test_signature_is_hmac_of_the_body(own_db):
+    from db.tables import TableStore
+    from tasks.runner import TaskRunner
+    from tasks.store import TaskStore
     from tasks.webhooks import Webhooks
     import base64, hashlib, hmac
-    hooks = Webhooks(["http://x"], secret="k")
+    tasks = TaskRunner(TaskStore(own_db, TableStore(own_db)))
+    hooks = Webhooks(["http://x"], secret="k", tasks=tasks)
     body = hooks.body("test", {"a": 1})
     headers = hooks.headers("test", body, message_id="msg_1", sent_at=1700000000)
     assert headers["X-Toolkit-Signature"] == "sha256=" + hmac.new(b"k", body, hashlib.sha256).hexdigest()
@@ -313,11 +394,11 @@ def test_signature_is_hmac_of_the_body():
     assert headers["webhook-signature"] == "v1," + base64.b64encode(signed).decode()
     assert hooks.standard_secret == "whsec_" + base64.b64encode(b"k").decode()
     # Each message gets its own id; without a secret, no signature.
-    plain = Webhooks(["http://x"])
+    plain = Webhooks(["http://x"], tasks=tasks)
     first, second = plain.headers("test", body), plain.headers("test", body)
     assert first["webhook-id"].startswith("msg_") and first["webhook-id"] != second["webhook-id"]
     assert "X-Toolkit-Signature" not in first and "webhook-signature" not in first and plain.standard_secret is None
-    assert Webhooks(["http://x", " ", "http://y"]).urls == ["http://x", "http://y"]
+    assert Webhooks(["http://x", " ", "http://y"], tasks=tasks).urls == ["http://x", "http://y"]
 
 
 def test_a_cron_run_more_than_an_hour_late_is_skipped(client):
@@ -325,13 +406,25 @@ def test_a_cron_run_more_than_an_hour_late_is_skipped(client):
     sched = client.post("/jobs/schedules", json={"job": "test-echo", "params": {"text": "late", "steps": 1},
                                                  "cron": "0 3 * * *"}).json()
     # Two hours late (the service was down): skipped, its next run the next 03:00.
-    client.portal.call(runner.store.mark_schedule_run, sched["id"], 0, None, time.time() - 7200)
+    client.portal.call(runner.tasks.store.mark_schedule_run, sched["id"], 0, None, time.time() - 7200)
     assert client.portal.call(runner.scheduler.tick) == []
     row = client.get(f"/jobs/schedules/{sched['id']}").json()
-    assert row["next_run"] > time.time() and row["last_job_id"] is None
+    assert row["next_run"] > time.time() and row["last_task_id"] is None
     # Ten minutes late: made, once.
-    client.portal.call(runner.store.mark_schedule_run, sched["id"], 0, None, time.time() - 600)
+    client.portal.call(runner.tasks.store.mark_schedule_run, sched["id"], 0, None, time.time() - 600)
     submitted = client.portal.call(runner.scheduler.tick)
     assert [j["schedule_id"] for j in submitted] == [sched["id"]]
     wait(client, submitted[0]["id"])
     client.delete(f"/jobs/schedules/{sched['id']}")
+
+
+def test_a_schedule_with_an_endless_timeout_or_interval_is_refused(client):
+    """Infinity is no number of seconds: refused as the body is read (the 422 cannot echo it back, so a 400), rather
+    than saved to fail at each run."""
+    before = len(client.get("/jobs/schedules").json()["schedules"])
+    for field in ("timeout_s", "interval_s"):
+        body = '{"job": "test-echo", "params": {"text": "x"}, "interval_s": 600, "%s": Infinity}' % field
+        r = client.post("/jobs/schedules", content=body.replace('"interval_s": 600, "interval_s"', '"interval_s"'),
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code in (400, 422), (field, r.text)
+    assert len(client.get("/jobs/schedules").json()["schedules"]) == before

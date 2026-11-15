@@ -3,7 +3,7 @@ import { CircleAlert, Inbox, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ApiClient } from "../api";
+import { useApi } from "../api";
 import { byCategory, taskTitle, variantsAfterTheirTasks } from "../categories";
 import { EmptyState } from "../components";
 import { errorText, useReloadOn } from "../query";
@@ -17,11 +17,12 @@ export type { PickedModel } from "./parts";
 const NO_FILTER: ModelFilter = { query: "", status: "all", tag: "" };
 
 interface BrowseOptions {
-  client: ApiClient;
   /** Only these tasks are offered (every task when unset). */
   tasks?: string[];
   /** The task to open on. */
   task?: string;
+  /** A model to open on, its details shown (with ``load``): a link to it (catalog.ts, ``modelHref``). */
+  startOn?: PickedModel;
   pick?: { label: string; onPick(model: PickedModel): void };
   load?: { onChange(): void };
 }
@@ -37,20 +38,21 @@ interface BrowseOptions {
  * A change of ``refreshKey`` (say, the loaded models) fetches the catalog again.
  */
 export function ModelBrowserPanel(props: BrowseOptions & { onDone?(): void; refreshKey?: string }) {
-  const { client, pick, load } = props;
+  const client = useApi();
+  const { pick, load } = props;
   const listing = client.useQuery("get", "/models/catalog", undefined, {
     select: (d) => d.tasks.filter((t) => !props.tasks || props.tasks.includes(t.task)),
   });
   useReloadOn(props.refreshKey, listing.refetch);
   const catalog = listing.data;
   const listError = errorText(listing.error);
-  const [chosen, setChosen] = useState(props.task ?? "");
+  const [chosen, setChosen] = useState(props.startOn?.task ?? props.task ?? "");
   // The task chosen, or the default one while the catalog has no such task.
   const task = catalog?.some((t) => t.task === chosen) ? chosen : defaultTask(catalog ?? []);
   // Kept here, so they survive a visit to a model's details.
   const [filter, setFilter] = useState<ModelFilter>(NO_FILTER);
   const [otherId, setOtherId] = useState("");
-  const [selected, setSelected] = useState<PickedModel | null>(null);
+  const [selected, setSelected] = useState<PickedModel | null>(props.load ? (props.startOn ?? null) : null);
 
   function selectTask(next: string) {
     setChosen(next);
@@ -91,7 +93,6 @@ export function ModelBrowserPanel(props: BrowseOptions & { onDone?(): void; refr
         <TaskNav tasks={catalog} current={task} onSelect={selectTask} />
         {current && selected && load ? (
           <ModelDetails
-            client={client}
             picked={selected}
             model={current.models.find((m) => m.id === selected.id)}
             taskLabel={taskTitle(current)}
@@ -168,7 +169,9 @@ function TaskNav(props: { tasks: CatalogTask[]; current: string; onSelect(task: 
         <div key={category.key} role="group" aria-label={category.label} className="flex gap-0.5 @xl:flex-col">
           {headed && (
             // Across the top on a narrow screen, the headings would only take room.
-            <div className="hidden px-2.5 pb-1 text-xs font-medium text-muted-foreground @xl:block" aria-hidden="true">
+            // Bold and in capitals, in the tasks' own text color, so a heading never reads as one more task:
+            // a lighter weight in grey on grey stays too close in the dark theme.
+            <div className="hidden px-2.5 pb-1 text-[11px] font-bold tracking-wider text-foreground uppercase @xl:block" aria-hidden="true">
               {category.label}
             </div>
           )}

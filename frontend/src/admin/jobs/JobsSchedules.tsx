@@ -11,35 +11,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
-import { ConfirmButton, Field, Notice, Segmented, SelectField, StatusDot, SubmitButton } from "../../shared/components";
+import { useApi } from "../../shared/api";
+import { ConfirmButton, Field, Notice, Segmented, SelectField, StatusDot, SubmitButton, StatusBadge } from "../../shared/components";
 import { fmtAgo, fmtClock } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { SchemaFormHandle } from "../../shared/schema-form";
 import type { JobType, Priority, Schedule } from "../../shared/types";
 import {
-  describeCadence,
   EMPTY_SCHEDULE_FORM,
   fmtUntil,
   formFromSchedule,
-  INTERVAL_UNITS,
-  PRIORITY_OPTIONS,
   scheduleBody,
   sortSchedules,
   toggledBody,
-  validateCron,
   validateScheduleForm,
-  type IntervalUnit,
   type ScheduleForm,
 } from "./jobs";
 import { JobFields, RetryFields } from "./JobsSubmit";
-import { StatusBadge } from "./JobsTable";
 import { LoadedCard } from "../layout";
+import { describeCadence, INTERVAL_UNITS, PRIORITY_OPTIONS, type IntervalUnit } from "../../shared/tasks";
 
 const CRON_HINT = "minute hour day-of-month month day-of-week, e.g. 0 3 * * * is daily at 03:00 (server time)";
 
 export function SchedulesCard(props: {
-  client: ApiClient;
   schedules: Schedule[] | null;
   error: string;
   types: JobType[] | null;
@@ -48,7 +42,8 @@ export function SchedulesCard(props: {
   onJobStarted(): Promise<unknown>;
   onOpenLog(jobId: string): void;
 }) {
-  const { client, schedules } = props;
+  const client = useApi();
+  const { schedules } = props;
   // The form's starting state and the schedule it edits (null for a new one); closed when undefined.
   const [editing, setEditing] = useState<{ form: ScheduleForm; schedule: Schedule | null } | undefined>();
 
@@ -115,8 +110,8 @@ export function SchedulesCard(props: {
       render: (s) =>
         s.last_run ? (
           <span className="flex items-center gap-2">
-            {s.last_job_id ? (
-              <Button type="button" variant="link" size="sm" className="h-auto p-0 text-muted-foreground" title="Open the log" onClick={() => props.onOpenLog(s.last_job_id!)}>
+            {s.last_task_id ? (
+              <Button type="button" variant="link" size="sm" className="h-auto p-0 text-muted-foreground" title="Open the log" onClick={() => props.onOpenLog(s.last_task_id!)}>
                 {fmtAgo(s.last_run)}
               </Button>
             ) : (
@@ -190,7 +185,6 @@ export function SchedulesCard(props: {
       </LoadedCard>
       {editing && (
         <ScheduleDialog
-          client={client}
           types={props.types}
           typesError={props.typesError}
           initial={editing.form}
@@ -204,7 +198,6 @@ export function SchedulesCard(props: {
 }
 
 function ScheduleDialog(props: {
-  client: ApiClient;
   types: JobType[] | null;
   typesError: string;
   initial: ScheduleForm;
@@ -213,10 +206,10 @@ function ScheduleDialog(props: {
   onClose(): void;
   onSaved(): Promise<unknown>;
 }) {
+  const client = useApi();
   const [form, setForm] = useState(props.initial);
   const set = (patch: Partial<ScheduleForm>) => setForm((f) => ({ ...f, ...patch }));
   const paramsForm = useRef<SchemaFormHandle>(null);
-  const cronProblem = form.cadence === "cron" && form.cron.trim() ? validateCron(form.cron) : null;
 
   // The server's 400/422 detail (an unknown job, params its schema rejects) goes under the form.
   const submit = useAction(
@@ -226,8 +219,8 @@ function ScheduleDialog(props: {
       if (!(paramsForm.current?.validate() ?? true)) errors.push("Some params need fixing");
       if (errors.length) throw new Error(errors.join(". "));
       const body = scheduleBody(form);
-      if (props.schedule) await props.client.put("/jobs/schedules/{id}", { params: { path: { id: props.schedule.id } }, body });
-      else await props.client.post("/jobs/schedules", { body });
+      if (props.schedule) await client.put("/jobs/schedules/{id}", { params: { path: { id: props.schedule.id } }, body });
+      else await client.post("/jobs/schedules", { body });
       await props.onSaved();
       props.onClose();
       return body;
@@ -260,13 +253,12 @@ function ScheduleDialog(props: {
                 onChange={(cadence) => set({ cadence })}
               />
               {form.cadence === "cron" ? (
-                <Field className="min-w-48 flex-1" label={<span className="sr-only">Cron expression</span>} hint={cronProblem ? <span className="text-critical-text">{cronProblem}</span> : CRON_HINT}>
+                <Field className="min-w-48 flex-1" label={<span className="sr-only">Cron expression</span>} hint={CRON_HINT}>
                   <Input
                     placeholder="0 3 * * *"
                     autoComplete="off"
                     spellCheck={false}
                     className="font-mono text-[13px]"
-                    aria-invalid={Boolean(cronProblem) || undefined}
                     value={form.cron}
                     onChange={(e) => set({ cron: e.target.value })}
                   />

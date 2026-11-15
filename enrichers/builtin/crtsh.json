@@ -1,6 +1,5 @@
 {
   "name": "crtsh",
-  "kind": "http",
   "description": "Names in certificates issued for a domain (crt.sh certificate transparency, keyless, slow)",
   "docs": "https://crt.sh/",
   "inputs": [

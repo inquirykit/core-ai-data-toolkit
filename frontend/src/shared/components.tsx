@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -23,12 +24,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { pretty } from "./json";
 import { fromItem, toItem } from "./select";
+import { taskStatus } from "./tasks";
 import type { Status } from "./types";
-import { useTheme, type ThemeChoice } from "./theme";
+import { STYLES, useTheme, type StyleChoice, type ThemeChoice } from "./theme";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-/** The product name with its mark, linking to the dashboard. */
+/** The product name with its mark, linking to the dashboard. The styles (styles/) redraw the mark and add to the
+ * name through ``brand-mark`` and ``brand-name``. */
 export function Brand({ className }: { className?: string }) {
   return (
     <a
@@ -39,12 +42,12 @@ export function Brand({ className }: { className?: string }) {
       href="/admin#/overview"
     >
       <span
-        className="grid size-7 place-items-center rounded-lg bg-linear-135 from-brand-1 to-brand-2 text-white shadow-[0_4px_12px_-3px_var(--brand-1)] transition-transform duration-300 group-hover:-rotate-8 group-hover:scale-105"
+        className="brand-mark grid size-7 place-items-center rounded-lg bg-linear-135 from-brand-1 to-brand-2 text-white shadow-[0_4px_12px_-3px_var(--brand-1)] transition-transform duration-300 group-hover:-rotate-8 group-hover:scale-105"
         aria-hidden="true"
       >
         <Sparkles className="size-4" strokeWidth={2.2} />
       </span>
-      <span className="leading-tight max-md:hidden">AI &amp; Data Toolkit</span>
+      <span className="brand-name leading-tight max-md:hidden">AI &amp; Data Toolkit</span>
     </a>
   );
 }
@@ -101,6 +104,25 @@ export function ThemeToggle() {
         </Tooltip>
       ))}
     </ToggleGroupPrimitive.Root>
+  );
+}
+
+/** The style the pages are drawn in (theme.ts): each in light and dark, so it sits beside the ThemeToggle. */
+export function StylePicker() {
+  const { style, setStyle } = useTheme();
+  return (
+    <Select value={style} onValueChange={(value) => setStyle(value as StyleChoice)}>
+      <SelectTrigger size="sm" aria-label="Style" className="min-w-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STYLES.map((name) => (
+          <SelectItem key={name} value={name}>
+            {name[0].toUpperCase() + name.slice(1)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -284,6 +306,15 @@ export function StatusLabel({ status, live, className, title }: { status: Status
       <StatusDot color={status.color} live={live} />
       {status.label}
     </span>
+  );
+}
+
+/** A task's status as a badge (shared/tasks.ts): in the lists of jobs, schedules, predictors and webhook deliveries. */
+export function StatusBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline">
+      <StatusLabel status={taskStatus(status)} live={status === "running"} className="gap-1.5" />
+    </Badge>
   );
 }
 

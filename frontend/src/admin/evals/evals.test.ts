@@ -5,7 +5,12 @@ import {
   evalsHref,
   fmtMean,
   fmtScore,
+  fmtShare,
   inputPreview,
+  labelForKey,
+  matchingLabel,
+  parseLabels,
+  suggestionOf,
   metricLabel,
   outputPreview,
   parseObject,
@@ -13,6 +18,7 @@ import {
   runProgress,
   scoreTone,
   textOf,
+  trainingSchema,
 } from "./evals";
 import type { Run } from "../../shared/types";
 
@@ -57,13 +63,16 @@ describe("scores", () => {
     expect(fmtMean({ count: 3, scored: 3, mean: 0.5 }, "contains")).toBe("50%");
     expect(fmtMean(undefined, "contains")).toBe("–");
     expect([scoreTone(0.9), scoreTone(0.6), scoreTone(0.1), scoreTone(null)]).toEqual(["good", "warning", "critical", null]);
+    // A word error rate reads the other way round.
+    expect([scoreTone(0.05, true), scoreTone(0.4, true), scoreTone(1.3, true)]).toEqual(["good", "warning", "critical"]);
+    expect([fmtShare(0.666), fmtShare(null)]).toEqual(["67%", "–"]);
     expect(metricLabel("exact_match")).toBe("exact match");
     expect(metricLabel("judge_vs_r2", [{ id: "r2", name: "wordy" }])).toBe("vs wordy");
     expect(metricLabel("judge_vs_abcdefghijk")).toBe("vs abcdefgh");
   });
 
   it("describes what a run is doing", () => {
-    const run = { status: "done", activity: null } as unknown as Run;
+    const run = { status: "succeeded", activity: null } as unknown as Run;
     expect(runProgress(run)).toBe("Done");
     expect(runProgress({ ...run, status: "running", activity: { kind: "running", done: 3, total: 10 } })).toBe("Running 3/10");
     expect(runProgress({ ...run, activity: { kind: "judging", done: 2, total: 10 } })).toBe("Judging 2/10");
@@ -82,5 +91,32 @@ describe("forms", () => {
     expect(parseReference("Paris")).toBe("Paris");
     expect(parseReference('{"text": "Paris"}')).toEqual({ text: "Paris" });
     expect(parseReference("{not json")).toBe("{not json");
+  });
+});
+
+describe("labeling", () => {
+  it("reads label choices typed as a list", () => {
+    expect(parseLabels(" positive, negative\nneutral,, positive ")).toEqual(["positive", "negative", "neutral"]);
+    expect(parseLabels("")).toEqual([]);
+  });
+
+  it("reads what a suggestion proposes", () => {
+    expect(suggestionOf({ label: "POSITIVE", confidence: 0.9, scores: {} })).toEqual({ label: "POSITIVE", confidence: 0.9, text: "POSITIVE" });
+    expect(suggestionOf({ text: "a transcript" })).toEqual({ label: null, confidence: null, text: "a transcript" });
+    expect(suggestionOf(null)).toBeNull();
+    expect(matchingLabel(suggestionOf({ label: "POSITIVE" }), ["negative", "positive"])).toBe("positive");
+    expect(matchingLabel(suggestionOf({ label: "other" }), ["negative", "positive"])).toBeNull();
+  });
+
+  it("picks a choice by its number key", () => {
+    expect(labelForKey("2", ["a", "b"])).toBe("b");
+    expect([labelForKey("3", ["a", "b"]), labelForKey("0", ["a"]), labelForKey("x", ["a"])]).toEqual([null, null, null]);
+  });
+});
+
+describe("training", () => {
+  it("leaves out the params the training file fills in", () => {
+    const schema = { type: "object", properties: { train_file: {}, text_column: {}, label_column: {}, epochs: {} }, required: ["train_file", "epochs"] };
+    expect(trainingSchema(schema)).toEqual({ type: "object", properties: { epochs: {} }, required: ["epochs"] });
   });
 });

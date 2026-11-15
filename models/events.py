@@ -2,8 +2,8 @@
 What the model manager tells the rest of the service about each request.
 
 Every request it serves, or fails to, becomes one RequestEvent, handed to each
-of its sinks: callables the app gives it (the metrics, which forward to the
-monitoring store, and the trace store). The manager knows nothing of who
+of its sinks: callables the app gives it (the metrics, which count it and hand
+it to the request log, monitoring/store.py). The manager knows nothing of who
 listens, so adding one (a log, an exporter) is one more sink; a sink that
 fails is logged and never fails the request. Model events (loads, evictions)
 go to the manager's monitor instead.
@@ -16,9 +16,9 @@ request is for the model cache (``priority``).
 
 import contextvars
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Literal, Optional
 
-from tasks import HIGH
+from core.priorities import HIGH
 
 
 
@@ -30,6 +30,13 @@ class RequestContext:
     session: Optional[str] = None
     skip: bool = False
     priority: int = HIGH
+    # Where it came from, as the request log keeps it: "api" (an app, by a client key or none), "admin" (the admin's
+    # key: the playground, /admin), "data" (a /db table embedding its rows or reranking a search), "workflow" or "eval"
+    # (their runs); None for anything else (preloading, a test).
+    source: Optional[str] = None
+    # The only models the request's client key may use (access/grants.py; api/deps.py's model_allowed holds it to
+    # them); None for any the allow-list lets through. A workflow's own context has none: its models are the admin's.
+    models: Optional[List[str]] = None
 
 
 request_context: contextvars.ContextVar[Optional[RequestContext]] = contextvars.ContextVar("request_context", default=None)
@@ -44,12 +51,16 @@ class Call:
     output: Any = None
 
 
+# How a request went: "ok"; "client_error" for one the client got wrong (a ValueError, errors.Refused...); else
+# "error". The request log counts each (monitoring/store.py), and the API declares it (api/responses/common.py).
+RequestStatus = Literal["ok", "client_error", "error"]
+
+
 @dataclass
 class RequestEvent:
     model_id: str
     task: str
-    # "ok"; "client_error" for a request the client got wrong (a ValueError, errors.Refused...); else "error"
-    status: str
+    status: RequestStatus
     duration_ms: float
     # Whether the model had to be loaded first
     cold: bool

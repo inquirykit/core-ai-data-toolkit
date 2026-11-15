@@ -1,6 +1,5 @@
 {
   "name": "urlhaus_host",
-  "kind": "http",
   "description": "Malware URLs seen on a host (URLhaus by abuse.ch)",
   "docs": "https://urlhaus-api.abuse.ch/",
   "inputs": [

@@ -1,15 +1,18 @@
 """
 Child processes the service starts in their own process group (jobs, model
-servers, AutoGluon predictors): signal the whole group, so their children get
-it too; stop one gracefully; and kill every tracked one still running when the
-service exits, however it exits.
+servers, AutoGluon predictors): what of the environment they
+get (``child_env``: what a program needs to run, never the service's settings
+or keys); signal the whole group, so their children get it too; stop one
+gracefully; and kill every tracked one still running when the service exits,
+however it exits.
 """
 
 import asyncio
 import atexit
 import os
 import signal
-from typing import Callable, Dict, Iterable, List, Set
+from pathlib import Path
+from typing import Dict, Optional, Set
 
 from . import PROJECT_ROOT
 
@@ -22,6 +25,15 @@ def signal_group(pid: int, sig: int) -> None:
         os.killpg(pid, sig)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def env_python(envs_dir: Path, name: str) -> Optional[Path]:
+    """The interpreter of job environment ``name`` (``envs_dir/<name>``), or None until it is set up: its install
+    finished (scripts/setup_job_env.sh writes ``.ready`` last) and its ``bin/python`` resolves (it links to a Python
+    uv keeps elsewhere)."""
+    target = envs_dir / name
+    python = target / "bin" / "python"
+    return python if (target / ".ready").is_file() and python.exists() else None
 
 
 def track(process: asyncio.subprocess.Process) -> asyncio.subprocess.Process:
@@ -46,35 +58,39 @@ async def stop(process: asyncio.subprocess.Process, grace: float) -> None:
     untrack(process)
 
 
-# Environment variables no child gets: the service's keys and secrets (api/app.py names them with ``hide`` and ``hide_from``). A job
-# or a model server has no use for the API keys, the webhook secret or the enrichers' keys, and leaks them less
-# when it never has them.
-hidden: Set[str] = set()
+# What a child gets of this process's environment: what any program needs to run (where things are, the locale, the
+# proxies and certificates that reach the network, the GPUs) and the settings of the ML runtimes and caches its tools
+# read. Never the service's own settings, nor a key it holds (its own, the providers', the enrichers', the remotes'),
+# whatever they are named: a name nobody listed here stays with the service. Anything else a child needs is given to
+# it, as a model server entry's ``env`` and a job's own are.
+PASSED = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TERM", "TMPDIR", "TEMP", "TMP",
+    "VIRTUAL_ENV", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    "all_proxy", "POLARS_MAX_THREADS", "RAYON_NUM_THREADS", "LOKY_MAX_CPU_COUNT", "MPLCONFIGDIR",
+    "SENTENCE_TRANSFORMERS_HOME", "UV_PYTHON_INSTALL_DIR", "UV_NO_CACHE", "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN",
+    "HF_HUB_DISABLE_IMPLICIT_TOKEN",
+})
+PASSED_PREFIXES = (
+    "LC_", "XDG_", "PYTHON", "PYENV_", "CONDA_", "HF_", "HUGGING_FACE_", "HUGGINGFACE_", "TRANSFORMERS_",
+    "TORCH", "PYTORCH_", "CUDA", "NVIDIA_", "CUDNN_", "NCCL_", "OMP_", "KMP_", "GOMP_", "MKL_", "OPENBLAS_", "VECLIB_",
+    "TOKENIZERS_", "NUMEXPR_", "MALLOC_", "RAY_", "MLX_", "METAL_", "VLLM_", "SGLANG_", "LLAMA_", "GGML_", "OLLAMA_",
+)
+# A name like a key's is never passed by its prefix (NVIDIA_API_KEY, OLLAMA_API_KEY): only the Hub token, by name,
+# which a model's download and the Hub's own code need, as they always had it.
+KEY_ENDINGS = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD")
 
 
-# Where secret names come from while the service runs (the enrichers', which the dashboard can add): asked again
-# before each child starts.
-_sources: List[Callable[[], Iterable[str]]] = []
-
-
-def hide(*names: str) -> None:
-    """Keep these environment variables out of every child's environment from now on."""
-    hidden.update(name for name in names if name)
-
-
-def hide_from(source: Callable[[], Iterable[str]]) -> None:
-    """Keep the names ``source`` gives out of every child's environment: asked now, and again before each child
-    starts, so a secret named while the service runs is hidden too. A name once hidden stays hidden, since its value
-    stays in this process's environment after nothing names it any more."""
-    _sources.append(source)
-    hide(*source())
+def passed(name: str) -> bool:
+    """Whether every child gets the environment variable ``name``: so no secret may be named so
+    (api/settings.py, check_secret_name; enrichers/spec.py)."""
+    return name in PASSED or (name.startswith(PASSED_PREFIXES) and not name.upper().endswith(KEY_ENDINGS))
 
 
 def child_env(**extra: str) -> Dict[str, str]:
-    """This process's environment without the hidden names, plus ``extra``: what every child starts with."""
-    for source in _sources:
-        hide(*source())
-    return {**{k: v for k, v in os.environ.items() if k not in hidden}, **extra}
+    """The variables of this process's environment a child gets (``passed``), plus ``extra``: what every child
+    starts with."""
+    return {**{k: v for k, v in os.environ.items() if passed(k)}, **extra}
 
 
 def python_env(cpu_only: bool, **extra: str) -> Dict[str, str]:

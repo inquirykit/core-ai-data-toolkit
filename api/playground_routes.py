@@ -1,17 +1,19 @@
 """
-The /playground page: a tab per category of task. Chat talks to one model, or
-sends the same chat to several side by side to compare their replies; the
-other tabs run one model of a task through /inference.
+The playground's routes. The Playground section of /admin has a tab per
+category of task: Chat talks to one model, or sends the same chat to several
+side by side to compare their replies; the other tabs run one model of a task
+through /inference.
 
-Like /admin, the page (see api/pages.py) needs no key. It talks to the existing
-routes (/models/catalog, /tasks, /inference and the OpenAI-compatible ones)
-with the client key (API_KEY, or the admin key), and
-reads the limits below so it never offers more columns than the model cache
-holds; past MAX_MODELS each turn would evict and reload the others.
+The section talks to the existing routes (/models/catalog, /tasks, /inference
+and the OpenAI-compatible ones), and reads the limits below so it never offers
+more columns than the model cache holds; past MAX_MODELS each turn would evict
+and reload the others. These routes need the admin key, which the section
+sends: the saved chats are the admin's, as under /db (client keys are for
+machines, not for the playground).
 
 Saved conversations and prompt presets are kept by playground/store.py, in
-the /db tables. A saved conversation can become an eval dataset example (admin
-key): the chat up to the last reply as the input, that reply as the reference.
+the /db tables. A saved conversation can become an eval dataset example: the chat up to the
+last reply as the input, that reply as the reference.
 """
 
 from typing import List, Literal, Optional
@@ -24,7 +26,7 @@ from playground import CONVERSATIONS, PRESETS, example_from
 from . import deps
 from . import responses
 
-router = APIRouter(prefix="/playground", dependencies=deps.CLIENT)
+router = APIRouter(prefix="/playground", dependencies=deps.ADMIN)
 
 
 @router.get("/limits", **responses.answering(responses.Limits))
@@ -118,9 +120,9 @@ async def delete_conversation(saved: deps.Playground, conversation_id: str):
     return Response(status_code=204)
 
 
-@router.post("/conversations/{conversation_id}/example", **responses.answering(responses.ExampleAdded), dependencies=deps.ADMIN)
+@router.post("/conversations/{conversation_id}/example", **responses.answering(responses.ExampleAdded))
 async def conversation_to_example(saved: deps.Playground, evals: deps.Evals, conversation_id: str, body: ExampleBody):
-    """Add one column's chat to an eval dataset as an example (admin key)."""
+    """Add one column's chat to an eval dataset as an example."""
     conversation = await saved.get(CONVERSATIONS, conversation_id)
     example = example_from(conversation, body.column, body.reference)
     added = await evals.add_examples(body.dataset_id, [example])

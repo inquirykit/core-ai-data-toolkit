@@ -8,6 +8,7 @@ re-read any, and a test checks env.example mentions each.
 """
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
@@ -38,9 +39,36 @@ def optional(text: str) -> Optional[str]:
     return text or None
 
 
-def directory(text: str) -> Path:
-    """A path, made absolute against the working directory."""
+def folder(text: str) -> Path:
+    """A folder that must be given, made absolute against the working directory with its links followed."""
+    if not text.strip():
+        raise ValueError("give a folder")
     return Path(text).resolve()
+
+
+# Where DATA_DIR keeps each thing: Config.<name> is DATA_DIR/<place>. These are not settings of their own: the folder
+# is moved and backed up as one (docs/GUIDE.md, Backups).
+LAYOUT = {
+    "DATABASE_PATH": "toolkit.duckdb",       # everything stored: /db, traces, evals, tasks, metrics, the audit log
+    "FILES_DIR": "files",                    # the /db buckets' files: files/<workspace>/<bucket>/<row id>
+    "JOBS_DIR": "jobs",                      # each job's folder: its log, its files, the predictor it trained
+    "JOB_DATA_DIR": "datasets",              # the input files jobs read (POST /jobs/data)
+    "EVIDENCE_DIR": "evidence",              # the evidence captures
+    "EVIDENCE_KEY_FILE": "evidence/keys/ed25519.pem",  # the key that signs them (made on first use)
+    "SECRETS_FILE": "secrets.json",          # the keys typed into /admin, encrypted (core/keystore.py)
+    "MODEL_SERVERS_SAVED_FILE": "model_servers.json",  # the model servers saved from /admin
+}
+
+
+# An amount of memory as DuckDB takes one: a number and its unit, or a share of the machine's.
+MEMORY = re.compile(r"\s*\d+(\.\d+)?\s*([kmgt](i?b)?|b|%)\s*", re.IGNORECASE)
+
+
+def memory(text: str) -> str:
+    """An amount of memory such as 1GB, 512MB, 1.5GiB or 50%, as DuckDB's memory_limit takes it."""
+    if not MEMORY.fullmatch(text):
+        raise ValueError("give an amount such as 1GB, 512MB or 50%")
+    return text.strip()
 
 
 @dataclass
@@ -57,7 +85,7 @@ class Setting:
         """The value, or a ValueError naming the variable and what is wrong with it (at startup, or when
         ``Config.apply`` re-reads it): not a bare parse error at first use."""
         raw = os.environ.get(self.name)
-        # An empty number counts as unset (compose passes "${MAX_MODELS:-}"); an empty path or list means off.
+        # An empty number counts as unset (compose passes "${MAX_MODELS:-}"); an empty list is none.
         if raw is None or (raw == "" and self.parse in (int, float)):
             default = self.default() if callable(self.default) else self.default
             return self.parse(default) if isinstance(default, str) else default
@@ -85,12 +113,17 @@ def _from_environment(cls: type) -> type:
             value.name = name
             SETTINGS[name] = value
             setattr(cls, name, value.read())
+    for name, place in LAYOUT.items():
+        setattr(cls, name, cls.DATA_DIR / place)
     return cls
 
 
 @_from_environment
 class Config:
     ENV_FILE = ENV_FILE
+    # Everything the service keeps, in one folder laid out as LAYOUT says: the database, the buckets' files, the jobs'
+    # folders and inputs, what /admin saves (enrichers, model servers, keys) and the evidence captures with their key.
+    DATA_DIR = setting(folder, "data")
     # Send /admin to the setup wizard while no API key is configured.
     SETUP_WIZARD = setting(flag, True)
     # The one-time code the wizard asks for; a random one is logged at startup when unset.
@@ -121,9 +154,6 @@ class Config:
     # vLLM, llama-server, ...), each with backends tried in order; see
     # model_servers.example.toml. Missing: none.
     MODEL_SERVERS_FILE = setting(lambda text: Path(text or PROJECT_ROOT / "model_servers.toml"), PROJECT_ROOT / "model_servers.toml")
-    # Model servers edited in /admin (JSON); each replaces the file's entry of
-    # the same name. Empty: /admin can show them but not change them.
-    MODEL_SERVERS_SAVED_FILE = setting(lambda text: Path(text) if text else None, "data/model_servers.json")
     # Let /admin save model server commands (cmd, env), which run on this host
     # as this service's user. Off: /admin keeps only the ones the file gives.
     MODEL_SERVERS_ALLOW_COMMANDS = setting(flag, False)
@@ -132,7 +162,6 @@ class Config:
     # 0.0.0.0): until the setup wizard runs, the API has no key.
     HOST = setting(str, "127.0.0.1")
     PORT = setting(int, 8000, minimum=1)
-    WORKERS = setting(int, 1, minimum=1)
     RELOAD = setting(flag, False)  # dev-only auto reload
     DEBUG = setting(flag, False)   # include exception text in error responses
 
@@ -155,14 +184,13 @@ class Config:
     # Token IDs a prompt given as tokens may hold, and prompts per /v1/completions request.
     MAX_PROMPT_TOKENS = setting(int, 32768, minimum=1)
     MAX_COMPLETION_PROMPTS = setting(int, 64, minimum=1)
-    # Hub downloads (/hub/downloads) running at once; more wait in order.
-    MAX_HUB_DOWNLOADS = setting(int, 2, minimum=1)
 
     # CORS settings
     CORS_ORIGINS = setting(items, "*")
 
-    # Access control. When API_KEY is set, every endpoint except / and /health
-    # requires "Authorization: Bearer <key>" or "X-API-Key: <key>".
+    # Access control. When API_KEY is set (or a client key was made in /admin:
+    # access/keys.py), every endpoint except / and /health requires
+    # "Authorization: Bearer <key>" or "X-API-Key: <key>".
     API_KEY = setting(optional, None, secret=True)
     # Model IDs clients may load. Empty means any Hugging Face Hub model.
     ALLOWED_MODELS = setting(items, "")
@@ -170,47 +198,50 @@ class Config:
     # unloading models, and /models/status. Unset means API_KEY guards those
     # too. The admin key is also accepted wherever API_KEY is.
     ADMIN_API_KEY = setting(optional, None, secret=True)
+    # The key that opens the API keys typed into /admin (kept encrypted in
+    # DATA_DIR). Unset: the operating system's credential store keeps one.
+    SECRETS_MASTER_KEY = setting(optional, None, secret=True)
 
     # Model settings
     DEFAULT_DEVICE = setting(str, "auto")  # auto, cpu, cuda, mps
-    # Hub repos allowed to run their own Python code (FastVLM needs this).
+    # Hub repos allowed to run their own Python code (FastVLM needs this, as do some embedding and rerank models).
     # TRUST_REMOTE_CODE=false disables it for all of them.
     TRUST_REMOTE_CODE = setting(flag, True)
     TRUST_REMOTE_CODE_MODELS = setting(items, "apple/FastVLM-0.5B,apple/FastVLM-1.5B,apple/FastVLM-7B")
 
-    # Directory that image paths given to /vision-language must live under.
-    IMAGE_DIR = setting(directory, "data/images")
+    # Directory that image paths given to /vision-language must live under; DATA_DIR/images unless set.
+    IMAGE_DIR = setting(folder, lambda: str(SETTINGS["DATA_DIR"].read() / "images"))
 
-    # The embedded ArcadeDB database in this directory holds /collections, the
-    # /db tables, traces and evals, the evidence ledger, jobs, request metrics
-    # and the enrichers' result cache. Empty turns all of those off.
-    ARCADEDB_PATH = setting(str, "data/arcadedb")
-    # Most memory ArcadeDB's in-process JVM may use (it shares the process with the models).
-    ARCADEDB_HEAP = setting(str, "1g")
+    # Most memory DuckDB may use for its work (it shares the process with the models): its memory_limit, as 1GB, 512MB,
+    # 50%.
+    DATABASE_MEMORY = setting(memory, "1GB")
+    # Rows a /db table with a vector field holds at most (413 past it): a vector search compares every row, so its
+    # time grows with them (about 50 ms per 50,000 vectors of 384 numbers).
+    VECTOR_MAX_ROWS = setting(int, 100_000, minimum=1)
+    # Largest file a bucket takes (413 past it): 1 GiB. Uploads stream to disk, never into memory, so this guards
+    # the disk, not the process: room for a long recording or a dataset, not for a client to fill the disk at once.
+    MAX_FILE_BYTES = setting(int, 1024 ** 3, minimum=1)
+    # Views (views/: saved reads a client key runs): the rows one answers at most, which a view may lower, and how long
+    # its SQL may run, in milliseconds, which a view may lower too (past it the read is stopped: 503).
+    VIEW_MAX_ROWS = setting(int, 1000, minimum=1)
+    VIEW_TIME_LIMIT_MS = setting(int, 5000, minimum=1)
 
-    # Traces (evals/): each request's input and output, kept in the ArcadeDB
-    # database for debugging and for building benchmark datasets. A day's
-    # traces share a bucket, dropped whole once older than this many days;
-    # 0 records none, and drops those kept before. Needs ARCADEDB_PATH.
+    # Traces: each request's inputs and outputs, kept in the request log
+    # (monitoring/) for debugging and for building benchmark datasets, deleted
+    # once older than this many days (hourly), and never kept longer than
+    # their request (MONITORING_RETENTION_DAYS); 0 records none, and deletes
+    # those kept before.
     TRACE_RETENTION_DAYS = setting(float, 3.0, minimum=0)
     # Longest string a trace keeps per field; longer ones are cut.
     TRACE_MAX_CHARS = setting(int, 8000, minimum=0)
-    # The LLM judge for benchmark runs (/admin Evals): a model this service
-    # runs (its ID, asked through its own /v1), or one behind an OpenAI-compatible
-    # endpoint when JUDGE_BASE_URL is set; the key is sent to that endpoint only.
-    # Each judging can name another.
+    # The LLM judge for benchmark runs (/admin Evals): a model ID, asked through this service's own /v1 (one on
+    # another server is a model server entry). Each judging can name another.
     JUDGE_MODEL = setting(str, "")
-    JUDGE_BASE_URL = setting(str, "")
-    JUDGE_API_KEY = setting(optional, None, secret=True)
 
     # Jobs (jobs/): long-running scripts such as AutoGluon training, each run
-    # in its own process. JOBS_DIR holds each job's files (the job table is in
-    # the ArcadeDB database); empty disables jobs.
-    JOBS_DIR = setting(str, "data/jobs")
-    # Input files jobs may read (uploaded with POST /jobs/data).
-    JOB_DATA_DIR = setting(directory, "data/datasets")
-    # Job environments: JOB_ENVS_DIR/<env>/bin/python, made by scripts/setup_job_env.sh.
-    JOB_ENVS_DIR = setting(directory, "envs")
+    # in its own process and environment:
+    # JOB_ENVS_DIR/<env>/bin/python, installed by the setup-env job (scripts/setup_job_env.sh).
+    JOB_ENVS_DIR = setting(folder, "envs")
     # Jobs run at once; more wait in a queue.
     MAX_RUNNING_JOBS = setting(int, 1, minimum=1)
     # CPU cores a job may use; 0 is every core but one, which stays with the service.
@@ -225,10 +256,7 @@ class Config:
     # Largest file POST /jobs/data accepts.
     JOB_MAX_UPLOAD_BYTES = setting(int, 2 * 1024 ** 3, minimum=1)
 
-    # Enrichers (enrichers/): look a value up in outside services. ENRICHERS_DIR
-    # holds the operator's own enrichers (one file each, written by /admin);
-    # empty turns enrichers off.
-    ENRICHERS_DIR = setting(str, "data/enrichers")
+    # Enrichers (enrichers/): look a value up in outside services.
     # Which sources may run, by what their terms allow: open, attribution,
     # non_commercial, paid. A commercial deployment drops non_commercial.
     ENRICHER_TERMS = setting(items, "open,attribution,non_commercial,paid")
@@ -238,17 +266,9 @@ class Config:
     ENRICH_CONCURRENCY = setting(int, 8, minimum=1)
 
     # Evidence capture (evidence/): signed, hash-chained records of web pages a
-    # browser extension captures, with their files. EVIDENCE_DIR holds the
-    # capture directories and the signing key; empty turns it off. The ledger
-    # itself is in the ArcadeDB database, so ARCADEDB_PATH is needed too.
-    EVIDENCE_DIR = setting(str, "data/evidence")
+    # browser extension captures, with their files.
     # RFC 3161 time stamping authority each record's hash is sent to; empty disables it.
     EVIDENCE_TSA_URL = setting(str.strip, "https://freetsa.org/tsr")
-    # Ed25519 private key (PKCS#8 PEM), made on first use; its public key is written beside it.
-    EVIDENCE_KEY_FILE = setting(
-        lambda text: Path(text) if text else Path(os.getenv("EVIDENCE_DIR") or "data/evidence") / "keys" / "ed25519.pem",
-        lambda: Path(os.getenv("EVIDENCE_DIR") or "data/evidence") / "keys" / "ed25519.pem",
-    )
     # Browser origins allowed on /evidence, exactly; empty means any chrome-extension:// or moz-extension://.
     EVIDENCE_ALLOWED_ORIGINS = setting(items, "")
     # Look the captured page's address and hosts up with the enrichers and keep what they
@@ -259,14 +279,19 @@ class Config:
     # Logging
     LOG_LEVEL = setting(str, "INFO")
 
-    # Days of request metrics and model events kept for the /admin dashboard,
-    # in the ArcadeDB database. Only metadata (inputs and outputs are traces,
-    # above). 0 records none.
+    # Days of the request log and model events kept for the /admin dashboard,
+    # in the database (a request's inputs and outputs, its traces, are kept
+    # TRACE_RETENTION_DAYS, above, at most as long). 0 records none.
     MONITORING_RETENTION_DAYS = setting(float, 7.0, minimum=0)
 
     # Days of the audit log (api/audit.py: every change an admin makes, and every
-    # delete), in the ArcadeDB database. 0 keeps none.
+    # delete), in the database. 0 keeps none.
     AUDIT_RETENTION_DAYS = setting(float, 365.0, minimum=0)
+
+    # Days a workflow's finished runs are kept (workflows/): each run's task, its
+    # counts and the spec it ran, which the rows it wrote name in _run; deleted
+    # hourly once older. 0 keeps them until their workflow is deleted.
+    WORKFLOW_RUN_DAYS = setting(float, 30.0, minimum=0)
 
     @classmethod
     def needs_setup(cls) -> bool:
@@ -300,33 +325,22 @@ class Config:
         return out
 
     @staticmethod
-    def secret_names() -> List[str]:
-        """The settings that are keys and secrets: hidden on /admin, kept out of child processes (procs.hide)."""
-        return [name for name, spec in SETTINGS.items() if spec.secret]
-
-    @classmethod
-    def fatal(cls) -> List[str]:
-        """Why the service cannot start as configured; main.py prints these and exits."""
-        found = []
-        if cls.WORKERS > 1 and cls.ARCADEDB_PATH:
-            found.append("WORKERS > 1 with ARCADEDB_PATH set: only one process can open the embedded database, so "
-                         "every worker but one would fail to start. Run one worker, or set ARCADEDB_PATH empty "
-                         "(no /db, collections, traces, jobs or request history).")
-        return found
-
-    @staticmethod
     def set_by_environment(name: str) -> bool:
         """Whether a real environment variable sets ``name``; it then wins over the file on every start."""
         return bool(os.environ.get(name)) and name not in _FROM_FILE
 
     @classmethod
-    def warnings(cls) -> List[str]:
-        """Settings that are risky outside development, logged at startup and shown on /admin."""
+    def warnings(cls, client_keys: bool = False) -> List[str]:
+        """Settings that are risky outside development, logged at startup and shown on /admin. ``client_keys``: whether
+        a client key was ever made in /admin, which makes the client routes need a key without API_KEY."""
         found = []
-        if not cls.API_KEY:
-            found.append("API_KEY is not set: the API accepts unauthenticated requests")
+        if cls.SECRETS_MASTER_KEY and not cls.set_by_environment("SECRETS_MASTER_KEY"):
+            found.append("SECRETS_MASTER_KEY is in the .env file, in plain text: set it in the real environment")
+        if not cls.API_KEY and not client_keys:
+            found.append("API_KEY is not set and no client key was made: the API accepts unauthenticated requests")
         elif not cls.ADMIN_API_KEY:
-            found.append("ADMIN_API_KEY is not set: anyone with API_KEY can load, unload and clear models")
+            found.append("ADMIN_API_KEY is not set: anyone with API_KEY can load, unload and clear models" if cls.API_KEY
+                         else "ADMIN_API_KEY is not set: the admin's routes accept unauthenticated requests")
         if not cls.ALLOWED_MODELS:
             found.append("ALLOWED_MODELS is empty: clients can make the server download any Hub model")
         if "*" in cls.CORS_ORIGINS:
@@ -335,8 +349,4 @@ class Config:
             found.append("DEBUG is on: error responses include exception text")
         if cls.MODEL_TURN_S and cls.MODEL_TURN_S >= cls.MODEL_WAIT_TIMEOUT:
             found.append("MODEL_TURN_S is not below MODEL_WAIT_TIMEOUT: a load gives up (503) before its turn comes")
-        if cls.WORKERS > 1:
-            # Possible only without the database (see fatal()).
-            found.append("WORKERS > 1: each worker has its own cache (and starts its own model servers), "
-                         "so /admin shows one worker's loaded models")
         return found

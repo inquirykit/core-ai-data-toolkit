@@ -1,6 +1,5 @@
 {
   "name": "abuseipdb",
-  "kind": "http",
   "description": "Abuse reports and confidence score of an IP address (AbuseIPDB)",
   "docs": "https://docs.abuseipdb.com/",
   "inputs": [

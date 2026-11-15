@@ -72,6 +72,8 @@ const isDict = (s: RJSFSchema) => s.type === "object" && !isSchema(s.properties)
 /** The editor of each field of ``schema`` (made plain by formSchema) that its shape calls for. */
 export function uiDefaults(schema: RJSFSchema): UiSchema {
   if (schema.const !== undefined) return { "ui:widget": "hidden" };
+  // Text of a kind of its own (a SQL query): a box of lines.
+  if (schema.type === "string" && typeof schema.contentMediaType === "string") return { "ui:widget": "textarea", "ui:options": { rows: 6 } };
   if (isDict(schema)) {
     const values = schema.additionalProperties;
     return isSchema(values) && values.type === "string" ? { "ui:field": "keyValue" } : { "ui:field": "json" };

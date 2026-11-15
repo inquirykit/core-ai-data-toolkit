@@ -20,6 +20,8 @@ export function RowsGrid<T extends Record<string, unknown>>(props: {
   onSort(column: string): void;
   /** The table's declared fields, to say a column's type and mark the indexed ones */
   declared?: Map<string, FieldInfo>;
+  /** Columns that are no field of the rows (the rows of other tables naming each), by their header's text and tooltip: not sortable */
+  heads?: Map<string, { label: string; title: string }>;
   /** What a click (or Enter) on a row does; none for rows that open nothing */
   onRow?(row: NoInfer<T>): void;
   /** A cell drawn otherwise than by Cell: an edge's ends as links */
@@ -36,16 +38,22 @@ export function RowsGrid<T extends Record<string, unknown>>(props: {
           <TableRow className="hover:bg-transparent">
             {columns.map((c, i) => (
               <TableHead key={c} className={cn("p-0", i === 0 && "sticky left-0 z-10 bg-muted")}>
-                <button
-                  type="button"
-                  className="flex h-10 w-full items-center gap-1 px-3 font-mono text-xs font-medium hover:text-foreground"
-                  title={`Sort by ${c}${declared?.has(c) ? ` (${describeField(declared.get(c)!)})` : ""}`}
-                  onClick={() => props.onSort(c)}
-                >
-                  {c}
-                  {declared?.get(c)?.indexed && <Zap className="size-3 text-[var(--series-1)]" aria-label="indexed" />}
-                  {props.sort?.field === c && (props.sort.desc ? <ArrowDown className="size-3" aria-label="descending" /> : <ArrowUp className="size-3" aria-label="ascending" />)}
-                </button>
+                {props.heads?.has(c) ? (
+                  <span className="flex h-10 items-center px-3 font-mono text-xs font-medium text-muted-foreground" title={props.heads.get(c)!.title}>
+                    {props.heads.get(c)!.label}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex h-10 w-full items-center gap-1 px-3 font-mono text-xs font-medium hover:text-foreground"
+                    title={`Sort by ${c}${declared?.has(c) ? ` (${describeField(declared.get(c)!)})` : ""}`}
+                    onClick={() => props.onSort(c)}
+                  >
+                    {c}
+                    {declared?.get(c)?.indexed && <Zap className="size-3 text-[var(--series-1)]" aria-label="indexed" />}
+                    {props.sort?.field === c && (props.sort.desc ? <ArrowDown className="size-3" aria-label="descending" /> : <ArrowUp className="size-3" aria-label="ascending" />)}
+                  </button>
+                )}
               </TableHead>
             ))}
           </TableRow>
@@ -120,12 +128,12 @@ export function Cell({ value }: { value: unknown }) {
 }
 
 /** An edge's end, ``table/id``: a link to the row drawn with its neighbors in the Graph query. */
-export function EdgeEnd({ namespace, end }: { namespace: string; end: string }) {
+export function EdgeEnd({ workspace, end }: { workspace: string; end: string }) {
   const cut = end.indexOf("/");
   return (
     <a
       className="font-mono text-[13px] hover:underline"
-      href={dataHash({ namespace, graph: true, graphNode: end })}
+      href={dataHash({ workspace, graph: true, graphNode: end })}
       title="Show this row and its neighbors in the Graph query"
     >
       <span className="text-muted-foreground">{end.slice(0, cut + 1)}</span>

@@ -1,0 +1,47 @@
+/* React Flow's canvases (a workflow's, admin/workflows/WorkflowCanvas.tsx; a workspace's diagram,
+   admin/data/diagram/DataDiagram.tsx) in the pages' theme: its variables set from the theme's tokens, so they follow
+   light and dark with the rest. The nodes draw themselves with Tailwind classes. */
+.flow-canvas {
+  --xy-background-color: color-mix(in oklab, var(--muted) 35%, var(--background));
+  --xy-background-pattern-dots-color: var(--axis);
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--primary);
+  --xy-connectionline-stroke: var(--primary);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-handle-background-color: var(--muted-foreground);
+  --xy-handle-border-color: var(--card);
+  --xy-selection-background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+  --xy-selection-border: 1px dotted var(--primary);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--muted);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 12%, transparent);
+  --xy-edge-label-background-color: var(--card);
+  --xy-edge-label-color: var(--foreground);
+  --xy-attribution-background-color: transparent;
+}
+
+.flow-canvas .react-flow__handle {
+  width: 9px;
+  height: 9px;
+}
+
+/* A handle the connection being drawn may end on. */
+.flow-canvas .react-flow__handle.connectingto.valid {
+  --xy-handle-background-color: var(--good);
+}
+
+.flow-canvas .react-flow__edge-textbg {
+  stroke: var(--border);
+}
+
+.flow-canvas .react-flow__edge-text {
+  font-size: 11px;
+}
+
+.flow-canvas .react-flow__attribution a {
+  color: var(--muted-foreground);
+}

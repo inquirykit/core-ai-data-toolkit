@@ -5,18 +5,16 @@ import {
   filterLogs,
   fmtRange,
   fromRequestRow,
-  fromTrace,
   mergeLogs,
   panRange,
   presetOf,
   presetView,
   rangeOf,
-  searchesTraces,
   traceFromHash,
   viewOf,
   zoomRange,
 } from "./activity";
-import type { LogLine, RequestRow, TraceSummary } from "../../shared/types";
+import type { LogLine, RequestRow } from "../../shared/types";
 
 const NOW = 1_700_000_000;
 
@@ -116,34 +114,23 @@ describe("logs", () => {
 });
 
 describe("the requests table", () => {
-  it("reads the open trace from the hash, at the old address too", () => {
+  it("reads the open trace from the hash, not at the old address", () => {
     expect(traceFromHash("#/activity/abc123")).toBe("abc123");
     expect(traceFromHash("#/activity/a%2Fb?x=1")).toBe("a/b");
-    expect(traceFromHash("#/traces/abc123")).toBe("abc123");
+    expect(traceFromHash("#/traces/abc123")).toBeNull();
     expect(traceFromHash("#/activity")).toBeNull();
     expect(traceFromHash("#/evals/x")).toBeNull();
   });
 
-  it("searches the traces only when there are words or a tag", () => {
-    expect(searchesTraces("", "")).toBe(false);
-    expect(searchesTraces("  ", " ")).toBe(false);
-    expect(searchesTraces("paris", "")).toBe(true);
-    expect(searchesTraces("", "playground")).toBe(true);
-  });
-
-  it("makes the same row of a request and of a trace", () => {
-    const request: RequestRow = { id: 7, ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null, trace_id: "t1" };
-    const trace: TraceSummary = {
-      id: "t1", ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null,
-      tags: ["playground"], session: null, input_chars: 5, output_chars: 3, preview: "hi → hello",
+  it("makes a row of a request, its first words with it while its trace is kept", () => {
+    const request: RequestRow = {
+      id: 7, ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null, trace_id: "t1",
+      tags: ["playground"], session: null, backend: null, preview: "hi → hello",
     };
     expect(fromRequestRow(request)).toEqual({
-      key: "r7", ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null, trace_id: "t1", preview: null, tags: [],
-    });
-    expect(fromRequestRow({ ...request, trace_id: undefined, cold: false })).toMatchObject({ trace_id: null, cold: false });
-    expect(fromTrace(trace)).toEqual({
-      key: "tt1", ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null, trace_id: "t1",
+      key: "r7", ts: 100, model_id: "m", task: "chat", status: "ok", duration_ms: 12, cold: true, error: null, trace_id: "t1",
       preview: "hi → hello", tags: ["playground"],
     });
+    expect(fromRequestRow({ ...request, trace_id: null, preview: null, cold: false })).toMatchObject({ trace_id: null, preview: null, cold: false });
   });
 });

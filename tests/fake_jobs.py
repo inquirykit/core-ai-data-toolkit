@@ -30,6 +30,7 @@ class Echo(Job):
 
     Params = EchoParams
     Result = EchoResult
+    ref_param = "text"
 
     def run(self, ctx: JobContext, p: EchoParams) -> EchoResult:
         for step in range(p.steps):
@@ -86,3 +87,22 @@ class BadResult(Job):
 class MissingEnv(Job):
     def run(self, ctx, params):
         return {}
+
+
+class EnvParams(JobParams):
+    name: str = Field(..., min_length=1)
+
+
+class EnvResult(JobResult):
+    present: bool
+
+
+@register_job("test-env")
+class Env(Job):
+    """Say whether the job's environment has a variable: the service's secrets must not reach it"""
+
+    Params = EnvParams
+    Result = EnvResult
+
+    def run(self, ctx, p: EnvParams) -> EnvResult:
+        return EnvResult(present=p.name in os.environ)

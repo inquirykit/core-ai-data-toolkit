@@ -3,12 +3,11 @@
 import { CircleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ApiClient } from "../../shared/api";
 import { Facts } from "../../shared/components";
 import type { ModelServers } from "../../shared/types";
 import { ProvidersCard } from "./ServersProviders";
 
-export function OverviewView({ client, data, reload }: { client: ApiClient; data: ModelServers; reload(): Promise<unknown> }) {
+export function OverviewView({ data, reload }: { data: ModelServers; reload(): Promise<unknown> }) {
   return (
     <div className="grid min-w-0 gap-5">
       <Card className="gap-4">
@@ -32,7 +31,7 @@ export function OverviewView({ client, data, reload }: { client: ApiClient; data
               [
                 "Saved here",
                 <span className="font-mono text-xs">
-                  {data.saved_file ?? <span className="font-sans text-muted-foreground">nowhere: MODEL_SERVERS_SAVED_FILE is empty, so this page is read-only</span>}
+                  {data.saved_file}
                 </span>,
               ],
               [
@@ -65,7 +64,7 @@ export function OverviewView({ client, data, reload }: { client: ApiClient; data
           )}
         </CardContent>
       </Card>
-      <ProvidersCard client={client} data={data} reload={reload} />
+      <ProvidersCard data={data} reload={reload} />
     </div>
   );
 }

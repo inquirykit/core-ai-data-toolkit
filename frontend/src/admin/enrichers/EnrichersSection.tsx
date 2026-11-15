@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Search } from "lucide-react";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { useHash } from "../../shared/browser";
 import { errorText } from "../../shared/query";
 import { EmptyCard } from "../../shared/components";
@@ -15,7 +15,8 @@ import { LookupCard } from "./EnrichersLookup";
  * /admin#/enrichers: the enrichers on the left; on the right a lookup
  * across all of them, or the chosen one's editor and a test bench.
  */
-export function EnrichersSection({ client }: { client: ApiClient }) {
+export function EnrichersSection() {
+  const client = useApi();
   const loc = useHash(locationFromHash);
   const query = client.useQuery("get", "/enrichers");
   const list = query.data ?? null;
@@ -27,13 +28,12 @@ export function EnrichersSection({ client }: { client: ApiClient }) {
 
   let view: ReactNode;
   if (!list) view = <DetailSkeleton />;
-  else if (loc.view === "lookup") view = <LookupCard client={client} types={types} />;
+  else if (loc.view === "lookup") view = <LookupCard types={types} />;
   else if (loc.view === "new") {
     const source = byName(loc.dup);
     view = (
       <EnricherEditor
         key={`new:${loc.dup ?? ""}`}
-        client={client}
         types={types}
         loaded={null}
         source={source}
@@ -43,7 +43,7 @@ export function EnrichersSection({ client }: { client: ApiClient }) {
   } else {
     const current = byName(loc.name);
     view = current ? (
-      <EnricherEditor key={current.name} client={client} types={types} loaded={current} onChange={reload} />
+      <EnricherEditor key={current.name} types={types} loaded={current} onChange={reload} />
     ) : (
       <EmptyCard icon={Search} title={`No enricher named ${loc.name}`} body="It may have been deleted. Pick one on the left." />
     );

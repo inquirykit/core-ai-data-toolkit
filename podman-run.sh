@@ -32,7 +32,7 @@ print_usage() {
 
 build_image() {
     echo -e "${YELLOW}Building container image...${NC}"
-    podman build --build-arg JOB_ENVS="${JOB_ENVS:-}" -t $IMAGE_NAME .
+    podman build -t $IMAGE_NAME .
     echo -e "${GREEN}Image built successfully!${NC}"
 }
 
@@ -57,12 +57,8 @@ run_container() {
         -e ADMIN_API_KEY="${ADMIN_API_KEY:-}" \
         -e ALLOWED_MODELS="${ALLOWED_MODELS:-}" \
         -v core-ai-data-toolkit-hf-cache:/app/.cache/huggingface \
-        -v core-ai-data-toolkit-config:/app/data/config \
-        -v core-ai-data-toolkit-collections:/app/data/arcadedb \
-        -v core-ai-data-toolkit-jobs:/app/data/jobs \
-        -v core-ai-data-toolkit-datasets:/app/data/datasets \
-        -v core-ai-data-toolkit-enrichers:/app/data/enrichers \
-        -v core-ai-data-toolkit-evidence:/app/data/evidence \
+        -v core-ai-data-toolkit-data:/app/data \
+        -v core-ai-data-toolkit-envs:/opt/envs \
         -v ./data/images:/app/data/images:ro,Z \
         --restart=unless-stopped \
         $IMAGE_NAME

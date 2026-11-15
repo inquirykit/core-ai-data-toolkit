@@ -54,7 +54,11 @@ export function download(name: string, text: string, type = "application/json") 
   save(new Blob([text], { type }), name);
 }
 
-/** Save a reply's body (``client.raw``) as a file named ``name``. */
+/**
+ * Save a reply's body (``client.raw``) as a file named ``name``. Saved as plain bytes whatever type it came
+ * with: the link to it is an object URL of this origin, which must never open as a page here (an uploaded
+ * web page would then run beside the key the admin keeps).
+ */
 export async function downloadResponse(response: Response, name: string) {
-  save(await response.blob(), name);
+  save(new Blob([await response.blob()], { type: "application/octet-stream" }), name);
 }

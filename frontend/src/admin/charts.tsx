@@ -89,7 +89,8 @@ export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number]
 }
 
 // ------------------------------------------------------------------ charts
-const CHART_H = 200;
+/** The height of the Overview's two charts, and of their shapes while they load. */
+export const CHART_H = 96;
 
 /**
  * What the Overview's two charts share: a time axis over the window with three labels, a value axis with three
@@ -100,10 +101,10 @@ function frame(stats: Stats, c: ChartColors, fmtTick: (v: number) => string, emp
   const { timeline, bucket_s: bucketS } = stats;
   const start = timeline.length ? timeline[0].start : 0;
   const end = timeline.length ? timeline[timeline.length - 1].start + bucketS : 1;
-  const text = { color: c["muted-foreground"], fontSize: 11.5, fontFamily: "Inter Variable, sans-serif" };
+  const text = { color: c["muted-foreground"], fontSize: 11.5, fontFamily: c.font };
   return {
     animationDuration: 700,
-    grid: { left: 44, right: 14, top: 16, bottom: 26 },
+    grid: { left: 44, right: 14, top: 10, bottom: 22 },
     xAxis: {
       type: "time",
       min: start * 1000,
@@ -130,7 +131,7 @@ function frame(stats: Stats, c: ChartColors, fmtTick: (v: number) => string, emp
         return p ? tooltipHtml(bucketTitle(p, bucketS, withDay), bucketRows(p)) : "";
       },
     },
-    graphic: [{ id: "empty", type: "text", left: "center", top: "middle", invisible: !empty, style: { text: empty ?? "", fill: c["muted-foreground"], fontSize: 13 } }],
+    graphic: [{ id: "empty", type: "text", left: "center", top: "middle", invisible: !empty, style: { text: empty ?? "", fill: c["muted-foreground"], fontSize: 13, fontFamily: c.font } }],
   };
 }
 

@@ -17,20 +17,15 @@ API_KEY=smoke-client-key
 ADMIN_API_KEY=smoke-admin-key
 SETUP_WIZARD=false
 DEFAULT_DEVICE=cpu
-ARCADEDB_PATH=$dir/arcadedb
-JOBS_DIR=$dir/jobs
-JOB_DATA_DIR=$dir/datasets
+DATA_DIR=$dir/data
 JOB_ENVS_DIR=$dir/envs
-ENRICHERS_DIR=$dir/enrichers
-EVIDENCE_DIR=$dir/evidence
 EVIDENCE_TSA_URL=
-IMAGE_DIR=$dir/images
 MODEL_SERVERS_FILE=$dir/model_servers.toml
-MODEL_SERVERS_SAVED_FILE=$dir/model_servers.json
+SECRETS_MASTER_KEY=$(printf 'test-master-key-only-for-tests!!' | base64)
 EOF
-# Nothing goes to the Hugging Face Hub: the pages only read what is on disk.
-export ENV_FILE="$dir/settings.env" HF_HUB_OFFLINE=1
+# Nothing goes to the Hugging Face Hub: the pages only read what is on disk. Nor to the developer's credential store.
+export ENV_FILE="$dir/settings.env" HF_HUB_OFFLINE=1 PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 cd "$root"
-# The service's log (ArcadeDB's JVM is talkative) goes to a file, read when the service does not come up.
+# The service's log goes to a file, read when the service does not come up.
 echo "smoke test service: http://127.0.0.1:${SMOKE_PORT:-8765}, its log in $dir/service.log" >&2
 exec uv run --frozen python main.py > "$dir/service.log" 2>&1

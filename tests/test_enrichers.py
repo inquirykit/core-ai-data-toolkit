@@ -12,7 +12,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from enrichers import EnricherSpec, EnrichService, EnricherStore, EntityType, MemoryCache, ResultCache, classify
+from enrichers import EnricherSpec, EnrichService, EnricherStore, EntityType, ResultCache, classify
 from enrichers.spec import apply_filters, map_outputs, parse_rate, parse_ttl
 from enrichers.store import Entry
 
@@ -46,7 +46,7 @@ def test_spec_parses_ttl_and_rate():
         ({"request": {"url": "https://x", "body": {"a": "b"}}}, "POST"),
         ({"outputs": {"ok": "[invalid"}}, "JMESPath"),
         ({"request": {"url": "https://x/{secret}"}}, "secret"),
-        ({"kind": "http", "request": None}, "request"),
+        ({"request": None}, "request"),
         ({"inputs": []}, "inputs"),
     ],
 )
@@ -75,23 +75,22 @@ def test_classify_values():
 
 
 # ----------------------------------------------------------------- store
-def test_store_overrides_and_restores_builtins(tmp_path):
-    store = EnricherStore(tmp_path)
-    names = set(store.all())
-    assert {"ipwhois", "cve", "hashlookup"} <= names
-    entry = store.get("ipwhois")
+def test_store_overrides_and_restores_builtins(own_db):
+    store = EnricherStore(own_db)
+    assert {"ipwhois", "cve", "hashlookup"} <= set(run(store.all()))
+    entry = run(store.get("ipwhois"))
     assert entry.builtin and not entry.overridden
     changed = entry.spec.model_copy(update={"enabled": False, "ttl": "2d"})
-    saved = store.save(changed)
+    saved = run(store.save(changed))
     assert saved.builtin and saved.overridden and not saved.spec.enabled
-    assert json.loads((tmp_path / "ipwhois.json").read_text())["ttl"] == "2d"
-    assert store.delete("ipwhois") and store.get("ipwhois").spec.enabled
-    # The operator's own enrichers are not built-in; a bad file is skipped, not fatal.
-    store.save(spec("mine"))
-    assert not store.get("mine").builtin
-    (tmp_path / "broken.json").write_text("{not json")
-    (tmp_path / "wrong.json").write_text(json.dumps(spec("other").model_dump(mode="json")))
-    assert "mine" in store.all() and "broken" not in store.all() and "wrong" not in store.all()
+    # Kept in the database: a store opened later (the service restarted) has it.
+    assert run(EnricherStore(own_db).get("ipwhois")).spec.ttl == "2d"
+    assert run(store.delete("ipwhois")) and run(store.get("ipwhois")).spec.enabled
+    # The operator's own enrichers are not built-in; one saved that no longer fits the spec is skipped, not fatal.
+    run(store.save(spec("mine")))
+    assert not run(store.get("mine")).builtin
+    run(store._run(store._save, "", "broken", {"name": "broken", "inputs": ["nonsense"]}))
+    assert "mine" in run(EnricherStore(own_db).all()) and "broken" not in run(EnricherStore(own_db).all())
 
 
 def test_reverse_ptr_filter():
@@ -117,31 +116,23 @@ REPLIES = ["plain text", [1, "two", {"three": 3}], {"nested": {"deep": [None, 1.
            {"id": 2 ** 64}]
 
 
-@pytest.mark.parametrize("in_database", [True, False])
-def test_cache_keeps_a_reply_as_it_came(request, in_database):
-    """Text, lists, JSON-LD (a top-level @type) and big integers: what ArcadeDB's maps would refuse or mangle."""
-    if in_database:
-        from db.tables import TableStore
+@pytest.fixture
+def cache(own_db):
+    from db.tables import TableStore
 
-        arcade = request.getfixturevalue("arcade")
-        cache = ResultCache(arcade, TableStore(arcade))
-    else:
-        cache = MemoryCache()
+    store = ResultCache(own_db, TableStore(own_db))
+    yield store
+    store.close()
+
+
+def test_cache_keeps_a_reply_as_it_came(cache):
+    """Text, lists, JSON-LD (a top-level @type) and big integers: kept as they came."""
     for n, raw in enumerate(REPLIES):
         asyncio.run(cache.put("geo", "ipv4", f"10.0.0.{n}", {"status": "ok", "outputs": {"n": n}, "raw": raw}, ttl_s=60))
     assert [asyncio.run(cache.get("geo", "ipv4", f"10.0.0.{n}"))["raw"] for n in range(len(REPLIES))] == REPLIES
-    cache.close()
 
 
-@pytest.mark.parametrize("in_database", [True, False])
-def test_cache_expires(request, in_database):
-    if in_database:
-        from db.tables import TableStore
-
-        arcade = request.getfixturevalue("arcade")
-        cache = ResultCache(arcade, TableStore(arcade))
-    else:
-        cache = MemoryCache()
+def test_cache_expires(cache):
     result = {"status": "ok", "outputs": {"a": 1}, "raw": {"a": 1}, "http_status": 200}
     asyncio.run(cache.put("geo", "ipv4", "1.1.1.1", result, ttl_s=60))
     hit = asyncio.run(cache.get("geo", "ipv4", "1.1.1.1"))
@@ -149,7 +140,6 @@ def test_cache_expires(request, in_database):
     asyncio.run(cache.put("geo", "ipv4", "2.2.2.2", result, ttl_s=0))
     assert asyncio.run(cache.get("geo", "ipv4", "2.2.2.2")) is None
     assert asyncio.run(cache.forget("geo")) == 2
-    cache.close()
 
 
 # ----------------------------------------------------------------- runner
@@ -175,9 +165,9 @@ class FakeSource:
 
 
 @pytest.fixture
-def service(tmp_path):
-    store = EnricherStore(tmp_path / "specs")
-    svc = EnrichService(store, MemoryCache(), ["open", "attribution"], allow_private=True)
+def service(own_db, cache):
+    store = EnricherStore(own_db)
+    svc = EnrichService(store, cache, ["open", "attribution"], allow_private=True)
     source = FakeSource()
     svc._client = httpx.AsyncClient(transport=httpx.MockTransport(source))
     svc.source = source
@@ -222,6 +212,19 @@ def test_runner_renders_placeholders(service, monkeypatch):
     assert "s3cret" not in json.dumps(masked) and "***" in masked["url"]
 
 
+def test_a_value_naming_a_placeholder_is_sent_as_written_never_as_the_key(service, monkeypatch):
+    monkeypatch.setenv("GEO_KEY", "s3cret")
+    s = spec(secret="GEO_KEY", inputs=["ipv4"], request={
+        "method": "POST", "url": "https://geo.test/{value}", "query": {"q": "{value}", "token": "{secret}"},
+        "headers": {"X-Key": "{secret}", "X-Asked": "{value}"}, "body": {"q": "{value}"},
+    })
+    rendered = service.render(s, EntityType.IPV4, "{secret} {type}")
+    # The value is filled in once and never read again: the key goes only where the template puts it.
+    assert rendered["params"] == {"q": "{secret} {type}", "token": "s3cret"}
+    assert rendered["headers"]["X-Asked"] == "{secret} {type}" and rendered["body"] == {"q": "{secret} {type}"}
+    assert "s3cret" not in rendered["url"]
+
+
 def test_runner_statuses(service, monkeypatch):
     def one(**changes):
         return run(service.run_one(Entry(spec(**changes), False, False), EntityType.IPV4, "1.1.1.1"))
@@ -253,8 +256,8 @@ def test_runner_rate_limit(service):
     assert service.state(entry.spec) == {"requests_in_window": 2, "limit": 2, "cooldown_until": None}
 
 
-def test_runner_refuses_private_hosts(tmp_path):
-    svc = EnrichService(EnricherStore(tmp_path), MemoryCache(), ["open"], allow_private=False)
+def test_runner_refuses_private_hosts(own_db, cache):
+    svc = EnrichService(EnricherStore(own_db), cache, ["open"], allow_private=False)
     entry = Entry(spec(request={"url": "http://127.0.0.1:9/x"}), False, False)
     result = run(svc.run_one(entry, EntityType.IPV4, "1.1.1.1"))
     assert result["status"] == "error" and "not a public address" in result["error"]
@@ -262,9 +265,9 @@ def test_runner_refuses_private_hosts(tmp_path):
 
 
 def test_enrich_merges_sources(service):
-    service.store.save(spec("a", outputs={"country": "country.code"}))
-    service.store.save(spec("b", outputs={"country": "'XX'", "asn": "asn"}))
-    service.store.save(spec("other", inputs=["domain"]))
+    run(service.store.save(spec("a", outputs={"country": "country.code"})))
+    run(service.store.save(spec("b", outputs={"country": "'XX'", "asn": "asn"})))
+    run(service.store.save(spec("other", inputs=["domain"])))
     out = run(service.enrich("1.1.1[.]1", names=["a", "b"]))
     assert out["type"] == "ipv4" and out["value"] == "1.1.1.1"
     assert [r["enricher"] for r in out["results"]] == ["a", "b"]
@@ -272,7 +275,7 @@ def test_enrich_merges_sources(service):
 
 
 def test_reverse_dns_is_a_request_like_the_others(service):
-    spec = service.store.get("ptr").spec
+    spec = run(service.store.get("ptr")).spec
     sent = service.render(spec, EntityType.IPV4, "1.1.1.1")
     assert sent["url"] == "https://cloudflare-dns.com/dns-query"
     assert sent["params"] == {"name": "1.1.1.1.in-addr.arpa", "type": "PTR"}
@@ -293,7 +296,7 @@ def client():
         c.source = source
         yield c
         for name in ("geo", "mine"):
-            service.store.delete(name)
+            c.portal.call(service.store.delete, name)
         c.portal.call(service.cache.forget)
 
 
@@ -335,6 +338,39 @@ def test_a_key_named_from_the_dashboard_stays_out_of_child_processes(client):
         os.environ.pop(variable, None)
 
 
+@pytest.mark.parametrize("variable", ["ADMIN_API_KEY", "WEBHOOK_SECRET", "SECRETS_MASTER_KEY", "PROVIDER_CLOUD_API_KEY"])
+def test_an_enricher_cannot_name_a_setting_or_a_providers_key(client, variable):
+    """Saving its key would change the setting, and its request would carry the value to the enricher's own URL."""
+    body = spec("mine", secret=variable, request={"url": "https://geo.test/{value}", "headers": {"K": "{secret}"}})
+    r = client.put("/enrichers/mine", json=body.model_dump(mode="json"))
+    assert r.status_code == 400 and variable in r.json()["detail"]
+    assert client.get("/enrichers/mine").status_code == 404
+
+
+@pytest.mark.parametrize("variable", ["HTTP_PROXY", "SSL_CERT_FILE", "PATH", "MODEL_SERVERS_ALLOW_COMMANDS", "HF_TOKEN"])
+def test_a_secrets_name_says_it_is_a_key(own_db, variable):
+    """Saved, HTTP_PROXY would send every provider's key on a plain http:// URL through a proxy of the admin's choosing.
+    One stored before the check is held to it too: it is skipped."""
+    with pytest.raises(ValueError, match="secret"):
+        spec(secret=variable)
+    store = EnricherStore(own_db)
+    run(store._run(store._save, "", "mine", {**spec("mine").model_dump(mode="json"), "secret": variable}))
+    assert "mine" not in run(EnricherStore(own_db).all())
+
+
+def test_saving_a_key_checks_the_name_the_enricher_holds(client):
+    """An enricher saved before the check names ADMIN_API_KEY: its key route must not set it."""
+    from api import app as app_module
+    from core.config import Config
+
+    store = app_module.app.state.enrichers.store
+    client.portal.call(store.save, spec("mine").model_copy(update={"secret": "ADMIN_API_KEY"}))
+    before = Config.ADMIN_API_KEY
+    r = client.put("/enrichers/mine/secret", json={"value": "the-admins-new-key"})
+    assert r.status_code == 400 and "ADMIN_API_KEY" in r.json()["detail"]
+    assert Config.ADMIN_API_KEY == before and os.environ.get("ADMIN_API_KEY") != "the-admins-new-key"
+
+
 def _spec_only(info):
     return {k: v for k, v in info.items() if k not in ("builtin", "overridden", "secret_set", "allowed", "usable", "state")}
 
@@ -358,9 +394,10 @@ def test_routes_enrich_and_test(client, monkeypatch):
     monkeypatch.delenv("GEO_TEST_KEY", raising=False)
     assert client.put("/enrichers/geo", json=keyed).json()["usable"] is False
     assert client.put("/enrichers/geo/secret", json={"value": "abc"}).json() == {"secret": "GEO_TEST_KEY", "secret_set": True}
+    from core import envfile
     from core.config import Config
 
-    assert "GEO_TEST_KEY=abc" in Config.ENV_FILE.read_text()
+    assert not envfile.holds(Config.ENV_FILE, "GEO_TEST_KEY") and os.environ["GEO_TEST_KEY"] == "abc"
     assert client.get("/enrichers/geo").json()["usable"] is True
     assert client.put("/enrichers/geo/secret", json={"value": ""}).json()["secret_set"] is False
     assert client.delete("/enrichers/cache").status_code == 204

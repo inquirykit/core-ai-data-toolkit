@@ -16,8 +16,8 @@ from db.tables import TableStore
 
 
 @pytest.fixture
-def store(arcade):
-    return TaskStore(arcade, TableStore(arcade))
+def store(own_db):
+    return TaskStore(own_db, TableStore(own_db))
 
 
 class Recorder:
@@ -57,6 +57,57 @@ def test_a_kind_starts_the_most_urgent_then_a_loaded_model_then_the_oldest(store
         return recorder.order
 
     assert asyncio.run(scenario()) == ["high-C", "normal-A", "normal-none", "old-normal-C", "low-A"]
+
+
+def test_a_task_that_has_waited_long_goes_in_its_turn_whatever_its_model(store, monkeypatch):
+    monkeypatch.setattr(tasks_module, "LOADED_FIRST_S", 0.5)
+
+    async def scenario():
+        recorder = Recorder()
+        tasks = TaskRunner(store, loaded=lambda model_id: model_id == "A")
+        tasks.add(Kind("thing", run=recorder.run, stop=recorder.stop))
+        await tasks.submit("thing", ref="waited-C", model_id="C")
+        # Queued longer than LOADED_FIRST_S: no longer behind the work for the loaded model A that came after it.
+        await asyncio.sleep(0.6)
+        for ref, model in [("new-A", "A"), ("new-C", "C"), ("newer-A", "A")]:
+            await tasks.submit("thing", ref=ref, model_id=model)
+        await tasks.start()
+        await until_async(lambda: asyncio.sleep(0, len(recorder.order) == 4))
+        await tasks.stop()
+        return recorder.order
+
+    assert asyncio.run(scenario()) == ["waited-C", "new-A", "newer-A", "new-C"]
+
+
+def test_a_one_per_ref_kind_queues_and_runs_one_task_of_a_ref_at_a_time(store):
+    """A submit while a task of its ref waits is that task; one queued while another of its ref runs waits for it,
+    leaving the kind's other place to another ref."""
+    async def scenario():
+        recorder = Recorder(hold=True)
+        recorder.release = asyncio.Event()
+        tasks = TaskRunner(store)
+        tasks.add(Kind("copy", run=recorder.run, stop=recorder.stop, concurrency=2, one_per_ref=True))
+        first = await tasks.submit("copy", ref="a")
+        assert (await tasks.submit("copy", ref="a"))["id"] == first["id"]
+        await tasks.start()
+        await until_async(lambda: asyncio.sleep(0, recorder.order == ["a"]))
+        assert tasks.running_on("copy", "a") == first["id"]
+        # Asked again while it runs: one more, queued, which waits for it; asked once more, the same one.
+        second = await tasks.submit("copy", ref="a")
+        assert second["id"] != first["id"] and (await tasks.submit("copy", ref="a"))["id"] == second["id"]
+        # Another ref takes the kind's other place meanwhile.
+        await tasks.submit("copy", ref="b")
+        await until_async(lambda: asyncio.sleep(0, recorder.order == ["a", "b"]))
+        await asyncio.sleep(0.1)
+        waited = (await tasks.get(second["id"]))["status"]
+        recorder.release.set()
+        await until_async(lambda: asyncio.sleep(0, len(recorder.order) == 3))
+        await until_async(lambda: asyncio.sleep(0, tasks.running_on("copy", "a") is None))
+        ended = (await tasks.get(second["id"]))["status"]
+        await tasks.stop()
+        return waited, recorder.order, ended
+
+    assert asyncio.run(scenario()) == (QUEUED, ["a", "b", "a"], SUCCEEDED)
 
 
 def test_each_kind_runs_up_to_its_own_limit_whatever_the_others_do(store):
@@ -177,6 +228,60 @@ async def _status(store, id, status):
     return (await store.get(id))["status"] == status
 
 
+def test_a_stop_cancels_the_work_a_run_awaits_through_stoppable(store):
+    """A kind needs no stop of its own for work it awaits: a cancel cancels that work, the run's finally still runs
+    (to record what is done), and work it would start after the stop is never begun."""
+    recorded, begun = [], []
+
+    async def run(task):
+        async def page(n):
+            begun.append(n)
+            await asyncio.sleep(30 if n == 1 else 0)
+
+        try:
+            await tasks.stoppable(task, page(1))
+        finally:
+            recorded.append("page 1")
+            await tasks.stoppable(task, page(2))  # asked to stop already: not begun
+
+    async def scenario():
+        nonlocal tasks
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=run))
+        await tasks.start()
+        task = await tasks.submit("thing", ref="long")
+        await until_async(lambda: asyncio.sleep(0, begun == [1]))
+        started = time.monotonic()
+        cancelled = await tasks.cancel(task["id"])
+        took = time.monotonic() - started
+        await tasks.stop()
+        return cancelled, took
+
+    tasks = None
+    cancelled, took = asyncio.run(scenario())
+    assert cancelled["status"] == CANCELLED and took < 5
+    assert recorded == ["page 1"] and begun == [1]
+
+
+def test_a_timeout_stops_the_work_a_run_awaits_through_stoppable(store):
+    async def run(task):
+        await tasks.stoppable(task, asyncio.sleep(30))
+
+    async def scenario():
+        nonlocal tasks
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=run))
+        await tasks.start()
+        task = await tasks.submit("thing", ref="slow", timeout_s=1)
+        await until_async(lambda: _status(store, task["id"], FAILED), 10)
+        await tasks.stop()
+        return await tasks.get(task["id"])
+
+    tasks = None
+    failed = asyncio.run(scenario())
+    assert "Timed out" in failed["error"]
+
+
 def test_stopping_the_service_queues_resumable_tasks_again_and_fails_the_others(store):
     async def scenario():
         resumable, other = Recorder(hold=True), Recorder(hold=True)
@@ -199,13 +304,9 @@ def test_stopping_the_service_queues_resumable_tasks_again_and_fails_the_others(
 
 def test_a_task_left_running_by_a_service_that_died_resumes_at_most_twice(store):
     async def scenario():
-        recorder, resumed = Recorder(), []
-
-        async def heard(task):
-            resumed.append((task["ref"], task["attempts"]))
-
+        recorder = Recorder()
         tasks = TaskRunner(store)
-        tasks.add(Kind("thing", run=recorder.run, stop=recorder.stop, on_interrupt="resume", resumed=heard))
+        tasks.add(Kind("thing", run=recorder.run, stop=recorder.stop, on_interrupt="resume"))
         fresh = await tasks.submit("thing", ref="died once")
         tired = await tasks.submit("thing", ref="died thrice")
         for task, attempts in ((fresh, 0), (tired, 2)):
@@ -216,10 +317,10 @@ def test_a_task_left_running_by_a_service_that_died_resumes_at_most_twice(store)
         await tasks.start()
         await until_async(lambda: _status(store, fresh["id"], SUCCEEDED))
         await tasks.stop()
-        return recorder.order, resumed, await tasks.get(fresh["id"]), await tasks.get(tired["id"])
+        return recorder.order, await tasks.get(fresh["id"]), await tasks.get(tired["id"])
 
-    order, resumed, fresh, tired = asyncio.run(scenario())
-    assert order == ["died once"] and resumed == [("died once", 1)]
+    order, fresh, tired = asyncio.run(scenario())
+    assert order == ["died once"]
     assert fresh["attempts"] == 1
     assert tired["status"] == FAILED and "resumed 2 times already" in tired["error"]
 
@@ -387,6 +488,25 @@ def test_a_cancel_while_a_retry_waits_ends_it_for_good(store):
     assert cancelled["status"] == CANCELLED and len(flaky.starts) == 1 and flaky.ended == ["cancelled"]
 
 
+def test_a_waiting_retry_told_it_is_due_starts_at_once(store):
+    async def scenario():
+        flaky = Flaky(failures=1)
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=flaky.run, stop=flaky.stop))
+        await tasks.start()
+        task = await tasks.submit("thing", ref="x", retries=1, retry_delay_s=3600)
+        await until_async(lambda: _status(store, task["id"], QUEUED) if flaky.starts else asyncio.sleep(0, False))
+        told = await tasks.due_now(task["id"])
+        await until_async(lambda: _status(store, task["id"], SUCCEEDED))
+        # One that is not queued is left as it is.
+        again = await tasks.due_now(task["id"])
+        await tasks.stop()
+        return flaky, told, again
+
+    flaky, told, again = asyncio.run(scenario())
+    assert told is True and again is False and len(flaky.starts) == 2
+
+
 def test_a_retry_waits_out_its_delay_across_a_restart(store):
     async def scenario():
         flaky = Flaky(failures=0)
@@ -493,3 +613,72 @@ def test_a_run_that_ends_as_its_timeout_runs_out_is_stored_not_cut_short(store, 
         return await tasks.get(task["id"])
 
     assert "Timed out" in asyncio.run(scenario())["error"]
+
+
+def test_a_tasks_state_survives_a_restart_and_a_retry(store):
+    """What a run keeps with checkpoint is on its row: read back as task["state"] when it resumes, or is retried."""
+    async def scenario():
+        seen = []
+
+        async def run(task):
+            seen.append(task["state"])
+            await tasks.checkpoint(task["id"], {"page": (task["state"] or {}).get("page", 0) + 1})
+            if len(seen) == 1:
+                await asyncio.sleep(30)  # the service stops under it
+            if len(seen) == 2:
+                raise TaskFailed("once more")
+            return "done"
+
+        async def stop(task):
+            pass
+
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=run, stop=stop, on_interrupt="resume"))
+        task = await tasks.submit("thing", ref="t", retries=1, retry_delay_s=1)
+        await tasks.start()
+        await until_async(lambda: len(seen) == 1)
+        await tasks.stop()
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=run, stop=stop, on_interrupt="resume"))
+        await tasks.start()
+        await until_async(lambda: _status(store, task["id"], SUCCEEDED), 10)
+        ended = await tasks.get(task["id"])
+        await tasks.stop()
+        return seen, ended
+
+    seen, ended = asyncio.run(scenario())
+    assert seen == [None, {"page": 1}, {"page": 2}] and ended["state"] == {"page": 3}
+
+
+def test_a_stop_waits_for_a_task_still_telling_its_kind_it_ended(store, monkeypatch):
+    """A task whose run ended is out of the running ones while it reads its row and tells its kind: a stop then must
+    still wait, or the kind never hears it (a job's webhook, at shutdown)."""
+    heard = []
+
+    async def done(task):
+        return "ok"
+
+    async def stop(task):
+        pass
+
+    async def finished(task):
+        heard.append(task["status"])
+
+    get = store.get
+
+    async def slow_get(id):
+        await asyncio.sleep(0.05)
+        return await get(id)
+
+    async def scenario():
+        tasks = TaskRunner(store)
+        tasks.add(Kind("thing", run=done, stop=stop, finished=finished))
+        task = await tasks.submit("thing", ref="x")
+        monkeypatch.setattr(store, "get", slow_get)
+        await tasks.start()
+        # Stopped as the row says it ended: the task is reading it again, slowly, before it tells its kind.
+        await until_async(lambda: _status(store, task["id"], SUCCEEDED))
+        await tasks.stop()
+
+    asyncio.run(scenario())
+    assert heard == ["succeeded"]

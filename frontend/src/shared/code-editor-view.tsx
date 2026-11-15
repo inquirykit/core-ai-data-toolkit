@@ -1,15 +1,14 @@
 // The editor itself, loaded only when a page shows one (code-editor.tsx):
 // CodeMirror 6 through @uiw/react-codemirror, with highlighting, bracket
-// matching, completion of the namespace's tables and fields in SQL, and JSON
+// matching, completion of the workspace's tables and fields in SQL, and JSON
 // checked as it is typed. Its colors are the page's (globals.css, --code-*),
 // so it follows light and dark without knowing which is on, and it is framed
 // like a textarea.
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import CodeMirror, { EditorView, keymap, Prec, type Extension, type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
-import { sql, StandardSQL, type SQLNamespace } from "@codemirror/lang-sql";
-import { HighlightStyle, StreamLanguage, syntaxHighlighting } from "@codemirror/language";
-import { cypher } from "@codemirror/legacy-modes/mode/cypher";
+import { PostgreSQL, sql, type SQLNamespace } from "@codemirror/lang-sql";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import { tags as t } from "@lezer/highlight";
 import { editorFrame, type CodeEditorProps, type CodeLanguage } from "./code-editor";
@@ -66,9 +65,8 @@ function languageOf(language: CodeLanguage, schema: SQLNamespace | undefined): E
     case "jsonl":
       return [json(), jsonLinesLinter];
     case "sql":
-      return sql({ dialect: StandardSQL, schema, upperCaseKeywords: true });
-    case "cypher":
-      return StreamLanguage.define(cypher);
+      // DuckDB's SQL is PostgreSQL's in what the editor colors: $name parameters, ->> on JSON, "quoted" names.
+      return sql({ dialect: PostgreSQL, schema, upperCaseKeywords: true });
   }
 }
 

@@ -1,6 +1,5 @@
 {
   "name": "shodan_internetdb",
-  "kind": "http",
   "description": "Open ports, hostnames, CPEs and known vulnerabilities of an IP address (Shodan InternetDB, keyless)",
   "docs": "https://internetdb.shodan.io/",
   "inputs": [

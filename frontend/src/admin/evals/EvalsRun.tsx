@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { errorText, poll } from "../../shared/query";
 import { ConfirmButton, EmptyCard, Field, Pane, SelectField, StatusLabel, SubmitButton } from "../../shared/components";
 import { fmtInt, fmtMs, statusOf } from "../../shared/format";
@@ -23,6 +23,7 @@ import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { Dataset, MetricsInfo, Run, RunDetail, RunItem } from "../../shared/types";
 import {
   RUN_STATUS,
+  TONE_CLASS,
   evalsHref,
   fmtMean,
   fmtScore,
@@ -35,11 +36,11 @@ import {
 } from "./evals";
 import { MODEL_IDS_LIST } from "../catalog";
 import { DetailSkeleton } from "../layout";
+import { ClassificationReportView } from "./EvalsReport";
 
-export const TONE_CLASS = { good: "text-good-text", warning: "text-warning", critical: "text-critical-text" } as const;
-
-export function RunView(props: { client: ApiClient; dataset: Dataset; runId: string; onChange(): Promise<unknown> }) {
-  const { client, dataset, runId } = props;
+export function RunView(props: { dataset: Dataset; runId: string; onChange(): Promise<unknown> }) {
+  const client = useApi();
+  const { dataset, runId } = props;
   const [open, setOpen] = useState<string | null>(null);
 
   // Polled while the run is queued, running or being judged.
@@ -48,7 +49,8 @@ export function RunView(props: { client: ApiClient; dataset: Dataset; runId: str
     queryFn: async ({ signal }) => {
       const [run, s] = await Promise.all([
         client.get("/admin/runs/{run_id}", { params: { path: { run_id: runId } }, signal }),
-        client.get("/admin/runs", { params: { query: { dataset_id: dataset.id } }, signal }),
+        // The dataset's runs to judge against, as many as one page takes.
+        client.get("/admin/runs", { params: { query: { dataset_id: dataset.id, limit: 500 } }, signal }),
       ]);
       return { run, siblings: s.runs };
     },
@@ -115,7 +117,7 @@ export function RunView(props: { client: ApiClient; dataset: Dataset; runId: str
               Cancel
             </SubmitButton>
           )}
-          {(run.status === "interrupted" || run.status === "failed" || run.status === "cancelled") && (
+          {(run.status === "failed" || run.status === "cancelled") && (
             <SubmitButton
               type="button"
               variant="outline"
@@ -128,8 +130,8 @@ export function RunView(props: { client: ApiClient; dataset: Dataset; runId: str
               Resume
             </SubmitButton>
           )}
-          {run.status === "done" && metrics && <ScoreDialog client={client} run={run} metrics={metrics} onDone={reload} />}
-          {run.status === "done" && metrics && <JudgeDialog client={client} run={run} metrics={metrics} others={siblings.filter((r) => r.id !== run.id && r.status === "done")} onStarted={reload} />}
+          {run.status === "succeeded" && metrics && <ScoreDialog run={run} metrics={metrics} onDone={reload} />}
+          {run.status === "succeeded" && metrics && <JudgeDialog run={run} metrics={metrics} others={siblings.filter((r) => r.id !== run.id && r.status === "succeeded")} onStarted={reload} />}
           <ConfirmButton
             iconOnly
             label="Delete run"
@@ -158,10 +160,11 @@ export function RunView(props: { client: ApiClient; dataset: Dataset; runId: str
           ))}
         </div>
       )}
+      {run.classification && <ClassificationReportView report={run.classification} />}
 
       <div className="max-h-[70svh] overflow-y-auto">
         <DataGrid
-          columns={itemColumns(metricNames, siblings)}
+          columns={itemColumns(run.summary, siblings)}
           rows={run.items}
           rowKey={(item) => item.id}
           rowProps={() => ({ className: "align-top" })}
@@ -178,7 +181,7 @@ export function RunView(props: { client: ApiClient; dataset: Dataset; runId: str
 }
 
 export function MetricChip({ metric, summary, runs }: { metric: string; summary: RunDetail["summary"][string]; runs: Run[] }) {
-  const tone = scoreTone(summary.mean);
+  const tone = scoreTone(summary.mean, summary.lower_is_better ?? false);
   return (
     <div className="rounded-md border px-2.5 py-1.5 text-sm">
       <span className="text-xs text-muted-foreground">{metricLabel(metric, runs)}</span>
@@ -196,7 +199,8 @@ export function MetricChip({ metric, summary, runs }: { metric: string; summary:
 const scoreOf = (item: RunItem, metric: string) => item.scores.filter((s) => s.metric === metric).pop();
 
 /** The items' columns: the fixed ones, then one per metric scored (named after the other run, for a pairwise one). */
-function itemColumns(metrics: string[], runs: Run[]): GridColumn<RunItem>[] {
+function itemColumns(summary: RunDetail["summary"], runs: Run[]): GridColumn<RunItem>[] {
+  const metrics = Object.keys(summary).sort();
   return [
     { key: "n", label: "#", headClassName: "w-8", className: "text-muted-foreground tabular-nums", render: (_, i) => i + 1 },
     {
@@ -240,7 +244,7 @@ function itemColumns(metrics: string[], runs: Run[]): GridColumn<RunItem>[] {
         align: "right",
         headClassName: "whitespace-nowrap",
         className: (item) => {
-          const tone = scoreTone(scoreOf(item, m)?.value);
+          const tone = scoreTone(scoreOf(item, m)?.value, summary[m].lower_is_better ?? false);
           return tone ? TONE_CLASS[tone] : undefined;
         },
         title: (item) => scoreOf(item, m)?.rationale ?? undefined,
@@ -283,13 +287,14 @@ function ItemDetail({ item }: { item: RunItem }) {
 
 type MetricName = MetricsInfo["metrics"][number]["name"];
 
-function ScoreDialog(props: { client: ApiClient; run: RunDetail; metrics: MetricsInfo; onDone(): Promise<unknown> }) {
+function ScoreDialog(props: { run: RunDetail; metrics: MetricsInfo; onDone(): Promise<unknown> }) {
+  const client = useApi();
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<MetricName[]>(["exact_match", "contains"]);
   const toggle = (name: MetricName, on: boolean) => setChosen((c) => (on ? [...new Set([...c, name])] : c.filter((m) => m !== name)));
   const score = useAction(
     async () => {
-      await props.client.post("/admin/runs/{run_id}/score", { params: { path: { run_id: props.run.id } }, body: { metrics: chosen } });
+      await client.post("/admin/runs/{run_id}/score", { params: { path: { run_id: props.run.id } }, body: { metrics: chosen } });
       await props.onDone();
       setOpen(false);
     },
@@ -327,26 +332,21 @@ function ScoreDialog(props: { client: ApiClient; run: RunDetail; metrics: Metric
   );
 }
 
-function JudgeDialog(props: { client: ApiClient; run: RunDetail; metrics: MetricsInfo; others: Run[]; onStarted(): Promise<unknown> }) {
+function JudgeDialog(props: { run: RunDetail; metrics: MetricsInfo; others: Run[]; onStarted(): Promise<unknown> }) {
+  const client = useApi();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"rubric" | "pairwise">("rubric");
   const [against, setAgainst] = useState("");
   const [model, setModel] = useState(props.metrics.judge.model);
-  const [where, setWhere] = useState<"local" | "remote">(props.metrics.judge.base_url ? "remote" : "local");
-  const [baseUrl, setBaseUrl] = useState(props.metrics.judge.base_url);
-  const [apiKey, setApiKey] = useState("");
   const [rubric, setRubric] = useState(props.metrics.judge.rubric);
 
   const start = useAction(
     async () => {
-      await props.client.post("/admin/runs/{run_id}/judge", {
+      await client.post("/admin/runs/{run_id}/judge", {
         params: { path: { run_id: props.run.id } },
         body: {
           against: mode === "pairwise" ? against : null,
           model: model.trim(),
-          base_url: where === "remote" ? baseUrl.trim() : "",
-          // Unset keeps JUDGE_API_KEY; a key typed here is used instead.
-          api_key: where === "remote" && apiKey ? apiKey : null,
           rubric,
         },
       });
@@ -357,7 +357,7 @@ function JudgeDialog(props: { client: ApiClient; run: RunDetail; metrics: Metric
     { failed: "Could not start the judge" },
   );
 
-  const ready = model.trim() && (mode === "rubric" || against) && (where === "local" || baseUrl.trim());
+  const ready = model.trim() && (mode === "rubric" || against);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
@@ -384,28 +384,9 @@ function JudgeDialog(props: { client: ApiClient; run: RunDetail; metrics: Metric
           {mode === "pairwise" && (
             <SelectField label="Against" value={against} onChange={setAgainst} none="Pick a run…" options={props.others.map((r) => ({ value: r.id, label: r.name }))} />
           )}
-          <SelectField
-            label="Judge runs"
-            value={where}
-            onChange={(v) => setWhere(v as "local" | "remote")}
-            options={[
-              { value: "local", label: "On this service (a model it can load, through its own /v1)" },
-              { value: "remote", label: "Behind an OpenAI-compatible endpoint" },
-            ]}
-          />
-          <Field label="Judge model">
-            <Input value={model} onChange={(e) => setModel(e.target.value)} list={where === "local" ? MODEL_IDS_LIST : undefined} placeholder={where === "local" ? "org/model" : "the endpoint's model name"} className="font-mono text-sm" />
+          <Field label="Judge model" hint="A model this service serves; one on another server is a model server entry (Settings)">
+            <Input value={model} onChange={(e) => setModel(e.target.value)} list={MODEL_IDS_LIST} placeholder="org/model" className="font-mono text-sm" />
           </Field>
-          {where === "remote" && (
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <Field label="Base URL">
-                <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://host/v1" className="font-mono text-sm" />
-              </Field>
-              <Field label="API key" hint={props.metrics.judge.has_api_key ? "Unset: JUDGE_API_KEY" : undefined}>
-                <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" className="w-40" />
-              </Field>
-            </div>
-          )}
           <Field label="Rubric">
             <Textarea value={rubric} onChange={(e) => setRubric(e.target.value)} rows={3} />
           </Field>

@@ -119,6 +119,11 @@ export function BackendEditor(props: {
             <Input autoComplete="off" spellCheck={false} className="font-mono text-[13px]" placeholder="Qwen/Qwen3.5-4B" value={form.hub} onChange={(e) => props.onChange({ hub: e.target.value })} />
           </Field>
         )}
+        {form.kind === "hub" && (
+          <Field label="Revision" hint="A branch, tag or commit of the Hub repo; empty: main">
+            <Input autoComplete="off" spellCheck={false} className="font-mono text-[13px]" value={form.revision} onChange={(e) => props.onChange({ revision: e.target.value })} />
+          </Field>
+        )}
         {form.kind !== "hub" && (
           <Field label="Upstream model" hint={form.kind === "provider" ? "The server's name for it: Ollama qwen3.5:4b, LM Studio qwen/qwen3.5-4b" : "The model sent to the server; empty: the model ID"}>
             <Input autoComplete="off" spellCheck={false} className="font-mono text-[13px]" value={form.upstream_model} onChange={(e) => props.onChange({ upstream_model: e.target.value })} />
@@ -131,6 +136,11 @@ export function BackendEditor(props: {
             <Field label="Memory GB" hint={elsewhere ? "Empty: none (it runs elsewhere)" : "Empty: estimated from the weights"}>
               <Input type="number" min={0} step={0.1} className="font-mono text-[13px]" value={form.memory_gb} onChange={(e) => props.onChange({ memory_gb: e.target.value })} />
             </Field>
+            {form.kind === "hub" && (
+              <Field label="Max length" hint="Tokens it reads of each text or pair; empty: the model's own (embedding, rerank)">
+                <Input type="number" min={1} step={1} className="font-mono text-[13px]" value={form.max_length} onChange={(e) => props.onChange({ max_length: e.target.value })} />
+              </Field>
+            )}
             {form.kind !== "hub" && (
               <Field label="Concurrency" hint={provider ? `Empty: the provider's ${provider.max_concurrency}` : "Empty: 8"}>
                 <Input type="number" min={1} step={1} className="font-mono text-[13px]" value={form.max_concurrency} onChange={(e) => props.onChange({ max_concurrency: e.target.value })} />

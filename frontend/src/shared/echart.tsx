@@ -2,8 +2,8 @@
 // box and kept in step with the theme. ECharts is large, so the chart itself
 // (echart-view.tsx) loads the first time a page shows one. It draws on a
 // canvas, which cannot read the page's CSS variables, so useChartColors
-// resolves them (again when the theme changes), and tooltipHtml draws a
-// tooltip the way the pages' own look.
+// resolves them and the page's font (again when the theme or the style
+// changes), and tooltipHtml draws a tooltip the way the pages' own look.
 import { lazy, Suspense, useMemo, type CSSProperties } from "react";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,7 +36,10 @@ export function EChart(props: EChartProps) {
 }
 
 const TOKENS = ["series-1", "critical", "warning", "serious", "good", "axis", "grid", "muted", "muted-foreground", "foreground", "card", "background", "border"] as const;
-export type ChartColors = Record<(typeof TOKENS)[number], string>;
+export type ChartColors = Record<(typeof TOKENS)[number], string> & {
+  /** The page's font, for the text the canvas draws */
+  font: string;
+};
 
 let probe: CanvasRenderingContext2D | null = null;
 
@@ -54,21 +57,21 @@ function toRgba(css: string): string {
 /** ``color`` (rgba(), as useChartColors gives them) at ``opacity``. */
 export const alpha = (color: string, opacity: number) => color.replace(/,\s*[\d.]+\)$/, `, ${opacity})`);
 
-/** The page's colors (globals.css) as the charts take them, read again when the theme changes. */
+/** The page's colors (globals.css) and font as the charts take them, read again when the theme or the style changes. */
 export function useChartColors(): ChartColors & { of(css: string): string } {
-  const { resolved } = useTheme();
+  const theme = useTheme();
   return useMemo(() => {
     const style = getComputedStyle(document.documentElement);
-    const colors = Object.fromEntries(TOKENS.map((t) => [t, toRgba(style.getPropertyValue(`--${t}`).trim())])) as ChartColors;
+    const colors = Object.fromEntries(TOKENS.map((t) => [t, toRgba(style.getPropertyValue(`--${t}`).trim())])) as Record<(typeof TOKENS)[number], string>;
     /** A color as the pages write it ("var(--critical)", "#fab219") as the charts take it. */
     const of = (css: string) => {
       const name = /^var\(--([\w-]+)\)$/.exec(css)?.[1];
       return name ? ((colors as Record<string, string>)[name] ?? toRgba(style.getPropertyValue(`--${name}`).trim())) : toRgba(css);
     };
-    return { ...colors, of };
-    // The theme is what the computed style follows.
+    return { ...colors, font: getComputedStyle(document.body).fontFamily, of };
+    // The theme and the style are what the computed style follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved]);
+  }, [theme.resolved, theme.style]);
 }
 
 const escape = (text: string) => text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);

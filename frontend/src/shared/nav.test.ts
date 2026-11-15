@@ -1,12 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { NAV, NAV_GROUPS, sectionFromHash } from "./nav";
+import { menuEntry, NAV, NAV_GROUPS, sectionFromHash, tabsOf } from "./nav";
 
 describe("NAV", () => {
   it("keeps each group's items together, in the groups' order, Settings last", () => {
     const order = [...NAV_GROUPS.map((g) => g.key), "system"];
     const groups = NAV.map((item) => order.indexOf(item.group));
     expect(groups).toEqual([...groups].sort((a, b) => a - b));
-    expect(NAV.at(-1)?.key).toBe("settings");
+    expect(NAV.filter((item) => !item.under).at(-1)?.key).toBe("settings");
+  });
+
+  it("puts a tab under a menu entry of its group", () => {
+    for (const item of NAV.filter((n) => n.under)) {
+      const entry = NAV.find((n) => n.key === item.under);
+      expect(entry, item.key).toBeDefined();
+      expect(entry?.under, item.key).toBeUndefined();
+      expect(entry?.group, item.key).toBe(item.group);
+    }
+  });
+
+  it("gives a section with tabs its own first, and lights its entry for each", () => {
+    expect(tabsOf("settings").map((t) => t.key)).toEqual(["settings", "servers", "remotes", "keys", "audit"]);
+    expect(tabsOf("models")).toEqual([]);
+    expect(menuEntry("keys")).toBe("settings");
+    expect(menuEntry("settings")).toBe("settings");
+    expect(menuEntry("jobs")).toBe("jobs");
   });
 });
 
@@ -21,20 +38,14 @@ describe("sectionFromHash", () => {
     expect(sectionFromHash("#/servers/model/qwen3.5-4b")).toBe("servers");
   });
 
-  it("sends old Traces links to Activity & logs", () => {
-    expect(sectionFromHash("#/traces")).toBe("activity");
-    expect(sectionFromHash("#/traces/abc")).toBe("activity");
-  });
-
   it("falls back to the overview", () => {
     expect(sectionFromHash("")).toBe("overview");
-    expect(sectionFromHash("#/playground")).toBe("overview");
     expect(sectionFromHash("#code=abc")).toBe("overview");
-    expect(sectionFromHash("#/hub")).toBe("overview"); // disabled section
+    expect(sectionFromHash("#/hub")).toBe("overview"); // a section that is no more
   });
 
   it("links every admin section to its hash", () => {
-    for (const item of NAV.filter((n) => n.key !== "playground" && !n.off)) {
+    for (const item of NAV) {
       expect(sectionFromHash(new URL(item.href, "http://x").hash)).toBe(item.key);
     }
   });

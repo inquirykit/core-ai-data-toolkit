@@ -47,12 +47,12 @@ def hosts_of(client: Any) -> List[Tuple[str, str]]:
 
 async def enrichment(service: Any, client: Any, *, enabled: bool, timeout: float) -> Dict[str, Any]:
     """Look the page's address and hosts up, within ``timeout`` seconds in all; never fails: each item is a
-    result or an error. ``service`` is the EnrichService, or None while enrichers are off."""
+    result or an error. ``service`` is the EnrichService."""
     if not enabled:
         return {"skipped": True}
     started = now_iso()
     wanted = hosts_of(client)
-    if service is None or not wanted:
+    if not wanted:
         return {"startedAt": started, "finishedAt": now_iso(), "items": []}
 
     async def one(kind: str, value: str) -> Dict[str, Any]:

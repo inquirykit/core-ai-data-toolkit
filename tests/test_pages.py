@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from api import app as app_module
 from core.config import Config
 
-PAGES = [("/admin", "Admin"), ("/admin/setup", "Setup"), ("/playground", "Playground")]
+PAGES = [("/admin", "Admin"), ("/admin/setup", "Setup")]
 
 
 @pytest.fixture(scope="module")

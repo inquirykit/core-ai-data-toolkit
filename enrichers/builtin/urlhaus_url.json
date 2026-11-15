@@ -1,6 +1,5 @@
 {
   "name": "urlhaus_url",
-  "kind": "http",
   "description": "Whether a URL is a known malware distribution site (URLhaus by abuse.ch)",
   "docs": "https://urlhaus-api.abuse.ch/",
   "inputs": [

@@ -41,6 +41,17 @@ def test_every_router_has_its_row_in_the_api_table():
     assert [name for name in routers if f"`{name}`" not in table] == [], "add the router to STRUCTURE.md's API table"
 
 
+def test_every_task_has_its_row_in_the_tasks_table():
+    """STRUCTURE.md's Tasks table names every task the model files register (fell three behind before this test)."""
+    from models import registry
+
+    registry.discover()
+    tasks = {e.task for e in registry._entries if e.cls.__module__.startswith("models.families.")}
+    rows = set(re.findall(r"^\| `([a-z-]+)` \|", _section("Tasks"), re.M))
+    assert sorted(tasks - rows) == [], "add the task to STRUCTURE.md's Tasks table"
+    assert sorted(rows - tasks) == [], "STRUCTURE.md's Tasks table names a task no model file registers"
+
+
 def test_every_folder_of_source_files_has_its_line_in_the_map():
     try:
         files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()

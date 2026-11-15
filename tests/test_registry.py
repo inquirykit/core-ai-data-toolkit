@@ -130,7 +130,7 @@ def test_model_files_are_found_without_being_imported():
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == str(sorted({
         "AutoGluonPredictor", "CustomModel", "FastVLMModel", "EmbeddingModel", "ImageTextToTextModel",
-        "RerankModel", "SpeechToTextModel", "TransformersModel", "VegaDecisionModel", "ZeroShotModel",
+        "RerankModel", "SpeechToTextModel", "TrainedClassifier", "TransformersModel", "VegaDecisionModel", "ZeroShotModel",
     }))
 
 

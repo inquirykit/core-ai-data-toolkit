@@ -11,21 +11,11 @@ import io
 from typing import Any, Dict, Optional, Tuple
 
 from models import BaseModel, ModelCard, register
-from models.base import generated_text
+from models.base import generated_text, remote_code_allowed
 from models.contracts import GeneratedText, VisionLanguageInput, data_url_bytes
 
 # Placeholder token id FastVLM's remote code expands into image features.
 IMAGE_TOKEN_INDEX = -200
-
-
-def _remote_code_allowed(model_id: str) -> bool:
-    """Only allow-listed repos may run Hub code; any apple/FastVLM* ID is
-    routed here, so a name match alone must not be enough."""
-    try:
-        from core.config import Config
-    except Exception:
-        return False
-    return Config.TRUST_REMOTE_CODE and model_id in Config.TRUST_REMOTE_CODE_MODELS
 
 
 @register(task="vision-language", ids=[
@@ -40,7 +30,7 @@ class FastVLMModel(BaseModel):
 
     @property
     def trust_remote_code(self) -> bool:
-        return _remote_code_allowed(self.model_id)
+        return remote_code_allowed(self.model_id)
 
     def load(self):
         if not self.trust_remote_code:

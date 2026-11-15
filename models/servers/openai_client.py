@@ -19,18 +19,38 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ..contracts import EmbeddingOutput, GeneratedText, RerankOutput, ToolCall, Transcript
+from .entries import provider_key
+
+
+def bearer(provider: Optional[str]) -> Optional[Callable[[Any], Any]]:
+    """What signs requests to ``provider``, for httpx's ``auth``; None for a server that is no provider. The key is read
+    at each request, so one saved in /admin works at once, on models already loaded too."""
+    if not provider:
+        return None
+
+    def sign(request: Any) -> Any:
+        key = provider_key(provider)
+        if key:
+            request.headers["Authorization"] = f"Bearer {key}"
+        return request
+
+    return sign
 
 
 class OpenAIClient:
     """One model's requests to its server at ``base_url``: ``model`` is the name the server knows it by, and
-    ``extra`` the backend's own fields, sent with every chat and completion."""
+    ``extra`` the backend's own fields, sent with every chat and completion. ``auth`` signs the requests (``bearer``)."""
 
-    def __init__(self, base_url: str, model: str, extra: Dict[str, Any], request_timeout: float):
+    def __init__(self, base_url: str, model: str, extra: Dict[str, Any], request_timeout: float,
+                 auth: Optional[Callable[[Any], Any]] = None):
         import httpx
 
-        self.http = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(request_timeout, connect=10.0))
+        self.http = httpx.AsyncClient(base_url=base_url, auth=auth, timeout=httpx.Timeout(request_timeout, connect=10.0))
         self.model = model
         self.extra = extra
+        # The last reply's ``toolkit`` field: the server is another toolkit, which says how it answered
+        # (api/openai_routes.py), its backend the same for every request until it reloads the model.
+        self.toolkit: Optional[Dict[str, Any]] = None
 
     @property
     def base_url(self) -> str:
@@ -39,12 +59,18 @@ class OpenAIClient:
     async def aclose(self) -> None:
         await self.http.aclose()
 
+    def _heard(self, body: Any) -> Any:
+        """``body``, its ``toolkit`` field noted when another toolkit sent it."""
+        if isinstance(body, dict) and isinstance(body.get("toolkit"), dict):
+            self.toolkit = body["toolkit"]
+        return body
+
     async def embed(self, request: Any) -> EmbeddingOutput:
         response = await self.http.post("/v1/embeddings", json={
             "model": self.model, "input": request.texts, "encoding_format": "float",
         })
         await _raise_for_status(response)
-        body = response.json()
+        body = self._heard(response.json())
         data = sorted(body["data"], key=lambda item: item.get("index", 0))
         return EmbeddingOutput(
             embeddings=[item["embedding"] for item in data],
@@ -57,7 +83,7 @@ class OpenAIClient:
             payload["top_n"] = request.top_n
         response = await self.http.post("/v1/rerank", json=payload)
         await _raise_for_status(response)
-        body = response.json()
+        body = self._heard(response.json())
         results = sorted(body.get("results") or [], key=lambda r: -float(r.get("relevance_score", 0)))
         return RerankOutput(
             results=[{"index": r["index"], "score": r.get("relevance_score", 0)} for r in results],
@@ -74,7 +100,7 @@ class OpenAIClient:
             "/v1/audio/transcriptions", data=form, files={"file": (request.filename, request.audio)},
         )
         await _raise_for_status(response)
-        body = response.json()
+        body = self._heard(response.json())
         return Transcript(text=body.get("text", "").strip(), language=body.get("language") or request.language)
 
     async def complete(self, request: Any) -> GeneratedText:
@@ -94,7 +120,7 @@ class OpenAIClient:
             payload["stop"] = request.stop
         response = await self.http.post("/v1/completions", json={**self.extra, **payload})
         await _raise_for_status(response)
-        body = response.json()
+        body = self._heard(response.json())
         choice = body["choices"][0]
         usage = body.get("usage") or {}
         text = choice.get("text") or ""
@@ -151,7 +177,7 @@ class OpenAIClient:
         if on_text is None:
             response = await self.http.post("/v1/chat/completions", json=payload)
             await _raise_for_status(response)
-            body = response.json()
+            body = self._heard(response.json())
             message = body["choices"][0]["message"]
             return GeneratedText(
                 text=message.get("content") or "", tool_calls=_tool_calls(message.get("tool_calls")),
@@ -173,7 +199,7 @@ class OpenAIClient:
                 data = line[len("data:"):].strip()
                 if data == "[DONE]":
                     break
-                event = json.loads(data)
+                event = self._heard(json.loads(data))
                 usage = event.get("usage") or usage
                 choices = event.get("choices") or [{}]
                 delta = choices[0].get("delta") or {}

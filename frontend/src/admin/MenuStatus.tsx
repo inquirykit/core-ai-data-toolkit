@@ -10,8 +10,9 @@ import { StatusDot } from "../shared/components";
 import { fmtDuration, fmtGB } from "../shared/format";
 import type { MenuBadges } from "../shared/Shell";
 import type { Stats } from "../shared/types";
-import { isActive, JOBS_LIMIT, pollInterval } from "./jobs/jobs";
+import { JOBS_LIMIT } from "./jobs/jobs";
 import { requestsPerBucket, sparkline } from "./menu-status";
+import { isActive, pollInterval } from "../shared/tasks";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -39,7 +40,11 @@ function Spark({ stats }: { stats: Stats }) {
   );
 }
 
-/** At the bottom of the menu: is the server answering, for how long, and the model memory against its budget. */
+/**
+ * At the bottom of the menu: is the server answering, for how long, and the model memory against its budget. The
+ * metro style (styles/metro.css) draws it as a departure board, through ``menu-health``, ``health-state`` and
+ * ``health-value``.
+ */
 function Health({ stats, error }: { stats: Stats; error: string }) {
   const cache = stats.cache;
   const share = cache.max_memory_gb ? cache.memory_used_gb / cache.max_memory_gb : 0;
@@ -47,16 +52,17 @@ function Health({ stats, error }: { stats: Stats; error: string }) {
     <a
       href="/admin#/running"
       title="Loaded models and memory limits"
-      className="grid gap-2 rounded-lg border bg-background/60 p-2.5 text-xs text-muted-foreground outline-none transition-colors hover:bg-background/90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      data-error={error ? "" : undefined}
+      className="menu-health grid gap-2 rounded-lg border bg-background/60 p-2.5 text-xs text-muted-foreground outline-none transition-colors hover:bg-background/90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
       <span className="flex items-center gap-2">
         <StatusDot color={error ? "var(--critical)" : "var(--good)"} live={!error} />
-        <span className="font-medium text-foreground">{error ? "Not answering" : "Up"}</span>
-        {!error && <span className="ml-auto tabular-nums">{fmtDuration(stats.process.uptime_s)}</span>}
+        <span className="health-state font-medium text-foreground">{error ? "Not answering" : "Up"}</span>
+        {!error && <span className="health-value ml-auto tabular-nums">{fmtDuration(stats.process.uptime_s)}</span>}
       </span>
       <span className="flex items-center gap-2">
         Model memory
-        <span className="ml-auto tabular-nums">
+        <span className="health-value ml-auto tabular-nums">
           <span className="font-medium text-foreground">{fmtGB(cache.memory_used_gb)}</span>
           {cache.max_memory_gb > 0 && ` of ${fmtGB(cache.max_memory_gb)}`}
         </span>
@@ -76,12 +82,12 @@ function Health({ stats, error }: { stats: Stats; error: string }) {
 /**
  * The menu's live state for Shell: ``badges`` beside its items and the health card (``status``). Nothing
  * until the dashboard is ``live`` and the first stats arrive. The jobs list is the Jobs section's own query,
- * polled fast while a job is active, and not again once it fails (jobs are switched off).
+ * polled fast while a job is active.
  */
 export function useMenuStatus(client: ApiClient, stats: Stats | null, statsError: string, live: boolean): { badges: MenuBadges; status: ReactNode } {
   const active = client.useQuery("get", "/jobs", { params: { query: { limit: JOBS_LIMIT } } }, {
     select: (d) => d.jobs.filter(isActive).length,
-    refetchInterval: (query) => (query.state.error ? false : pollInterval(query.state.data?.jobs ?? null)),
+    refetchInterval: (query) => pollInterval(query.state.data?.jobs ?? null),
     refetchOnWindowFocus: true,
     enabled: live,
   }).data;

@@ -2,8 +2,6 @@ services:
   core-ai-data-toolkit:
     build:
       context: .
-      args:
-        JOB_ENVS: ${JOB_ENVS:-}   # e.g. JOB_ENVS=autogluon for the AutoGluon jobs
     ports:
       - "8000:8000"
     environment:
@@ -15,16 +13,14 @@ services:
       - LOG_LEVEL=INFO
       - API_KEY=${API_KEY:-}
       - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      # Opens the API keys saved from /admin: a container has no credential store (env.example).
+      - SECRETS_MASTER_KEY=${SECRETS_MASTER_KEY:-}
       - ALLOWED_MODELS=${ALLOWED_MODELS:-}
     volumes:
       - hf-cache:/app/.cache/huggingface   # persisted model weights
+      - data:/app/data                     # everything the service keeps (DATA_DIR): back this one up
+      - envs:/opt/envs                     # job environments installed from /admin (AutoGluon): rebuilt, not backed up
       - ./data/images:/app/data/images:ro,Z  # images for /vision-language (Z: SELinux label, a no-op elsewhere)
-      - config:/app/data/config            # settings written by /admin/setup
-      - collections:/app/data/arcadedb     # everything stored: /collections, /db, traces, jobs, metrics (embedded ArcadeDB)
-      - jobs:/app/data/jobs                # job files: logs and trained predictors
-      - datasets:/app/data/datasets        # job input files (POST /jobs/data)
-      - enrichers:/app/data/enrichers      # your enrichers
-      - evidence:/app/data/evidence        # evidence captures and their signing key
     restart: unless-stopped
     # NVIDIA GPU: uncomment (needs the NVIDIA Container Toolkit on the host).
     # deploy:
@@ -43,9 +39,5 @@ services:
 
 volumes:
   hf-cache:
-  config:
-  collections:
-  jobs:
-  datasets:
-  enrichers:
-  evidence:
+  data:
+  envs:

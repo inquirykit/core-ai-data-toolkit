@@ -4,13 +4,11 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 // The pages are served by FastAPI from api/static, mounted at /admin/static,
-// and opened at these paths (api/admin_routes.py, setup_routes.py,
-// playground_routes.py).
+// and opened at these paths (api/public_routes.py, setup_routes.py).
 const BASE = "/admin/static/";
 const PAGES: Record<string, string> = {
   "/admin": "admin.html",
   "/admin/setup": "setup.html",
-  "/playground": "playground.html",
 };
 const BACKEND = process.env.AI_TOOLKIT_URL ?? "http://localhost:8000";
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));

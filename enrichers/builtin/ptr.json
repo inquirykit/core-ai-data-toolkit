@@ -1,6 +1,5 @@
 {
   "name": "ptr",
-  "kind": "http",
   "description": "Reverse DNS (PTR) of an IP address (Cloudflare DNS over HTTPS, keyless)",
   "docs": "https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/",
   "inputs": [

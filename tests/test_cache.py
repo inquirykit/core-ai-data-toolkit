@@ -1,10 +1,12 @@
 import asyncio
+import time
 
 import pytest
 
 from models import memory
 from models.cache import CapacityError, ModelCache
 from tests.fakes import FakeModel
+from tests.waits import until_async
 
 GB = memory.GB
 
@@ -296,7 +298,7 @@ def test_queue_and_expected_wait_are_reported():
         entry, _ = await cache.checkout("a", maker("a"))
         details = lambda: cache.get_cache_stats()["model_details"]["a"]
         assert details()["estimated_wait_ms"] is None  # nothing has finished yet
-        assert details()["queued"] == 0 and details()["max_concurrency"] == 1
+        assert details()["queued"] == details()["waiting"] == 0 and details()["max_concurrency"] == 1
 
         entry.note(100)
         entry.note(300)  # recent requests weigh more
@@ -304,7 +306,7 @@ def test_queue_and_expected_wait_are_reported():
         # One request running at concurrency 1: the next one waits a whole request.
         assert details()["estimated_wait_ms"] == pytest.approx(entry.avg_ms)
         second, _ = await cache.checkout("a", maker("a"))
-        assert details()["queued"] == 1
+        assert details()["queued"] == details()["waiting"] == 1
         assert details()["estimated_wait_ms"] == pytest.approx(2 * entry.avg_ms)
         await cache.checkin(second)
         await cache.checkin(entry)
@@ -325,5 +327,72 @@ def test_capacity_error_suggests_when_to_retry():
             await use(cache, "other")
         assert caught.value.retry_after == pytest.approx(2.5)
         assert cache.get_cache_stats()["loads_pending"] == 0
+
+    run(scenario())
+
+
+class ThreadLoaded(FakeModel):
+    """Loads in a worker thread, as an in-process model does: a cancel cannot stop it."""
+
+    def load(self):
+        self.calls["load"] += 1
+        time.sleep(0.2)
+        self.weights = object()
+
+
+class SlowToStop(FakeModel):
+    """Takes a while to unload, as a model server does to stop."""
+
+    async def unload(self):
+        await asyncio.sleep(0.2)
+        self.calls["unload"] += 1
+
+
+def test_a_cancelled_load_is_undone():
+    async def scenario():
+        FakeModel.load_delay = 1.0
+        cache = ModelCache(max_models=2, max_memory_gb=0)
+        loading = asyncio.create_task(use(cache, "a"))
+        await until_async(lambda: FakeModel.instances and FakeModel.instances[0].load_calls, what="the load to start")
+        loading.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loading
+        model = FakeModel.instances[0]
+        # Stopped at once, and undone: a model server it was starting would be stopped, not left running for nobody.
+        assert model.unload_calls == 1 and not hasattr(model, "weights") and not model.is_loaded
+        assert cache.entries == {} and cache.loads_pending == 0
+
+    run(scenario())
+
+
+def test_a_cancelled_load_in_a_thread_is_undone_once_the_thread_ends():
+    async def scenario():
+        cache = ModelCache(max_models=2, max_memory_gb=0)
+        loading = asyncio.create_task(cache.checkout("a", lambda: ThreadLoaded("a", "t")))
+        await until_async(lambda: FakeModel.instances and FakeModel.instances[0].load_calls, what="the load to start")
+        loading.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loading
+        model = FakeModel.instances[0]
+        # The thread ran to its end before the undoing, which left nothing of what it loaded.
+        assert model.unload_calls == 1 and not hasattr(model, "weights")
+        assert cache.entries == {}
+
+    run(scenario())
+
+
+def test_a_model_evicted_for_a_load_that_is_cancelled_is_stopped_all_the_same():
+    async def scenario():
+        cache = ModelCache(max_models=1, max_memory_gb=0)
+        entry, _ = await cache.checkout("a", lambda: SlowToStop("a", "t"))
+        await cache.checkin(entry)
+        loading = asyncio.create_task(use(cache, "b"))
+        await asyncio.sleep(0.05)  # a is being stopped to make room
+        loading.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loading
+        victim = FakeModel.instances[0]
+        await until_async(lambda: victim.unload_calls, what="a's unload to finish")
+        assert "a" not in cache.entries and not victim.is_loaded
 
     run(scenario())

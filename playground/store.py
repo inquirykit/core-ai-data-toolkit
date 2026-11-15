@@ -2,9 +2,10 @@
 The playground's saved conversations and prompt presets (the routes are api/playground_routes.py), and the eval
 example a saved conversation becomes.
 
-They live in the ``playground`` namespace of the /db tables (db/tables.py), so they survive the browser and are
+They live in the ``playground`` workspace of the /db tables (db/tables.py), so they survive the browser and are
 browsable in the dashboard's Data section, admin-only and read-only there, so a row written through /db cannot
-break the lists. A row is what the page sent, plus its id and when it was made and last replaced.
+break the lists: the table store takes writes there only from this store (``owner``). A row is what the page
+sent, plus its id and when it was made and last replaced.
 """
 
 import time
@@ -16,7 +17,7 @@ from db import Database, DocumentStore
 from db.tables import TableSchema, TableStore
 from models.chat import ChatMessage, build_prompt
 
-NAMESPACE = "playground"
+WORKSPACE = "playground"
 CONVERSATIONS = "conversations"
 PRESETS = "presets"
 TABLES = {CONVERSATIONS: TableSchema(), PRESETS: TableSchema()}
@@ -42,18 +43,16 @@ def _summary(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class PlaygroundStore(DocumentStore):
-    NAMESPACE = NAMESPACE
+    WORKSPACE = WORKSPACE
     OWNER = "saved chats and presets: change them in the playground"
     TABLES = TABLES
-    # The playground made its namespace through /db until 2026-10; the service takes that one over.
-    ADOPT = True
 
     def __init__(self, database: Database, tables: TableStore):
         super().__init__(database, tables)
 
     async def _rows(self, table: str) -> List[Dict[str, Any]]:
         try:
-            rows, _ = await self._t.list(self.namespace, table, limit=MAX_SAVED)
+            rows, _ = await self._t.list(self.workspace, table, limit=MAX_SAVED)
         except NotFound:
             return []
         return rows
@@ -72,25 +71,25 @@ class PlaygroundStore(DocumentStore):
 
     async def get(self, table: str, row_id: str) -> Dict[str, Any]:
         try:
-            return await self._t.get(self.namespace, table, _check_id(row_id))
+            return await self._t.get(self.workspace, table, _check_id(row_id))
         except NotFound:
             raise NotFound(f"No saved {table[:-1]} {row_id!r}")
 
     async def create(self, table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         now = time.time()
         row = {"id": uuid.uuid4().hex[:16], "created": now, "updated": now, **fields}
-        await self._t.upsert(self.namespace, table, row)
+        await self._t.upsert(self.workspace, table, row, owner=self.OWNER)
         return row
 
     async def replace(self, table: str, row_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         """Replace a saved row's fields with ``fields``; 404 if it was deleted."""
         current = await self.get(table, row_id)
         row = {**current, **fields, "id": row_id, "updated": time.time()}
-        await self._t.upsert(self.namespace, table, row)
+        await self._t.upsert(self.workspace, table, row, owner=self.OWNER)
         return row
 
     async def delete(self, table: str, row_id: str) -> None:
-        await self._t.delete(self.namespace, table, [_check_id(row_id)])
+        await self._t.delete(self.workspace, table, [_check_id(row_id)], owner=self.OWNER)
 
 
 def example_from(conversation: Dict[str, Any], column: int, reference: Optional[str]) -> Dict[str, Any]:

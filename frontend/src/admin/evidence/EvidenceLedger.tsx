@@ -5,7 +5,7 @@ import { RotateCw, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { Facts, Notice, StatusDot, SubmitButton } from "../../shared/components";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import type { VerifyReport } from "../../shared/types";
@@ -31,7 +31,8 @@ const ISSUE_COLUMNS: GridColumn<IssueGroup>[] = [
     ),
   },
 ];
-export function LedgerCard({ client, workspace }: { client: ApiClient; workspace: string }) {
+export function LedgerCard({ workspace }: { workspace: string }) {
+  const client = useApi();
   const [report, setReport] = useState<VerifyReport | null>(null);
 
   const verify = useAction(

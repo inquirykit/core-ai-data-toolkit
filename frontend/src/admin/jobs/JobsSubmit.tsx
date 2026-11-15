@@ -9,16 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { Field, Notice, SelectField, SubmitButton } from "../../shared/components";
 import { formSchema } from "../../shared/form-schema";
 import { SchemaForm, type SchemaFormHandle } from "../../shared/schema-form";
 import type { JobType, Priority, SubmitJobBody } from "../../shared/types";
-import { EMPTY_RETRY_FORM, MAX_RETRIES, MAX_RETRY_DELAY_S, PRIORITY_OPTIONS, retryBody, validateRetryForm, type RetryForm } from "./jobs";
+import { EMPTY_RETRY_FORM, retryBody, validateRetryForm, type RetryForm } from "./jobs";
+import { PRIORITY_OPTIONS } from "../../shared/tasks";
 
-const ENV_HINT = "environment not set up";
+const ENV_HINT = "environment not set up: Set up is above the jobs list";
 
-export function SubmitDialog(props: { client: ApiClient; types: JobType[] | null; typesError: string; onClose(): void; onSubmitted(): Promise<unknown> }) {
+export function SubmitDialog(props: { types: JobType[] | null; typesError: string; onClose(): void; onSubmitted(): Promise<unknown> }) {
+  const client = useApi();
   const [job, setJob] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [webhook, setWebhook] = useState("");
@@ -34,7 +36,7 @@ export function SubmitDialog(props: { client: ApiClient; types: JobType[] | null
       if (problem) throw new Error(problem);
       const body: SubmitJobBody = { job, params, priority, ...retryBody(retries) };
       if (webhook.trim()) body.webhook_url = webhook.trim();
-      const row = await props.client.post("/jobs", { body });
+      const row = await client.post("/jobs", { body });
       toast.success(`Submitted ${row.job}`, { description: `Job ${row.id}` });
       await props.onSubmitted();
       props.onClose();
@@ -152,13 +154,12 @@ export function RetryFields(props: { value: RetryForm; onChange(patch: Partial<R
       <legend className="px-1 text-sm font-medium">When it fails</legend>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Retries" hint="Times it is queued again">
-          <Input type="number" min={0} max={MAX_RETRIES} step={1} inputMode="numeric" value={value.retries} onChange={(e) => props.onChange({ retries: e.target.value })} />
+          <Input type="number" min={0} step={1} inputMode="numeric" value={value.retries} onChange={(e) => props.onChange({ retries: e.target.value })} />
         </Field>
         <Field label="First retry after" hint="Seconds; doubled for each next">
           <Input
             type="number"
             min={1}
-            max={MAX_RETRY_DELAY_S}
             inputMode="numeric"
             disabled={value.retries.trim() === "0"}
             value={value.retry_delay_s}

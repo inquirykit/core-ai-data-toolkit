@@ -4,13 +4,14 @@ First-run setup wizard: /admin/setup.
 While no API key is configured (and SETUP_WIZARD is not false), /admin sends
 the browser here. The wizard picks the admin and client keys, the allowed
 models and browser access, and writes them to the .env file (Config.ENV_FILE).
+The keys and the allow-list take effect at once; new browser origins (CORS)
+wait for a restart, as the reply's notes say.
 
 Until then the service has no keys, so anyone who can reach it could finish
 setup and lock its owner out. Saving therefore needs the one-time setup code
 the server prints to its log at startup (see api.app).
 """
 
-import asyncio
 import logging
 import secrets
 from typing import List, Optional
@@ -18,10 +19,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field, constr, model_validator
 
-from core import envfile
 from core.config import Config
-from core.errors import Conflict, Forbidden, ServiceError
+from core.errors import Conflict, Forbidden
 from .pages import page
+from .settings import write_settings
 from . import responses
 
 logger = logging.getLogger(__name__)
@@ -65,15 +66,6 @@ def _check_code(request: Request, code: str) -> None:
         raise Forbidden("Wrong setup code: use the one in the server log")
 
 
-async def write_settings(values: dict) -> None:
-    """Save ``values`` to the .env file (Config.ENV_FILE); 500 if it cannot be written."""
-    try:
-        await asyncio.to_thread(envfile.update, Config.ENV_FILE, values)
-    except OSError as e:
-        logger.exception("Could not write %s", Config.ENV_FILE)
-        raise ServiceError(f"Could not write {Config.ENV_FILE}: {e.strerror or type(e).__name__}", status=500)
-
-
 @router.get("", include_in_schema=False)
 async def setup_page():
     return page("setup.html")
@@ -100,8 +92,6 @@ async def complete_setup(request: Request, body: SetupRequest):
     notes = []
     if body.cors_origins != Config.CORS_ORIGINS:
         notes.append("Restart the server for the browser access (CORS) setting to take effect.")
-    if Config.WORKERS > 1:
-        notes.append("Restart the server: only this worker has the new keys until then.")
     Config.apply({k: v for k, v in values.items() if k != "CORS_ORIGINS"})
     request.app.state.setup_code = None
     logger.info("Setup complete; settings written to %s", Config.ENV_FILE)

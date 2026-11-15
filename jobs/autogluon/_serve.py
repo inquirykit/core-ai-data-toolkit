@@ -4,10 +4,11 @@ Serves one trained predictor, in the "autogluon" environment:
     python -m jobs.autogluon._serve <job workdir>
 
 models/families/autogluon/predictor.py starts it when the model is loaded and stops
-it when the cache evicts it. It reads predictor.json, loads the predictor,
-writes {"ready": true}, then answers one JSON request per stdin line with one
-JSON line on stdout: {"result": ...} or {"error": ..., "client": bool}
-("client": the request did not fit the predictor, a 400).
+it when the cache evicts it. It reads the job's result.json (the task) and
+params.json (the columns a series is keyed by), loads the predictor, writes
+{"ready": true}, then answers one JSON request per stdin line with one JSON
+line on stdout: {"result": ...} or {"error": ..., "client": bool} ("client":
+the request did not fit the predictor, a 400).
 """
 
 import json
@@ -18,22 +19,17 @@ from typing import Any, Callable, Dict
 
 from jobs.worker import emitter, exit_with_parent, open_channel
 
-from ._common import INFO_FILE, records, without_nvml_on_macos
-
-# Up to this many rows, multimodal predictions skip Lightning's trainer and
-# data loaders, whose worker processes take seconds to start on every request.
-REALTIME_ROWS = 256
+from ._common import PREDICTOR_DIR, forecast_table, records, series_frame
 
 
-def tabular(predictor: Any, info: Dict[str, Any], realtime: bool = False) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+def tabular(predictor: Any) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     import pandas as pd
 
     def predict(request: Dict[str, Any]) -> Dict[str, Any]:
         data = pd.DataFrame(request["rows"])
-        options = {"realtime": True} if realtime and len(data) <= REALTIME_ROWS else {}
-        out: Dict[str, Any] = {"predictions": json.loads(predictor.predict(data, **options).to_json(orient="values"))}
-        if request.get("probabilities") and info.get("classes") is not None:
-            proba = predictor.predict_proba(data, **options)
+        out: Dict[str, Any] = {"predictions": json.loads(predictor.predict(data).to_json(orient="values"))}
+        if request.get("probabilities") and predictor.class_labels is not None:
+            proba = predictor.predict_proba(data)
             proba.columns = [str(c) for c in proba.columns]
             out["probabilities"] = records(proba)
         return out
@@ -41,46 +37,35 @@ def tabular(predictor: Any, info: Dict[str, Any], realtime: bool = False) -> Cal
     return predict
 
 
-def timeseries(predictor: Any, info: Dict[str, Any]) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+def timeseries(predictor: Any, params: Dict[str, Any]) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     import pandas as pd
-    from autogluon.timeseries import TimeSeriesDataFrame
 
-    id_column, timestamp_column = info["id_column"], info["timestamp_column"]
-
-    def frame(rows):
-        df = pd.DataFrame(rows)
-        df[timestamp_column] = pd.to_datetime(df[timestamp_column])
-        return TimeSeriesDataFrame.from_data_frame(df, id_column=id_column, timestamp_column=timestamp_column)
+    # Without an ID column it was trained on one series, and forecasts one.
+    id_column, timestamp_column = params.get("id_column"), params.get("timestamp_column") or "timestamp"
 
     def predict(request: Dict[str, Any]) -> Dict[str, Any]:
-        data = frame(request["rows"])
-        known = frame(request["known_covariates"]) if request.get("known_covariates") else None
-        forecast = predictor.predict(data, known_covariates=known).reset_index()
-        forecast = forecast.rename(columns={"item_id": id_column, "timestamp": timestamp_column})
-        forecast.columns = [str(c) for c in forecast.columns]
-        return {"forecast": records(forecast)}
+        data = series_frame(pd.DataFrame(request["rows"]), id_column, timestamp_column, "rows")
+        future = request.get("known_covariates")
+        known = series_frame(pd.DataFrame(future), id_column, timestamp_column, "known_covariates") if future else None
+        forecast = predictor.predict(data, known_covariates=known)
+        return {"forecast": records(forecast_table(forecast, id_column, timestamp_column))}
 
     return predict
 
 
 def load(workdir: Path) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
-    info = json.loads((workdir / INFO_FILE).read_text())
-    path = str(workdir / info["path"])
-    if info["kind"] == "tabular":
+    task = json.loads((workdir / "result.json").read_text())["task"]
+    params = json.loads((workdir / "params.json").read_text())
+    path = str(workdir / PREDICTOR_DIR)
+    if task == "tabular-prediction":
         from autogluon.tabular import TabularPredictor
 
-        return tabular(TabularPredictor.load(path, require_py_version_match=False), info)
-    if info["kind"] == "multimodal":
-        from autogluon.multimodal import MultiModalPredictor
-
-        without_nvml_on_macos()
-        # Same row-in, prediction-out shape as tabular.
-        return tabular(MultiModalPredictor.load(path), info, realtime=True)
-    if info["kind"] == "timeseries":
+        return tabular(TabularPredictor.load(path, require_py_version_match=False))
+    if task == "timeseries-forecast":
         from autogluon.timeseries import TimeSeriesPredictor
 
-        return timeseries(TimeSeriesPredictor.load(path, require_version_match=False), info)
-    raise ValueError(f"Unknown predictor kind {info['kind']!r}")
+        return timeseries(TimeSeriesPredictor.load(path, require_version_match=False), params)
+    raise ValueError(f"Not a predictor's task: {task!r}")
 
 
 def main(argv: list) -> int:
@@ -93,8 +78,9 @@ def main(argv: list) -> int:
             continue
         try:
             emit(result=predict(json.loads(line)))
-        except (KeyError, ValueError, TypeError) as e:
-            # Missing or mistyped columns: the request does not fit the predictor.
+        except (KeyError, ValueError, TypeError, AssertionError) as e:
+            # Missing or mistyped columns, or a forecast without the known covariates the predictor needs (an
+            # assertion in AutoGluon): the request does not fit the predictor.
             traceback.print_exc()
             emit(error=f"{type(e).__name__}: {e}"[:2000], client=True)
         except Exception as e:

@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useAction } from "../action";
-import { AuthError, type ApiClient } from "../api";
+import { useApi, AuthError } from "../api";
 import { Facts, Notice, type Fact, type NoticeState } from "../components";
 import { fmtGB, fmtMs } from "../format";
 import { errorText, useReloadOn } from "../query";
@@ -24,7 +24,6 @@ const DTYPES = ["auto", "float16", "bfloat16", "float32"];
  * Try (send it requests, see TryPanel). The actions stay pinned at the bottom.
  */
 export function ModelDetails(props: {
-  client: ApiClient;
   picked: PickedModel;
   /** Its catalog entry; missing for an ID typed in by hand */
   model?: CatalogModel;
@@ -35,7 +34,8 @@ export function ModelDetails(props: {
   onChange(): void;
   onDone(): void;
 }) {
-  const { client, picked, model, pick } = props;
+  const client = useApi();
+  const { picked, model, pick } = props;
   const [dtype, setDtype] = useState("auto");
   const estimate = client.useQuery("get", "/models/estimate", { params: { query: { model_id: picked.id, task: picked.task, torch_dtype: dtype } } });
   // What loading it would unload changes as models are loaded and unloaded.
@@ -115,7 +115,7 @@ export function ModelDetails(props: {
         </div>
 
         <TabsContent value="try" className="min-h-0 animate-rise overflow-y-auto px-5 pt-4 pb-5">
-          <TryPanel client={client} modelId={picked.id} task={picked.task} loaded={loaded} onRan={props.onChange} />
+          <TryPanel modelId={picked.id} task={picked.task} loaded={loaded} onRan={props.onChange} />
         </TabsContent>
         <TabsContent value="overview" className="stagger grid min-h-0 content-start gap-3.5 overflow-y-auto px-5 pt-4 pb-5">
           <Section title="Model">
@@ -175,7 +175,7 @@ export function ModelDetails(props: {
         )}
         {CHAT_TASKS.includes(picked.task) && (
           <Button asChild variant="outline" size="sm">
-            <a href={`/playground?model=${encodeURIComponent(picked.id)}`}>
+            <a href={`/admin#/playground?model=${encodeURIComponent(picked.id)}`}>
               <MessagesSquare aria-hidden="true" />
               Chat in playground
             </a>
@@ -203,8 +203,8 @@ function modelFacts(picked: PickedModel, model?: CatalogModel): Fact[] {
         <span className="text-muted-foreground">Decided when it loads</span>
       ),
     ],
-    ["Runs", server ? "In its own server process (MODEL_SERVERS_FILE)" : "In this process"],
-    ["Weights", server ? "Managed by its server" : model?.on_disk_gb != null ? `${fmtGB(model.on_disk_gb)} downloaded` : "Not downloaded: the first load downloads them"],
+    ["Runs", server ? "In a process of its own (a model server, or an AutoGluon predictor)" : "In this process"],
+    ["Weights", server ? "Loaded by that process" : model?.on_disk_gb != null ? `${fmtGB(model.on_disk_gb)} downloaded` : "Not downloaded: the first load downloads them"],
   ];
   if ((model?.tags ?? []).length > 0) facts.push(["Tags", <Tags tags={model?.tags} />]);
   if (!model) facts.push(["Listed", <span className="text-muted-foreground">No: an ID typed in by hand</span>]);

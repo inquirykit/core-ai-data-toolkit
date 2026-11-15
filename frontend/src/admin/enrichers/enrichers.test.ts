@@ -4,7 +4,6 @@ import { enricherHash, fmtFreshness, fmtOutput, locationFromHash, origin, sentSp
 
 const spec: EnricherSpec = {
   name: "abuseipdb",
-  kind: "http",
   description: "IP reputation",
   docs: "https://docs.abuseipdb.com",
   inputs: ["ipv4", "ipv6"],

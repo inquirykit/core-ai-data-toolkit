@@ -3,7 +3,7 @@
 // its box, which follows the box as it resizes.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, LineChart, ScatterChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   AxisPointerComponent,
   BrushComponent,
@@ -19,6 +19,7 @@ import type { EChartProps } from "./echart";
 echarts.use([
   BarChart,
   LineChart,
+  PieChart,
   ScatterChart,
   AxisPointerComponent,
   BrushComponent,

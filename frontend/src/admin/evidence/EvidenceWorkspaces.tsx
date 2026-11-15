@@ -1,36 +1,39 @@
-// The workspace picker: the workspaces, and making a new one (admin key).
+// The workspace picker: the workspaces of /db, and making a new one (admin key).
 
 import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi, type Schemas } from "../../shared/api";
 import { Notice, SelectInput, SubmitButton } from "../../shared/components";
-import type { EvidenceWorkspace } from "../../shared/types";
 import { evidenceHash } from "./evidence";
 
-/** The workspace picker. A new workspace takes a name and, optionally, the id of the workspace it stands for
- * in your own application (else one is made). */
-export function WorkspaceCard(props: { client: ApiClient; workspaces: EvidenceWorkspace[] | null; active: string; reload(): Promise<unknown> }) {
+/** A workspace as GET /db lists it: the Data section's. */
+type Workspace = Schemas["WorkspaceEntry"];
+
+/** The workspace picker, each by its label (else its name). A new workspace is one of /db's (POST /db): a name, and
+ * a label saying what it holds; its ledger is made on its first capture or case. */
+export function WorkspaceCard(props: { workspaces: Workspace[] | null; active: string }) {
+  const client = useApi();
   const { workspaces, active } = props;
+  const queries = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [id, setId] = useState("");
+  const [label, setLabel] = useState("");
 
   const create = useAction(
     async (event: FormEvent) => {
       event.preventDefault();
-      const trimmed = name.trim();
-      if (!trimmed) return;
-      const body = id.trim() ? { name: trimmed, id: id.trim() } : { name: trimmed };
-      const made = await props.client.post("/evidence/workspaces", { body });
+      const made = await client.post("/db", { body: { name: name.trim(), label: label.trim() || undefined } });
       setName("");
-      setId("");
+      setLabel("");
       setAdding(false);
-      await props.reload();
-      location.hash = evidenceHash(made.workspace.id, null);
+      // The workspaces here and in the Data section.
+      await queries.invalidateQueries({ queryKey: ["get", "/db"] });
+      location.hash = evidenceHash(made.name, null);
     },
     { notice: true },
   );
@@ -55,7 +58,7 @@ export function WorkspaceCard(props: { client: ApiClient; workspaces: EvidenceWo
           disabled={!workspaces}
           value={active}
           onChange={(value) => (location.hash = evidenceHash(value, null))}
-          options={(workspaces ?? []).map((w) => ({ value: w.id, label: w.name }))}
+          options={(workspaces ?? []).map((w) => ({ value: w.name, label: w.label || w.name, title: w.label ? w.name : undefined }))}
         />
         {adding && (
           <form className="grid gap-2 pt-1" onSubmit={create.run}>
@@ -63,18 +66,24 @@ export function WorkspaceCard(props: { client: ApiClient; workspaces: EvidenceWo
               autoFocus
               aria-label="Workspace name"
               placeholder="Name"
-              maxLength={200}
+              pattern="[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)*"
+              title="Letters, digits and single underscores, starting with a letter"
+              maxLength={48}
+              required
+              autoComplete="off"
+              className="font-mono text-xs"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={create.busy}
             />
             <Input
-              aria-label="Workspace id"
-              placeholder="Id (optional): your application's"
-              maxLength={36}
-              className="font-mono text-xs"
-              value={id}
-              onChange={(e) => setId(e.target.value)}
+              aria-label="Workspace label"
+              placeholder="Label (optional)"
+              title="What it holds, in words: shown in place of its name"
+              maxLength={200}
+              autoComplete="off"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
               disabled={create.busy}
             />
             <SubmitButton size="sm" busy={create.busy} disabled={!name.trim()}>

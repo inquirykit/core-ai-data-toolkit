@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { DataGrid, type GridColumn } from "../../shared/grid";
 import { CodeBlock, Disclosure, Facts, Field, Notice, SelectField, StatusLabel, SubmitButton } from "../../shared/components";
 import type { EnrichBody, EnrichResponse, EnrichResult, EntityType } from "../../shared/types";
@@ -31,7 +31,8 @@ export function TypeSelect(props: { types: EntityType[]; value: TypeChoice; onCh
     />
   );
 }
-export function LookupCard({ client, types }: { client: ApiClient; types: EntityType[] }) {
+export function LookupCard({ types }: { types: EntityType[] }) {
+  const client = useApi();
   const [value, setValue] = useState("");
   const [type, setType] = useState<TypeChoice>("");
   const [refresh, setRefresh] = useState(false);

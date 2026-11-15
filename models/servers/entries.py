@@ -9,15 +9,24 @@ loads (see models/servers/model.py). Each backend says where with one of:
 - ``cmd``: a server this service starts, ``{port}`` replaced by a free port;
 - ``hub``: a Hugging Face model run in this process by the model file that serves it.
 
+A ``hub`` backend can say how its model loads: ``revision`` and ``max_length``,
+for the model files that read them (their ``load_settings``; the embedding and
+rerank ones). Which repos may run their own code is TRUST_REMOTE_CODE_MODELS's
+to say, not an entry's.
+
 A model without ``backends`` is its own one backend: the flat form, with
 ``cmd`` or ``url`` beside ``task``, as the file has always taken.
 
 The TOML file (MODEL_SERVERS_FILE) is the operator's. Entries saved from
-/admin go to a JSON file of the same shape (MODEL_SERVERS_SAVED_FILE); one
+/admin go to a JSON file of the same shape (in DATA_DIR); one
 saved there replaces the file's entry of the same name, and deleting it
 brings the file's back, as with enrichers. Commands run on this host, so
 /admin may only save the ``cmd`` and ``env`` the file already gives the same
 model, unless MODEL_SERVERS_ALLOW_COMMANDS is on (see ``new_commands``).
+
+A provider's API key is in neither file: it is an environment variable named
+after the provider (``key_variable``), which /admin saves encrypted
+(core/keystore.py) and fills at startup.
 """
 
 import json
@@ -28,6 +37,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -36,6 +46,8 @@ Task = Literal["text-generation", "vision-language", "embedding", "rerank", "spe
 
 PROVIDER_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$")
+# What a hub backend may say about how its model loads (see BaseModel.load_settings).
+LOAD_SETTINGS = ("revision", "max_length")
 
 FROZEN = ConfigDict(extra="forbid", frozen=True)
 # The keys that say where a backend is; exactly one is given.
@@ -50,6 +62,29 @@ def _base_url(value: Optional[str]) -> Optional[str]:
     if not re.match(r"^https?://[^\s/]+", value):
         raise ValueError("url starts with http:// or https:// and a host")
     return value.rstrip("/")
+
+
+def without_credentials(url: str) -> str:
+    """``url`` as the service shows it (a backend's label, a probe's detail, a model's upstream; so logs, traces,
+    answers and /admin): without a user and password, which only the requests to it carry."""
+    parts = urlsplit(url)
+    return parts._replace(netloc=parts.netloc.rpartition("@")[2]).geturl()
+
+
+def key_variable(provider: str) -> str:
+    """The environment variable that holds a provider's API key. It is made from the name, never chosen, so a provider
+    cannot be pointed at another of the service's secrets and send that to its URL."""
+    return f"PROVIDER_{re.sub(r'[^A-Z0-9]', '_', provider.upper())}_API_KEY"
+
+
+def provider_key(provider: str) -> str:
+    """The provider's API key as it is now; "" when it has none."""
+    return os.environ.get(key_variable(provider), "")
+
+
+def is_key_variable(name: str) -> bool:
+    """Whether ``name`` is a provider's key, by its form: the provider need not exist."""
+    return name.startswith("PROVIDER_") and name.endswith("_API_KEY")
 
 
 class Provider(BaseModel):
@@ -81,6 +116,14 @@ class Backend(BaseModel):
     url: Optional[str] = Field(None, description="A server that already runs: its base URL")
     cmd: Tuple[str, ...] = Field((), description="A server to start here; {port} is replaced by a free port")
     hub: Optional[str] = Field(None, description="A Hub model run in this process (Transformers)")
+    revision: Optional[str] = Field(
+        None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$",
+        description="The hub model's branch, tag or commit to load (default: main)",
+    )
+    max_length: Optional[int] = Field(
+        None, ge=1, le=1_048_576,
+        description="Tokens the hub model reads of each text or pair, at most its own length; the rest is cut",
+    )
     upstream_model: Optional[str] = Field(None, description='The "model" sent to the server (default: the model ID)')
     memory_gb: float = Field(
         0.0, ge=0, le=4096,
@@ -119,7 +162,14 @@ class Backend(BaseModel):
             raise ValueError('on_evict "unload" is for provider and url backends (Ollama)')
         if self.env and not self.cmd:
             raise ValueError("env is for cmd backends")
+        given = [name for name in LOAD_SETTINGS if getattr(self, name)]
+        if given and not self.hub:
+            raise ValueError(f"{', '.join(given)} {'is' if len(given) == 1 else 'are'} for hub backends")
         return self
+
+    def load_settings(self) -> Dict[str, Any]:
+        """The load settings this backend gives, for the in-process model's options."""
+        return {name: getattr(self, name) for name in LOAD_SETTINGS if getattr(self, name)}
 
     @property
     def kind(self) -> str:
@@ -134,7 +184,7 @@ class Backend(BaseModel):
             return Path(self.cmd[0]).name
         if self.hub:
             return "in-process"
-        return self.url or ""
+        return without_credentials(self.url) if self.url else ""
 
 
 class ModelEntry(BaseModel):
@@ -307,9 +357,9 @@ class Effective:
 class ServerStore:
     """Reads MODEL_SERVERS_FILE and the saved file (on every call: they are small), and writes the saved one."""
 
-    def __init__(self, file: Path, saved: Optional[Path]):
+    def __init__(self, file: Path, saved: Path):
         self.file = Path(file)
-        self.saved = Path(saved) if saved else None
+        self.saved = Path(saved)
 
     @classmethod
     def from_config(cls) -> "ServerStore":
@@ -326,7 +376,7 @@ class ServerStore:
             return Layer(problems={"file": f"{self.file}: {e}"})
 
     def _saved_raw(self) -> Dict[str, Any]:
-        if self.saved is None or not self.saved.is_file():
+        if not self.saved.is_file():
             return {}
         data = json.loads(self.saved.read_text())
         if not isinstance(data, dict):
@@ -345,8 +395,6 @@ class ServerStore:
     # ------------------------------------------------------------ writing
     def _change(self, table: str, name: str, value: Optional[Dict[str, Any]]) -> bool:
         """Set (or with None remove) one saved entry, keeping the rest of the file as it is; True if it changed."""
-        if self.saved is None:
-            raise RuntimeError("MODEL_SERVERS_SAVED_FILE is empty: model servers cannot be saved from /admin")
         raw = self._saved_raw()
         entries = raw.setdefault(table, {})
         if value is None:

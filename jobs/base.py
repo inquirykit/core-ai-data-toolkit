@@ -14,29 +14,29 @@ from typing import Annotated, Any, Callable, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-# Where job input files live. The service and the worker both read it from
-# the environment (the runner passes the service's value to the worker).
+# Where job input files live (DATA_DIR/datasets). The service and the worker
+# both read it from the environment, which the runner sets in both.
 DATA_DIR_ENV = "JOB_DATA_DIR"
 
 
 def data_dir() -> Path:
-    return Path(os.environ.get(DATA_DIR_ENV) or "data/datasets").resolve()
+    return Path(os.environ[DATA_DIR_ENV]).resolve()
 
 
 def _inside_data_dir(value: str) -> str:
     base = data_dir()
     path = (base / value).resolve()
     if not path.is_relative_to(base) or not path.exists():
-        raise ValueError(f"{value!r} must be an existing file or folder inside JOB_DATA_DIR")
+        raise ValueError(f"{value!r} must be an existing file or folder inside DATA_DIR/datasets")
     return str(path)
 
 
-# A job parameter naming an input file: a path relative to JOB_DATA_DIR
+# A job parameter naming an input file: a path relative to DATA_DIR/datasets
 # (POST /jobs/data uploads there). It is checked when the job is submitted
 # and reaches run() as an absolute path.
 DataFile = Annotated[
     str,
-    Field(min_length=1, max_length=1024, description="A file inside JOB_DATA_DIR (see GET /jobs/data)"),
+    Field(min_length=1, max_length=1024, description="A file inside DATA_DIR/datasets (see GET /jobs/data)"),
     AfterValidator(_inside_data_dir),
 ]
 
@@ -98,6 +98,9 @@ class Job:
 
     Params: type = JobParams
     Result: Optional[type] = None
+    # The param naming what the job works on (autogluon-predict's predictor), kept as its task's ``ref``, so
+    # GET /jobs?ref=<value> lists that thing's jobs however many others came since.
+    ref_param: Optional[str] = None
 
     # Set by @register_job.
     name: str = ""

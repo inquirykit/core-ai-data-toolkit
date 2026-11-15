@@ -1,5 +1,5 @@
 // The tables pinned in the Data section: kept in this browser, listed first in
-// the sidebar, and pinned or unpinned there, on the namespace's page or on the
+// the sidebar, and pinned or unpinned there, on the workspace's page or on the
 // table's own.
 import { useEffect, useState } from "react";
 import { Pin } from "lucide-react";
@@ -11,10 +11,10 @@ import { pinKey } from "./data";
 const STORAGE = "ai-toolkit.data.pins";
 
 export interface Pins {
-  /** "namespace/table", in the order pinned */
+  /** "workspace/table", in the order pinned */
   keys: string[];
-  has(namespace: string, table: string): boolean;
-  toggle(namespace: string, table: string): void;
+  has(workspace: string, table: string): boolean;
+  toggle(workspace: string, table: string): void;
 }
 
 export function usePins(): Pins {
@@ -25,21 +25,21 @@ export function usePins(): Pins {
   useEffect(() => writeLocal(STORAGE, { tables: keys }), [keys]);
   return {
     keys,
-    has: (namespace, table) => keys.includes(pinKey(namespace, table)),
-    toggle: (namespace, table) => {
-      const key = pinKey(namespace, table);
+    has: (workspace, table) => keys.includes(pinKey(workspace, table)),
+    toggle: (workspace, table) => {
+      const key = pinKey(workspace, table);
       setKeys((ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]));
     },
   };
 }
 
 /**
- * Pins or unpins ``table`` of ``namespace``; its pin is filled while it is pinned. With ``text``, a button
+ * Pins or unpins ``table`` of ``workspace``; its pin is filled while it is pinned. With ``text``, a button
  * that says Pin (the table's page); without, a small icon for a row of a list. A click goes no further,
  * so a row that opens on a click stays put.
  */
-export function PinToggle(props: { pins: Pins; namespace: string; table: string; text?: boolean; className?: string }) {
-  const pinned = props.pins.has(props.namespace, props.table);
+export function PinToggle(props: { pins: Pins; workspace: string; table: string; text?: boolean; className?: string }) {
+  const pinned = props.pins.has(props.workspace, props.table);
   return (
     <Toggle
       variant={props.text ? "outline" : "default"}
@@ -47,7 +47,7 @@ export function PinToggle(props: { pins: Pins; namespace: string; table: string;
       pressed={pinned}
       // Not preventDefault: Radix's toggle then ignores the click.
       onClick={(e) => e.stopPropagation()}
-      onPressedChange={() => props.pins.toggle(props.namespace, props.table)}
+      onPressedChange={() => props.pins.toggle(props.workspace, props.table)}
       aria-label={props.text ? undefined : `Pin ${props.table}`}
       title={pinned ? `Pinned at the top of the sidebar, in this browser. Click to unpin ${props.table}.` : `Pin ${props.table} at the top of the sidebar, in this browser`}
       className={cn(

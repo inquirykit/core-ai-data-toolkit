@@ -1,12 +1,11 @@
 """
-Traces and evaluations: what each request was and what came back, kept for
-debugging; datasets built from them; runs of a model over a dataset; and
-scores from metrics or an LLM judge. Stored in the embedded ArcadeDB
-database (see evals/store.py).
+Evaluations: datasets of examples, given or copied from the requests the
+service kept (monitoring/); runs of a model over a dataset; and scores from
+metrics or an LLM judge. Stored in the embedded DuckDB database (see
+evals/store.py).
 """
 
-from .capture import compact
 from .runner import RunExecutor
 from .store import EvalStore
 
-__all__ = ["EvalStore", "RunExecutor", "compact"]
+__all__ = ["EvalStore", "RunExecutor"]

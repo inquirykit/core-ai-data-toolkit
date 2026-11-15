@@ -1,6 +1,5 @@
 {
   "name": "esplora_bitcoin",
-  "kind": "http",
   "description": "Balance and transaction count of a Bitcoin address (Blockstream Esplora, keyless)",
   "docs": "https://github.com/Blockstream/esplora/blob/master/API.md",
   "inputs": [

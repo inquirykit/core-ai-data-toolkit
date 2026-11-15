@@ -12,46 +12,21 @@ null (``Optional[x]`` with no default), so the generated types say "always
 there" where it is.
 """
 
-from .common import OPEN, Deleted, Json, ModelStatus, Out, RequestStatus, answering  # noqa: F401
-from .admin import (  # noqa: F401
-    Window, Actor, TimelinePoint, ModelStats, Totals, Timeline, LoadedModel, CacheStatus, Gpu, HostMemory, ProcessInfo,
-    MonitoringInfo, Stats, ModelEvent, ModelEvents, AuditEntry, AuditEntries, RequestRow, RequestRows, LogLine, Logs, AdminConfig,
-    LimitsResult,
-)
-from .models import (  # noqa: F401
-    SetupStatus, SetupResult, SetupSkipped, ModelMessage, Catalog, TaskInfo, TaskLimits, Tasks, OpenAIModel,
-    OpenAIModels, ModelType, ModelTypes, Limits, CatalogModel, CatalogTask, ModelCatalog, LoadPlan,
-)
-from .playground import (  # noqa: F401
-    ConversationSummary, Conversations, Preset, Presets, ExampleAdded,
-)
-from .servers import (  # noqa: F401
-    Origin, ProviderInfo, ModelServerInfo, ModelServerProblem, ModelServers, BackendProbe, ModelServerProbe,
-)
-from .enrichers import (  # noqa: F401
-    EnricherState, EnricherInfo, EnricherList, EnrichStatus, EnrichResult, EnrichResponse, SentRequest,
-    SecretSaved, EnricherTest,
-)
-from .evals import (  # noqa: F401
-    TraceSummary, Trace, TraceCapture, Traces, Dataset, Datasets, DatasetExample, DatasetExamples, RunStatus,
-    RunActivity, Run, Runs, DatasetDetail, Score, RunItem, MetricSummary, RunDetail, RunSummary, Scored,
-    JudgeStarted, ExamplesAdded, CompareSide, CompareRow, Comparison, MetricName, MetricInfo, JudgeDefaults,
-    MetricsInfo,
-)
-from .hub import (  # noqa: F401
-    HubSearchResult, HubSearch, HubFile, HubRepo, HubDownload, HubDownloads, HubLocalRepo, HubLocal,
-)
-from .jobs import (  # noqa: F401
-    JobStatus, Job, Jobs, JobType, JobLimits, JobTypes, Priority, Schedule, Schedules, WebhookDelivery, Webhooks,
-    WebhookTestResult,
-)
-from .evidence import (  # noqa: F401
-    EvidenceWorkspace, EvidenceWorkspaces, WorkspaceCreated, EvidenceCase, EvidenceCases, CaseCreated,
-    CaptureSummary, CaptureSummaries, SearchHit, EvidenceSearch, CaptureTimestamp, TimestampRetry, Capture, AnnotationNote, Annotation,
-    Annotations, Todo, CaseTodos, VerifyIssue, VerifyReport,
-)
-from .tables import (  # noqa: F401
-    Row, FieldInfo, TableInfo, EdgeTypeInfo, Namespace, Namespaces, ObservedField, Observed, SchemaInfo,
-    TableSchemaOut, RowsPage, RowCount, GraphEdge, GraphNode, GraphMore, GraphView, EdgesPage, Neighbor,
-    NeighborsPage, RowList, EdgeJoin, EdgeTypeDetail, EdgeTypes,
-)
+# Every module's names, so a route says responses.X whichever module declares X, and a new model needs no line here.
+# tests/test_api.py fails when two modules declare one name, which would hide one of them.
+from .common import *  # noqa: F401,F403
+from .admin import *  # noqa: F401,F403
+from .models import *  # noqa: F401,F403
+from .playground import *  # noqa: F401,F403
+from .servers import *  # noqa: F401,F403
+from .enrichers import *  # noqa: F401,F403
+from .evals import *  # noqa: F401,F403
+from .tasks import *  # noqa: F401,F403
+from .jobs import *  # noqa: F401,F403
+from .evidence import *  # noqa: F401,F403
+from .tables import *  # noqa: F401,F403
+from .files import *  # noqa: F401,F403
+from .keys import *  # noqa: F401,F403
+from .remotes import *  # noqa: F401,F403
+from .views import *  # noqa: F401,F403
+from .workflows import *  # noqa: F401,F403

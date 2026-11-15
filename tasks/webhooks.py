@@ -15,12 +15,12 @@ check it. The URLs are ``WEBHOOK_URLS`` plus the one a job, schedule or run
 names itself.
 
 Each delivery to one URL is a task of the kind "webhook" (tasks/runner.py), a
-row of the jobs table, so one still waiting when the service stops goes out
+row of the tasks table, so one still waiting when the service stops goes out
 at the next start, and one the service stopped under is sent again then, with
 its webhook-id. Only a 2xx answer delivers it. Any other answer, or none, is
 tried again RETRIES times, the wait doubling from RETRY_DELAY_S up to an hour:
 for about four hours in all. 410 Gone is not tried again. Finished deliveries
-are kept KEEP_DAYS, then deleted (TaskRunner.prune); GET /jobs/webhooks lists
+are kept KEEP_DAYS, then deleted (TaskRunner.prune); GET /queue/webhooks lists
 the latest (``deliveries``).
 """
 
@@ -51,23 +51,22 @@ CONCURRENCY = 4
 ATTEMPT_TIMEOUT_S = 60.0
 # Days a finished delivery is kept.
 KEEP_DAYS = 7
-# The latest deliveries GET /jobs/webhooks lists, and what it shows of each besides its message.
+# The latest deliveries GET /queue/webhooks lists, and what it shows of each besides its message.
 DELIVERIES = 20
 DELIVERY_FIELDS = ("status", "error", "retried", "retries", "not_before", "created", "finished")
 
 
 class Webhooks:
-    def __init__(self, urls: Iterable[str] = (), secret: Optional[str] = None, timeout: float = 10.0,
-                 tasks: Optional[TaskRunner] = None):
+    def __init__(self, urls: Iterable[str] = (), secret: Optional[str] = None, timeout: float = 10.0, *,
+                 tasks: TaskRunner):
         self.urls: List[str] = [u.strip() for u in urls if u and u.strip()]
         self.secret = secret or None
         self.timeout = timeout
         self._client: Optional[Any] = None  # httpx.AsyncClient, made on first use
-        # Deliveries wait in the task table. Without the database there is none, and no jobs or runs to report either.
+        # Deliveries wait in the task table, so a restart does not lose one.
         self.tasks = tasks
-        if tasks is not None:
-            tasks.add(Kind(KIND, run=self._attempt, stop=self._let_finish, concurrency=CONCURRENCY,
-                           finished=self._finished, on_interrupt="resume", keep_s=KEEP_DAYS * 86400))
+        tasks.add(Kind(KIND, run=self._attempt, stop=self._let_finish, concurrency=CONCURRENCY,
+                       finished=self._finished, on_interrupt="resume", keep_s=KEEP_DAYS * 86400))
 
     def describe(self) -> Dict[str, Any]:
         return {"urls": list(self.urls), "secret_set": self.secret is not None, "events": list(EVENTS)}
@@ -99,7 +98,7 @@ class Webhooks:
     async def send(self, event: str, data: Any, extra_urls: Iterable[Optional[str]] = ()) -> int:
         """Queue ``event`` for every configured URL and ``extra_urls``, a delivery each; returns how many."""
         urls = list(dict.fromkeys([*self.urls, *(u for u in extra_urls if u)]))
-        if not urls or self.tasks is None:
+        if not urls:
             return 0
         message = {"event": event, "message_id": f"msg_{uuid.uuid4().hex}", "body": self.body(event, data).decode(),
                    # The job or run it tells of, for the list of deliveries.
@@ -111,9 +110,7 @@ class Webhooks:
 
     async def deliveries(self, limit: int = DELIVERIES) -> List[Dict[str, Any]]:
         """The latest deliveries, newest first: what each told of, where to, and how it went."""
-        if self.tasks is None:
-            return []
-        rows = await self.tasks.store.list(limit, kind=KIND)
+        rows = await self.tasks.list(limit, kind=KIND)
         return [{"id": row["id"], "event": row["params"].get("event"), "about": row["params"].get("about"),
                  "url": row["params"].get("url"), **{key: row[key] for key in DELIVERY_FIELDS}} for row in rows]
 

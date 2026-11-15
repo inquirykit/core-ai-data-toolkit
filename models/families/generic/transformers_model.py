@@ -20,7 +20,7 @@ AUTO_CLASSES = {
 
 
 @register(task="text-generation", fallback=True, ids=[
-    # Instruction-tuned with a chat template: the /playground default.
+    # Instruction-tuned with a chat template: the playground's default.
     ModelCard("Qwen/Qwen2.5-0.5B-Instruct", "Small instruction-tuned chat model, 29 languages", ["chat", "multilingual"]),
     # Qwen3.5 (natively multimodal) is listed under vision-language; the Chat tab shows both.
     ModelCard("LiquidAI/LFM2.5-1.2B-Instruct",
@@ -66,8 +66,11 @@ class TransformersModel(BaseModel):
         from transformers import AutoTokenizer
 
         model_class = getattr(transformers, AUTO_CLASSES[self.task])
+        source = self.weights_source(self.model_id)
+        if source is None:
+            raise ValueError(f"No weights here for {self.model_id}")
         # Generic models never run Hub code; see FastVLMModel for the allow-listed case.
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(source, trust_remote_code=False)
         self.model = self.load_pretrained(model_class)
         fit_max_length(self.tokenizer, self.model)
 

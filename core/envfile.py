@@ -39,6 +39,12 @@ def parse(text: str) -> Dict[str, str]:
     return values
 
 
+def holds(path: PathLike, name: str) -> bool:
+    """Whether the file gives ``name`` a value."""
+    path = Path(path)
+    return path.is_file() and bool(parse(path.read_text()).get(name))
+
+
 def load(path: PathLike) -> List[str]:
     """Copy the file's settings into os.environ where not already set. Returns the keys set."""
     path = Path(path)
@@ -55,8 +61,7 @@ def load(path: PathLike) -> List[str]:
 def update(path: PathLike, values: Dict[str, str]) -> None:
     """Set ``values`` in the file, keeping every other line and comment.
 
-    The file is replaced atomically and is readable by its owner only, since
-    it holds the API keys.
+    Written by ``write_private``, since it holds the API keys.
     """
     path = Path(path)
     lines = path.read_text().splitlines() if path.is_file() else []
@@ -76,11 +81,17 @@ def update(path: PathLike, values: Dict[str, str]) -> None:
             out.append("")
         out.extend(f"{key}={values[key]}" for key in missing)
 
+    write_private(path, "\n".join(out) + "\n")
+
+
+def write_private(path: PathLike, text: str) -> None:
+    """Replace the file with ``text`` atomically, readable by its owner only."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")  # created with mode 0600
     try:
         with os.fdopen(fd, "w") as f:
-            f.write("\n".join(out) + "\n")
+            f.write(text)
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):

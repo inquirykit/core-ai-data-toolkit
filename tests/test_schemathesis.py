@@ -1,6 +1,7 @@
 """
 The API against its own OpenAPI schema: every operation, fed requests generated from the schema, must not answer
-5xx, and must answer with a status and a body the schema describes. A few examples per operation, so it is a
+5xx, and must answer with a body the schema describes for its status (an error status any route may answer is the
+default response's: {detail}). A few examples per operation, so it is a
 smoke test of the contract rather than a fuzzing campaign; `pytest -m "not schemathesis"` skips it.
 
 The models are the fakes the other tests use; operations that reach outside the test database (the network, the
@@ -12,7 +13,7 @@ import contextlib
 import pytest
 import schemathesis
 from hypothesis import HealthCheck, Phase, assume, settings
-from schemathesis.checks import not_a_server_error, response_schema_conformance, status_code_conformance
+from schemathesis.checks import not_a_server_error, response_schema_conformance
 from schemathesis.python import asgi
 
 from api import app as app_module
@@ -20,7 +21,7 @@ from models import registry
 from models.families.custom.custom_model import CustomModel
 from tests.fakes import FakeModel, sample_result, swapped
 
-CHECKS = [not_a_server_error, status_code_conformance, response_schema_conformance]
+CHECKS = [not_a_server_error, response_schema_conformance]
 
 # Checks skipped for one operation (a bug in the route or its schema, not in this test): none at the moment.
 KNOWN_BUGS: dict = {}
@@ -34,7 +35,7 @@ EXCLUDED = [
     # Probes reach the network; edits write the saved servers file and may start a model server.
     ("PUT|DELETE", r"^/admin/model-servers/"),
     ("POST", r"^/admin/model-servers/probe$"),
-    # A run posts to its webhook_url when it ends, and a judge calls its base_url.
+    # A run posts to its webhook_url when it ends, and a judge loads its model.
     ("POST", r"^/admin/runs$"),
     ("POST", r"^/admin/runs/[^/]+/(resume|judge)$"),
     # The enrichers call outside APIs.
@@ -42,21 +43,17 @@ EXCLUDED = [
     ("POST", r"^/enrichers/[^/]+/test$"),
     # Multipart uploads, signing, and the origin check the browser extension passes.
     ("GET|POST|PUT", r"^/evidence/"),
-    # The Hub: downloads are child processes, deletes remove the developer's cached weights, and search and repo
-    # info go online (with HF_HUB_OFFLINE they answer 503).
-    ("POST|DELETE", r"^/hub/"),
-    ("GET", r"^/hub/(search|repos/)"),
     # Jobs are child processes: submitting, cancelling, deleting, schedules (which submit on their own clock), and
     # the uploads and deletes of their input files.
     ("POST", r"^/jobs$"),
     ("POST|DELETE", r"^/jobs/\{id\}"),
     ("POST|DELETE", r"^/jobs/data"),
     ("POST|PUT", r"^/jobs/schedules"),
-    ("POST", r"^/jobs/webhooks/test$"),
-    # Drops a whole namespace, table or edge type.
-    ("DELETE", r"^/db/\{namespace\}$"),
-    ("DELETE", r"^/db/\{namespace\}/\{table\}$"),
-    ("DELETE", r"^/db/\{namespace\}/_edges/\{edge_type\}$"),
+    ("POST", r"^/queue/webhooks/test$"),
+    # Drops a whole workspace, table or edge type.
+    ("DELETE", r"^/db/\{workspace\}$"),
+    ("DELETE", r"^/db/\{workspace\}/\{table\}$"),
+    ("DELETE", r"^/db/\{workspace\}/_edges/\{edge_type\}$"),
 ]
 
 
@@ -87,7 +84,7 @@ class ContractFake(FakeModel):
         if self.task == "decision":
             answer = {"boolean": 0.5, "choice": None, "expected_score": 0.0, "confidence": 0.5, "probs": {}}
             return {"answers": {name: answer for name in request.questions}, "n_tokens": 1}
-        if self.task in ("tabular-prediction", "multimodal-prediction"):
+        if self.task == "tabular-prediction":
             return {"predictions": [None] * len(request.rows)}
         if self.task == "timeseries-forecast":
             return {"forecast": []}
@@ -108,8 +105,9 @@ def fake_models():
         for cls in set(registry.classes()) - {CustomModel}:
             stack.enter_context(swapped(cls, ContractFake))
         yield
-        # Schemathesis starts the app's lifespan on the first request and keeps it until the process exits; the
-        # modules after this one start their own, as each TestClient does.
+        # Schemathesis's pytest plugin ends the app's lifespan after each test, so every test starts the app and opens
+        # the database, and shuts them down; this ends the last one, as the modules after this one start their own,
+        # as each TestClient does.
         asgi.shutdown_lifespans()
 
 

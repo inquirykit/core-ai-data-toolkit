@@ -1,5 +1,5 @@
 """
-Each capture's files on disk, under EVIDENCE_DIR/captures/<capture id>/:
+Each capture's files on disk, under DATA_DIR/evidence/captures/<capture id>/:
 
     artifacts/<name>   the captured files, read-only
     record.json        the exact bytes that were hashed and signed

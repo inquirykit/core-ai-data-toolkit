@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Literal, Optional
 
 
-from .common import Out
+from .common import Json, Out
 
 
 class TimelinePoint(Out):
@@ -35,6 +35,8 @@ class Totals(Out):
     errors: int
     error_rate: float
     requests_per_min: float
+    # Its requests by where they came from: api, admin, data, workflow, eval (other: before the log kept it)
+    sources: Dict[str, int]
     p50_ms: Optional[float]
     p95_ms: Optional[float]
 
@@ -58,12 +60,30 @@ class LoadedModel(Out):
     last_used: Optional[float]
     # GB counted against the memory budget
     memory_usage: Optional[float]
-    # Requests holding the model now
+    # Requests holding the model now, running or waiting
     in_use: int
+    # Requests waiting for the model now: for one of its slots, and for a batch when it batches
+    waiting: int
+    # How long a request arriving now would wait for a slot, in ms; None before one has finished
+    estimated_wait_ms: Optional[float]
+    # Running average of a request's time in ms; None before one has finished
+    avg_request_ms: Optional[float]
+    # Requests it runs at once
+    max_concurrency: int
+    # The most single requests it answers in one pass, when it batches them (models/batching.py); None otherwise
+    batch_size: Optional[int] = None
+    # Never evicted: only an unload removes it
+    pinned: bool
     # "in-process", or "server" for a model with its own server process
     kind: str
     # Which backend of a model server answers, e.g. "ollama: qwen3.5:4b"; None for other models
     backend: Optional[str] = None
+    # The server elsewhere that answers it, e.g. "ollama" or "gpu-box:8000"; None when it runs on this machine
+    upstream: Optional[str] = None
+    # That server is another toolkit; ``backend`` then goes on to the one of its backends that answered
+    peer: bool = False
+    # The Hub commit its weights were loaded from; None when they are not from the Hub cache
+    revision: Optional[str] = None
 
 
 class CacheStatus(Out):
@@ -112,7 +132,7 @@ class MonitoringInfo(Out):
 
 
 Window = Literal["1h", "24h", "7d"]
-# The key a request carried (api/deps.py key_used): wrong is a key that is neither, open that no key is set.
+# The key a request carried (api/deps.py caller): wrong is a key that opens nothing, open that no key is set.
 Actor = Literal["admin", "client", "none", "wrong", "open"]
 
 
@@ -142,12 +162,14 @@ class AuditEntry(Out):
     id: int
     ts: float
     method: str
-    # The route's path, /db/{namespace}/{table}; ``path`` is the one asked for, with its query
+    # The route's path, /db/{workspace}/{table}; ``path`` is the one asked for, with its query
     route: str
     path: str
     status: int
     duration_ms: float
     actor: Actor
+    # The client key's id (GET /admin/keys), when the key sent was one, live or not
+    key_id: Optional[str]
     ip: Optional[str]
     forwarded: Optional[str]
     agent: Optional[str]
@@ -155,6 +177,7 @@ class AuditEntry(Out):
 
 class AuditEntries(Out):
     entries: List[AuditEntry]
+    next: Optional[str] = None
     # Whether the audit log is on (AUDIT_RETENTION_DAYS above 0, and the database)
     on: bool
     retention_days: float
@@ -168,13 +191,53 @@ class RequestRow(Out):
     status: str  # ok, client_error, error
     duration_ms: float
     cold: bool
+    # The error's type
     error: Optional[str]
-    # The request's trace: its input and output, when tracing is on
-    trace_id: Optional[str] = None
+    # Its first input's trace while kept (with q, one whose words match): GET /admin/traces/{trace_id}
+    trace_id: Optional[str]
+    tags: List[str]
+    session: Optional[str]
+    # Which backend of a model server answered, e.g. "ollama: qwen3.5:4b"
+    backend: Optional[str]
+    # Where it came from: api (an app), admin (the playground, /admin), data (a /db table), workflow, eval
+    source: Optional[str] = None
+    # The first words of its input and output, while its trace is kept
+    preview: Optional[str]
+
+
+class TraceCapture(Out):
+    """Whether requests' inputs and outputs are kept, how long, cut to how many characters, and how many requests
+    were not kept because the queue was full."""
+    enabled: bool
+    retention_days: float
+    max_chars: int
+    dropped: int
 
 
 class RequestRows(Out):
     requests: List[RequestRow]
+    capture: TraceCapture
+
+
+class Trace(Out):
+    """One input of a request with its output, and the request's model, outcome and timing."""
+    id: str
+    ts: float
+    model_id: str
+    task: str
+    status: str
+    duration_ms: float
+    cold: bool
+    # The request's error, with its text
+    error: Optional[str]
+    tags: List[str]
+    session: Optional[str]
+    backend: Optional[str]
+    input_chars: int
+    output_chars: int
+    preview: str
+    input: Json
+    output: Optional[Json]
 
 
 class LogLine(Out):

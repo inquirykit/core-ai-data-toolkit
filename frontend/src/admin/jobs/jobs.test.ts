@@ -1,29 +1,20 @@
 import { describe, expect, it } from "vitest";
-import type { Job, JobStatus, Schedule } from "../../shared/types";
+import type { Job, TaskStatus, Schedule } from "../../shared/types";
 import {
-  describeCadence,
+  envsToSetUp,
+  resultFacts,
+  trainedModelHref,
   EMPTY_SCHEDULE_FORM,
   fmtDeliveryTries,
-  fmtSeconds,
   fmtUntil,
   fmtWebhookTest,
   formFromSchedule,
-  intervalParts,
-  intervalSeconds,
-  isActive,
   jobDuration,
-  jobsOff,
-  jobStatus,
-  POLL_ACTIVE_MS,
-  POLL_IDLE_MS,
-  pollInterval,
-  progressValue,
   scheduleBody,
   scheduleName,
   sortJobs,
   sortSchedules,
   toggledBody,
-  validateCron,
   validateRetryForm,
   validateScheduleForm,
   fmtRetries,
@@ -33,7 +24,10 @@ import {
 
 const job = (over: Partial<Job> = {}): Job => ({
   id: "j1",
+  kind: "job",
+  ref: null,
   job: "train",
+  model_id: null,
   status: "succeeded",
   params: {},
   progress: 1,
@@ -56,6 +50,7 @@ const job = (over: Partial<Job> = {}): Job => ({
 
 const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   id: "s1",
+  kind: "job",
   name: "nightly",
   job: "train",
   params: { data: "x.csv" },
@@ -71,7 +66,7 @@ const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   updated: 1,
   next_run: null,
   last_run: null,
-  last_job_id: null,
+  last_task_id: null,
   last_status: null,
   ...over,
 });
@@ -83,30 +78,10 @@ describe("job rows", () => {
     expect(rows[0].id).toBe("b");
   });
 
-  it("polls fast only while a job is queued or running", () => {
-    expect(pollInterval(null)).toBe(POLL_IDLE_MS);
-    expect(pollInterval([job(), job({ status: "failed" })])).toBe(POLL_IDLE_MS);
-    expect(pollInterval([job(), job({ status: "queued" })])).toBe(POLL_ACTIVE_MS);
-    expect(pollInterval([job({ status: "running" })])).toBe(POLL_ACTIVE_MS);
-    expect(isActive(job({ status: "cancelled" }))).toBe(false);
-  });
-
   it("measures the duration to the end, or to now while running", () => {
     expect(jobDuration(job())).toBe(60);
     expect(jobDuration(job({ status: "running", finished: null }), 140)).toBe(30);
     expect(jobDuration(job({ status: "queued", started: null, finished: null }))).toBeNull();
-    expect(fmtSeconds(12.4)).toBe("12 s");
-    expect(fmtSeconds(180)).toBe("3 min");
-  });
-
-  it("fills the bar from progress, indeterminate only while running blind", () => {
-    expect(progressValue(job({ status: "running", progress: 0.4 }))).toBe(0.4);
-    expect(progressValue(job({ status: "running", progress: null }))).toBeNull();
-    expect(progressValue(job({ status: "running", progress: 1.7 }))).toBe(1);
-    expect(progressValue(job({ status: "queued", progress: null }))).toBe(0);
-    expect(progressValue(job({ status: "succeeded", progress: null }))).toBe(1);
-    expect(progressValue(job({ status: "failed", progress: 0.5 }))).toBe(0.5);
-    expect(progressValue(job({ status: "failed", progress: null }))).toBe(0);
   });
 
   it("orders schedules by name", () => {
@@ -118,60 +93,9 @@ describe("job rows", () => {
     expect(scheduleName(job({ schedule_id: "s1" }), [schedule()])).toBe("nightly");
     expect(scheduleName(job({ schedule_id: "gone" }), [schedule()])).toBe("gone");
   });
-
-  it("labels every status, unknown ones as themselves", () => {
-    expect(jobStatus("succeeded").label).toBe("Succeeded");
-    expect(jobStatus("weird").label).toBe("weird");
-  });
-
-  it("recognizes the server's jobs-off detail", () => {
-    expect(jobsOff("Jobs are off: JOBS_DIR or ARCADEDB_PATH is empty")).toBe(true);
-    expect(jobsOff("HTTP 500")).toBe(false);
-  });
 });
 
 describe("cadence", () => {
-  it("converts an interval to seconds and back", () => {
-    expect(intervalSeconds("2", "hours")).toBe(7200);
-    expect(intervalSeconds(3, "days")).toBe(259200);
-    expect(intervalSeconds("", "minutes")).toBeNull();
-    expect(intervalSeconds("0", "minutes")).toBeNull();
-    expect(intervalSeconds("1.5", "hours")).toBeNull();
-    expect(intervalParts(7200)).toEqual({ amount: 2, unit: "hours" });
-    expect(intervalParts(86400 * 3)).toEqual({ amount: 3, unit: "days" });
-    expect(intervalParts(90)).toEqual({ amount: 1.5, unit: "minutes" });
-  });
-
-  it("describes a schedule's cadence", () => {
-    expect(describeCadence({ cron: " 0 3 * * * ", interval_s: null })).toBe("0 3 * * *");
-    expect(describeCadence({ cron: null, interval_s: 7200 })).toBe("every 2 h");
-    expect(describeCadence({ cron: null, interval_s: 900 })).toBe("every 15 min");
-    expect(describeCadence({ cron: null, interval_s: 86400 })).toBe("every 1 d");
-    expect(describeCadence({ cron: null, interval_s: 45 })).toBe("every 45 s");
-    expect(describeCadence({ cron: null, interval_s: null })).toBe("–");
-  });
-
-  it("accepts the usual cron expressions", () => {
-    for (const ok of ["0 3 * * *", "*/15 * * * *", "0 9-17 * * 1-5", "30 2 1,15 * *", "0 0 * * 0,7", "5-50/10 * * * *", "  0  0 1 1 *  "]) {
-      expect(validateCron(ok)).toBeNull();
-    }
-  });
-
-  it("rejects malformed and out-of-range expressions, naming the field", () => {
-    expect(validateCron("0 3 * *")).toMatch(/5 fields/);
-    expect(validateCron("0 3 * * * *")).toMatch(/5 fields/);
-    expect(validateCron("")).toMatch(/5 fields/);
-    expect(validateCron("60 * * * *")).toMatch(/minute field takes 0 to 59/);
-    expect(validateCron("0 24 * * *")).toMatch(/hour field/);
-    expect(validateCron("0 0 0 * *")).toMatch(/day-of-month field/);
-    expect(validateCron("0 0 * 13 *")).toMatch(/month field/);
-    expect(validateCron("0 0 * * 8")).toMatch(/day-of-week field/);
-    expect(validateCron("10-5 * * * *")).toMatch(/backwards/);
-    expect(validateCron("*/0 * * * *")).toMatch(/step/);
-    expect(validateCron("a * * * *")).toMatch(/minute field "a"/);
-    expect(validateCron("0 3 * * MON")).toMatch(/day-of-week/);
-  });
-
   it("says when the next run is", () => {
     expect(fmtUntil(1000, 1000)).toBe("now");
     expect(fmtUntil(1000, 1010)).toBe("now");
@@ -210,10 +134,10 @@ describe("the schedule form", () => {
 
   it("lists what is missing", () => {
     expect(validateScheduleForm(EMPTY_SCHEDULE_FORM)).toEqual(["The schedule needs a name", "Pick a job"]);
-    const errors = validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", cron: "* * *", webhook_url: "ftp://x" });
-    expect(errors).toHaveLength(2);
-    expect(errors[0]).toMatch(/5 fields/);
-    expect(errors[1]).toMatch(/webhook URL/);
+    // A cron expression is the server's to take or refuse; only an empty one is held back here.
+    const errors = validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", cron: " ", webhook_url: "ftp://x" });
+    expect(errors).toEqual(["Give a cron expression", "The webhook URL starts with https:// or http://"]);
+    expect(validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", cron: "* * *" })).toEqual([]);
     expect(validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", cadence: "every", every: "0" })).toEqual([
       "Every takes a whole number of minutes, hours or days, at least 1",
     ]);
@@ -250,10 +174,11 @@ describe("retries and timeout", () => {
     expect(retryBody({ ...form, timeout_min: "0.5" })).toMatchObject({ timeout_s: 30 });
   });
 
-  it("lists what is out of range", () => {
-    expect(validateRetryForm({ retries: "11", retry_delay_s: "0", timeout_min: "-1" })).toHaveLength(3);
-    expect(validateRetryForm({ retries: "1.5", retry_delay_s: "30", timeout_min: "" })).toEqual(["Retries takes a whole number from 0 to 10"]);
-    expect(validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", retries: "" })).toEqual(["Retries takes a whole number from 0 to 10"]);
+  it("lists what is not a number, leaving the ranges to the server", () => {
+    expect(validateRetryForm({ retries: "11", retry_delay_s: "7200", timeout_min: "" })).toEqual([]);
+    expect(validateRetryForm({ retries: "x", retry_delay_s: "", timeout_min: "-1" })).toHaveLength(3);
+    expect(validateRetryForm({ retries: "1.5", retry_delay_s: "30", timeout_min: "" })).toEqual(["Retries takes a whole number"]);
+    expect(validateScheduleForm({ ...EMPTY_SCHEDULE_FORM, name: "x", job: "train", retries: "" })).toEqual(["Retries takes a whole number"]);
   });
 
   it("are shown on a job's row once it has any", () => {
@@ -277,7 +202,7 @@ describe("webhook tests", () => {
 });
 
 describe("webhook deliveries", () => {
-  const d = (status: JobStatus, retried = 0, not_before: number | null = null) => ({ status, retried, not_before });
+  const d = (status: TaskStatus, retried = 0, not_before: number | null = null) => ({ status, retried, not_before });
   it("count the tries and say when the next goes", () => {
     expect(fmtDeliveryTries(d("queued"), 1000)).toBe("waiting");
     expect(fmtDeliveryTries(d("running", 1), 1000)).toBe("sending");
@@ -287,5 +212,34 @@ describe("webhook deliveries", () => {
     expect(fmtDeliveryTries(d("queued", 1, 900), 1000)).toBe("1 try · next now");
     expect(fmtDeliveryTries(d("failed", 10), 1000)).toBe("11 tries");
     expect(fmtDeliveryTries(d("cancelled", 1), 1000)).toBe("1 try");
+  });
+});
+
+describe("what a job made", () => {
+  const done = (result: unknown, status: Job["status"] = "succeeded") => ({ id: "ab12cd34", status, result });
+
+  it("opens the model it trained: a predictor on its page, a classifier in the Models section", () => {
+    expect(trainedModelHref(done({ model_id: "autogluon:ab12cd34", task: "tabular-prediction" }))).toBe("#/autogluon/ab12cd34");
+    expect(trainedModelHref(done({ model_id: "trained:ab12cd34", task: "text-classification" }))).toBe("#/models?model=trained%3Aab12cd34&task=text-classification");
+    expect(trainedModelHref(done({ file: "predictions.csv", rows: 3 }))).toBeNull();
+    expect(trainedModelHref(done({ model_id: "trained:x", task: "t" }, "failed"))).toBeNull();
+  });
+
+  it("lists a result's plain fields", () => {
+    expect(resultFacts({ model_id: "m", test_score: 0.987512, rows: 400, leaderboard: [{}], lower_is_better: false, freq: null })).toEqual([
+      ["model_id", "m"], ["test_score", "0.9875"], ["rows", "400"], ["lower_is_better", "false"], ["freq", "–"],
+    ]);
+    expect(resultFacts(null)).toEqual([]);
+  });
+
+  it("names each environment to set up once, and whether it is an update", () => {
+    const types = [
+      { env: "autogluon", env_ready: false, env_current: false },
+      { env: "autogluon", env_ready: false, env_current: false },
+      { env: "default", env_ready: true, env_current: true },
+      { env: "other", env_ready: true, env_current: false },
+      { env: "fine", env_ready: true, env_current: true },
+    ];
+    expect(envsToSetUp(types)).toEqual([{ env: "autogluon", update: false }, { env: "other", update: true }]);
   });
 });

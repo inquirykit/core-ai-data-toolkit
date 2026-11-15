@@ -16,27 +16,31 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import time
-from typing import Any, Deque, Dict, List, Optional, Tuple, Union
+from typing import Any, Deque, Dict, List, Literal, Optional, Tuple, get_args
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
-from .cache import MemoryCache, ResultCache
+from .cache import ResultCache
 from .classify import classify, normalise
-from .spec import EnricherSpec, EntityType, apply_filters, map_outputs, parse_rate
+from .spec import PLACEHOLDERS, EnricherSpec, EntityType, apply_filters, map_outputs, parse_rate
 from .store import EnricherStore, Entry
 
 logger = logging.getLogger(__name__)
 
-OK, NOT_FOUND, ERROR, NO_KEY, DISABLED, NOT_ALLOWED, RATE_LIMITED = (
-    "ok", "not_found", "error", "no_key", "disabled", "not_allowed", "rate_limited",
-)
+# A result's status, as the API declares it too (api/responses/enrichers.py). workflows/nodes.py, which cannot import
+# this, groups them by hand: tests/test_vocabularies.py ties the two.
+Status = Literal["ok", "not_found", "error", "no_key", "disabled", "not_allowed", "rate_limited"]
+OK, NOT_FOUND, ERROR, NO_KEY, DISABLED, NOT_ALLOWED, RATE_LIMITED = get_args(Status)
 MAX_REPLY_BYTES = 1_000_000
 MAX_REDIRECTS = 5
 MAX_TEXT_RAW = 65536
 DEFAULT_COOLDOWN_S = 60
 USER_AGENT = "ai-toolkit-enrichers/1.0"
+# The placeholders of a request template (enrichers/spec.py), found in one pass.
+PLACEHOLDER = re.compile("|".join(map(re.escape, PLACEHOLDERS)))
 
 
 def _result(enricher: EnricherSpec, status: str, **fields) -> Dict[str, Any]:
@@ -66,7 +70,7 @@ class EnrichService:
     def __init__(
         self,
         store: EnricherStore,
-        cache: Union[ResultCache, MemoryCache],
+        cache: ResultCache,
         terms_allowed: List[str],
         allow_private: bool = False,
         max_concurrency: int = 8,
@@ -121,7 +125,7 @@ class EnrichService:
     ) -> Dict[str, Any]:
         """Run every enricher taking the value's type (or the ones named) and merge their outputs."""
         type_, value = self.resolve_value(value, type_)
-        entries = [e for e in self.store.all().values() if type_ in e.spec.inputs]
+        entries = [e for e in (await self.store.all()).values() if type_ in e.spec.inputs]
         if names is not None:
             wanted = set(names)
             entries = [e for e in entries if e.name in wanted]
@@ -200,8 +204,9 @@ class EnrichService:
         encoded = quote(value, safe="")
 
         def fill(template: str, encode: bool) -> str:
-            return (template.replace("{value}", encoded if encode else value)
-                    .replace("{secret}", secret).replace("{type}", type_.value))
+            # In one pass, so what goes in is never read again: a value of "{secret}" is that text, not the key.
+            filled = {"{value}": encoded if encode else value, "{secret}": secret, "{type}": type_.value}
+            return PLACEHOLDER.sub(lambda m: filled[m.group(0)], template)
 
         params = {k: fill(v, False) for k, v in r.query.items()}
         params = {k: v for k, v in params.items() if v != ""}

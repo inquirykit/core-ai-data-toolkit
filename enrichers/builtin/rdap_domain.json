@@ -1,6 +1,5 @@
 {
   "name": "rdap_domain",
-  "kind": "http",
   "description": "Registrar, dates, nameservers and status of a domain (RDAP via rdap.org, keyless)",
   "docs": "https://about.rdap.org/",
   "inputs": [

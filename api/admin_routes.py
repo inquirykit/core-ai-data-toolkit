@@ -7,9 +7,9 @@ clearing models use the existing /models routes, which need the same key.
 PUT /admin/limits changes the cache's memory budget and model count live and
 saves them to the .env file.
 
-Live state (loaded models, memory) is this process's. Request metrics and
-model events come from the monitoring tables in the ArcadeDB database, so
-they survive restarts.
+Live state (loaded models, memory) is this process's. The request log (each
+request, its inputs and outputs while kept) and model events come from the
+monitoring tables in the database, so they survive restarts.
 """
 
 import logging
@@ -21,10 +21,11 @@ from pydantic import BaseModel, Field
 
 from core.config import Config
 from monitoring import HOURS_KEPT_DAYS, summarize, system
-from core.errors import Refused
+from core.errors import NotFound, Refused
+from db.tables import decode_cursor, encode_cursor
 from . import deps
 from . import responses
-from .setup_routes import write_settings
+from .settings import write_settings
 
 router = APIRouter(prefix="/admin", dependencies=deps.ADMIN)
 
@@ -99,8 +100,7 @@ async def events(
 async def audit_log(
     log: deps.Audit,
     limit: int = Query(100, ge=1, le=500),
-    before_id: Optional[int] = Query(None, ge=0, le=deps.INT64_MAX, description="Only entries older than this one: the last "
-                                                                            "id of the previous page"),
+    cursor: deps.Cursor = None,
     method: Optional[Literal["POST", "PUT", "PATCH", "DELETE"]] = Query(None),
     route: Optional[str] = Query(None, max_length=200, description="Part of the route or the path asked for"),
     actor: Optional[responses.Actor] = Query(None, description="The key it carried"),
@@ -108,13 +108,16 @@ async def audit_log(
     since: Optional[float] = Query(None, description="Only entries at or after this Unix time"),
     until: Optional[float] = Query(None, description="Only entries at or before this Unix time"),
 ):
-    """The audit log, newest first: every change made through an admin's route or the setup wizard, and every
-    delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status, never a
-    body."""
+    """The audit log, newest first, a page at a time: every change made through an admin's route or the setup wizard,
+    and every delete, refused ones too (api/audit.py). It holds the method, route, path, key, address and status,
+    never a body."""
     if log is None:
         return {"entries": [], "on": False, "retention_days": Config.AUDIT_RETENTION_DAYS}
-    entries = await log.entries(limit, before_id, method, route, actor, outcome, since, until)
-    return {"entries": entries, "on": True, "retention_days": Config.AUDIT_RETENTION_DAYS}
+    before = decode_cursor(cursor, "i") if cursor else None
+    entries = await log.entries(limit + 1, before, method, route, actor, outcome, since, until)
+    after = encode_cursor(entries[limit - 1]["id"], "i") if len(entries) > limit else None
+    return {**responses.page("entries", entries[:limit], after), "on": True,
+            "retention_days": Config.AUDIT_RETENTION_DAYS}
 
 
 @router.get("/requests", **responses.answering(responses.RequestRows))
@@ -125,11 +128,27 @@ async def recent_requests(
     until: Optional[float] = Query(None, description="Only requests at or before this Unix time"),
     status: Optional[responses.RequestStatus] = Query(None),
     model: Optional[str] = Query(None, max_length=200, description="Part of the model ID or task"),
+    tag: Optional[str] = Query(None, max_length=64, description="A tag it was given (X-Trace-Tag)"),
+    session: Optional[str] = Query(None, max_length=128, description="Its session (X-Session-Id)"),
+    q: Optional[str] = Query(None, max_length=200, description="Words its input or output holds (while its traces are kept)"),
 ):
-    """The latest requests' metadata, newest first; each one's input and output are GET /admin/traces/{trace_id}."""
+    """The latest requests, newest first, each with the first words of its input and output while they are kept:
+    GET /admin/traces/{trace_id} has them whole. ``capture`` says how long they are kept."""
+    capture = {"enabled": bool(store and store.tracing), "retention_days": store.traces_kept_days if store else 0,
+               "max_chars": Config.TRACE_MAX_CHARS, "dropped": store.dropped if store else 0}
     if store is None:
-        return {"requests": []}
-    return {"requests": await store.recent_requests(limit, since, until, status, model)}
+        return {"requests": [], "capture": capture}
+    rows = await store.recent_requests(limit, since, until, status, model, tag, session, q)
+    return {"requests": rows, "capture": capture}
+
+
+@router.get("/traces/{trace_id}", **responses.answering(responses.Trace))
+async def get_trace(store: deps.Monitoring, trace_id: str):
+    """One input of a request with its output, and the request's model, outcome and timing; 404 once it is gone
+    (TRACE_RETENTION_DAYS), or while the request history is off."""
+    if store is None:
+        raise NotFound("The request history is off: MONITORING_RETENTION_DAYS is 0")
+    return await store.trace(trace_id)
 
 
 @router.get("/logs", **responses.answering(responses.Logs))
@@ -148,9 +167,9 @@ async def logs(
 
 
 @router.get("/config", **responses.answering(responses.AdminConfig))
-async def config():
+async def config(client_keys: deps.ClientKeys):
     """Every setting's effective value, with keys and secrets reduced to whether they are set."""
-    return {"settings": Config.described(), "warnings": Config.warnings()}
+    return {"settings": Config.described(), "warnings": Config.warnings(client_keys=client_keys.made_any())}
 
 
 class LimitsRequest(BaseModel):
@@ -183,8 +202,6 @@ async def set_limits(store: deps.Monitoring, manager: deps.Manager, body: Limits
     if store is not None:
         store.record_event(kind="limits", model_key="cache", detail=", ".join(f"{k}={v}" for k, v in values.items()))
 
-    if Config.WORKERS > 1:
-        notes.append("Only this worker uses the new limits until the server restarts.")
     if manager.cache.over_limits():
         notes.append("Busy models keep the cache over the new limits until their requests finish.")
     status = manager.get_cache_status()

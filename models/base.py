@@ -8,15 +8,21 @@ unloading, parameter filtering) is handled here.
 """
 
 import asyncio
+import contextlib
 import functools
 import inspect
 import logging
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple, List
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Optional, Tuple, List
+
+from core.background import to_its_end
 
 from .contracts import ContractViolation, GeneratedText, get as task_contract
+
+if TYPE_CHECKING:
+    from .registry import ModelCard
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,21 @@ def length_batches(lengths: List[int], size: int, budget: int) -> List[List[int]
         else:
             batches.append([i])
     return batches
+
+
+def remote_code_allowed(model_id: str) -> bool:
+    """Whether ``model_id``'s Hub repo may run its own Python here: TRUST_REMOTE_CODE is on and
+    TRUST_REMOTE_CODE_MODELS lists it by name (a model file's pattern matching it is not enough)."""
+    from core.config import Config
+
+    return Config.TRUST_REMOTE_CODE and model_id in Config.TRUST_REMOTE_CODE_MODELS
+
+
+def token_counts(features: Dict[str, Any], n: int) -> List[int]:
+    """Each of ``n`` inputs' tokens once truncated, from the attention mask of sentence-transformers' preprocess();
+    0 each for a model without one (static embeddings)."""
+    mask = features.get("attention_mask")
+    return [int(c) for c in mask.sum(1).tolist()] if mask is not None else [0] * n
 
 
 def text_streaming(tokenizer: Any, on_text: Optional[Callable[[str], Any]]) -> Dict[str, Any]:
@@ -291,10 +312,22 @@ class BaseModel(ABC):
     # Which of a model server's backends answers, e.g. "ollama: qwen3.5:4b"
     # (see models/servers/model.py); None for a model with only one way to run.
     backend: Optional[str] = None
+    # The server elsewhere that answers it, by its provider's name or its URL's host, e.g. "ollama" or "gpu-box:8000";
+    # None when it runs on this machine, in this process or in one of its own (a server this service started).
+    upstream: Optional[str] = None
+    # Whether that server is another toolkit, which says in each reply which of its backends answered: ``backend``
+    # then goes on to that one, "gpu-box: qwen3:8b → ollama: qwen3:8b".
+    peer = False
     # Whether dtype "auto" means float16 on MPS. Text generators set it:
     # producing tokens is bound by reading the weights, so half-size weights
     # are up to twice as fast. Scoring and embedding models stay float32.
     half_on_mps = False
+    # The settings of a model server entry's in-process backend (revision, max_length; see
+    # models/servers/entries.py) this class reads from self.options. An entry giving one it does not read is refused.
+    load_settings: Tuple[str, ...] = ()
+    # The Hub commit its weights were loaded from, once loaded (``start``); None for a model that loads none from
+    # the Hub cache (a local path, a model server's, one with no files).
+    revision: Optional[str] = None
 
     def __init__(
         self,
@@ -306,7 +339,8 @@ class BaseModel(ABC):
         self.model_id = model_id
         self.task = task or (self.tasks[0] if self.tasks else "")
         self.device = device
-        # Load options from the client, e.g. torch_dtype and max_memory.
+        # Load options from the client, e.g. torch_dtype and max_memory, and the load_settings of the model server
+        # entry's in-process backend that runs this model.
         self.options = dict(options or {})
         self._loaded = False
         self._before_load: Dict[str, Any] = {}
@@ -340,7 +374,7 @@ class BaseModel(ABC):
         return resolve_torch_dtype(self.options.get("torch_dtype"), self.device, self.half_on_mps)
 
     def load_pretrained(self, auto_class: Any, trust_remote_code: bool = False) -> Any:
-        """``auto_class.from_pretrained`` for this model, on its device, in eval mode.
+        """``auto_class.from_pretrained`` for this model, from its ``weights_source``, on its device, in eval mode.
 
         On CUDA accelerate places the weights (within the load's ``max_memory``).
         Elsewhere they load on the CPU and then move: not device_map on MPS,
@@ -352,9 +386,37 @@ class BaseModel(ABC):
             kwargs["device_map"] = "auto"
             if self.options.get("max_memory"):
                 kwargs["max_memory"] = self.options["max_memory"]
-        model = auto_class.from_pretrained(self.model_id, **kwargs)
+        model = auto_class.from_pretrained(self.weights_source(self.model_id), **kwargs)
         if self.device != "cuda":
             model = model.to(self.device)
+        return model.eval()
+
+    def load_sentence_transformers(self, cls: Any) -> Any:
+        """``cls`` (sentence-transformers' SentenceTransformer or CrossEncoder) for this model, loaded as
+        load_pretrained() loads, at the revision its model server entry gives, in eval mode. Its repo's own code
+        runs only if TRUST_REMOTE_CODE_MODELS lists it; ValueError naming that setting when the model needs it.
+
+        The entry's max_length only shortens what the model reads: sentence-transformers caps the model's own
+        length at its position embeddings, and a longer one would let a long text past them, an error on its batch
+        rather than a cut."""
+        model_kwargs: Dict[str, Any] = {"dtype": self.dtype}
+        device: Optional[str] = self.device
+        if self.device == "cuda":
+            model_kwargs["device_map"] = "auto"
+            device = None  # accelerate places the weights
+            if self.options.get("max_memory"):
+                model_kwargs["max_memory"] = self.options["max_memory"]
+        trusted = remote_code_allowed(self.model_id)
+        try:
+            model = cls(self.model_id, device=device, model_kwargs=model_kwargs, revision=self.options.get("revision"),
+                        trust_remote_code=trusted)
+        except ValueError as e:
+            if trusted or "trust_remote_code" not in str(e):
+                raise
+            raise ValueError(f"{self.model_id} needs its repo's own code to load; add it to TRUST_REMOTE_CODE_MODELS "
+                             "to allow it") from e
+        if self.options.get("max_length"):
+            model.max_seq_length = min(self.options["max_length"], model.max_seq_length or self.options["max_length"])
         return model.eval()
 
     @property
@@ -372,6 +434,19 @@ class BaseModel(ABC):
         return model_id
 
     @classmethod
+    def prompts(cls, model_id: str, revision: Optional[str] = None) -> Dict[str, str]:
+        """The texts this model wants put before what it embeds, by name ("query", "document", ...): an embedding
+        model's own (at ``revision`` of its Hub repo), which a /db vector field made without its prompts takes. Most
+        models have none."""
+        return {}
+
+    @classmethod
+    def listed(cls, task: str) -> Iterable["ModelCard"]:
+        """Model IDs this class lists for ``task`` besides those it registers (``ids``): ones that come and go, such
+        as the models jobs here trained. Asked on every listing, so it must be quick; most classes list none."""
+        return ()
+
+    @classmethod
     def operator_chose(cls, model_id: str) -> bool:
         """Whether the operator chose ``model_id`` here (a model server entry lists it, a job here trained it), so
         clients may use it whatever ALLOWED_MODELS says. Most classes serve IDs anyone can name: no."""
@@ -380,9 +455,10 @@ class BaseModel(ABC):
     async def estimate_bytes(self) -> Optional[int]:
         """Memory this model will need once loaded, asked before loading so the cache can make room.
 
-        The default reads the safetensors headers of ``model_id`` (a local
-        path, the Hub cache, or the Hub) and sizes them in ``self.dtype``.
-        None means unknown: the cache then counts what loading took.
+        The default reads the safetensors headers of its ``weights_source``
+        (a local path, the Hub cache, or the Hub) and sizes them in
+        ``self.dtype``. None means unknown: the cache then counts what
+        loading took.
         """
         from .memory import estimate_bytes
 
@@ -392,7 +468,8 @@ class BaseModel(ABC):
             except Exception:
                 return None
 
-        return await asyncio.to_thread(lambda: estimate_bytes(self.model_id, element_size()))
+        source = self.weights_source(self.model_id)
+        return await asyncio.to_thread(lambda: estimate_bytes(source, element_size())) if source else None
 
     def get_model_info(self) -> ModelInfo:
         return ModelInfo(
@@ -405,15 +482,34 @@ class BaseModel(ABC):
 
     # ------------------------------------------------ called by the manager
     async def start(self) -> None:
-        """Run load(). If it fails, undo whatever it got done and re-raise."""
+        """Run load(). If it fails, or is cancelled (the request it loads for went away: a client gone, an eval run
+        stopped), undo whatever it got done and re-raise, so no model server it started is left running for nobody."""
         before = dict(vars(self))
+        load = self._on_device(self.load)
+        loading = asyncio.ensure_future(self._load_and_find_revision(load))
         try:
-            await _call(self._on_device(self.load))
-        except Exception:
-            await self._teardown(before)
+            await asyncio.shield(loading)
+        except BaseException:
+            if inspect.iscoroutinefunction(load):
+                loading.cancel()  # a load that awaits stops here; one in a thread cannot, and runs to its end
+            await to_its_end(self._undo(loading, before))
             raise
         self._before_load = before
         self._loaded = True
+
+    async def _load_and_find_revision(self, load: Callable) -> None:
+        await _call(load)
+        source = self.weights_source(self.model_id)
+        if source:
+            from .hub import commit_of
+
+            self.revision = await asyncio.to_thread(commit_of, source, self.options.get("revision"))
+
+    async def _undo(self, loading: "asyncio.Future[None]", before: Dict[str, Any]) -> None:
+        """Once ``loading`` has ended, however it ended, undo what it got done."""
+        with contextlib.suppress(BaseException):
+            await loading
+        await self._teardown(before)
 
     async def run(self, request: Any, on_text: Optional[Callable[[str], Any]] = None) -> Any:
         """Run predict() on ``request`` and return its result, checked against the task's contract.

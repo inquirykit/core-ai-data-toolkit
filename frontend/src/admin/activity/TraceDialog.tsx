@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAction } from "../../shared/action";
-import { ApiError, type ApiClient } from "../../shared/api";
+import { useApi, ApiError } from "../../shared/api";
 import { errorText } from "../../shared/query";
 import { Field, Pane, SelectField, StatusLabel, SubmitButton } from "../../shared/components";
 import { fmtMs, plural, statusOf } from "../../shared/format";
@@ -20,14 +20,15 @@ import { STATUS_STYLE } from "./RequestsTable";
 
 /** What a missing trace means, given how tracing is set up. */
 function missingText(capture: TraceCapture | null): string {
-  if (capture && !capture.enabled) return "This request's input and output were not kept: tracing is off (TRACE_RETENTION_DAYS is 0).";
+  if (capture && !capture.enabled) return "This request's input and output were not kept: traces are off (TRACE_RETENTION_DAYS or MONITORING_RETENTION_DAYS is 0).";
   if (capture) {
     return `This request's input and output are gone: traces are kept ${plural(capture.retention_days, "day")}, or it was recorded before tracing was on.`;
   }
   return "This request's input and output were not kept.";
 }
 
-export function TraceDialog({ client, id, capture, onClose }: { client: ApiClient; id: string | null; capture: TraceCapture | null; onClose(): void }) {
+export function TraceDialog({ id, capture, onClose }: { id: string | null; capture: TraceCapture | null; onClose(): void }) {
+  const client = useApi();
   const [target, setTarget] = useState("");
   const [newName, setNewName] = useState("");
 

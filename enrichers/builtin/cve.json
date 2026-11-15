@@ -1,6 +1,5 @@
 {
   "name": "cve",
-  "kind": "http",
   "description": "The CVE record: title, description, CVSS, SSVC and KEV status (CVE Services, keyless)",
   "docs": "https://cveawg.mitre.org/api-docs/",
   "inputs": [

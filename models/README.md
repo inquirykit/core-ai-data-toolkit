@@ -56,8 +56,9 @@ The service checks both sides: a request that does not fit is refused before `pr
 | `load()` | yes | Loads the model onto `self.device`. Every attribute it sets is dropped again when the model is unloaded, which is what frees its memory. |
 | `predict(request)` | yes | Answers one request. `request` is the task's input model, already validated, with its defaults filled in; return the output model. `max_length` is `None` when the client left it out, so apply your model's own default. For `text-generation`, `/v1/chat/completions` sends a plain transcript as `request.text` and also the chat as `request.messages`; use `messages` to format it yourself, for example with the tokenizer's chat template. Add an `on_text` parameter to stream: call it with each new piece of text and stop generating once it returns False; `models.base.text_streaming(tokenizer, on_text)` gives the `generate()` arguments that do both. |
 | `unload()` | no | Extra cleanup, for things other than dropping attributes (closing a file or a client, for example). |
-| `estimate_bytes()` | no | The memory the model will need, asked before loading so the cache can make room. The default reads the safetensors headers of `model_id` and sizes them in `self.dtype`; return `None` if unknown, and the cache counts what loading took. |
-| `operator_chose(model_id)` | no | A classmethod: True for an ID the operator chose here, which clients may then use whatever `ALLOWED_MODELS` says. The model servers say it of their entries' IDs and the AutoGluon class of predictors a job trained. The default is False. |
+| `estimate_bytes()` | no | The memory the model will need, asked before loading so the cache can make room. The default reads the safetensors headers of its `weights_source` and sizes them in `self.dtype`; return `None` if unknown, and the cache counts what loading took. |
+| `weights_source(model_id)` | no | A classmethod: the Hub ID or local folder the model loads its files from (`load_pretrained()` and the size estimate read it), or `None` when it loads none here. The default is the model ID; the trained classifiers answer their job's folder. |
+| `operator_chose(model_id)` | no | A classmethod: True for an ID the operator chose here, which clients may then use whatever `ALLOWED_MODELS` says. The model servers say it of their entries' IDs, and the AutoGluon and trained classes of the models a job trained. The default is False. |
 
 Set the class attribute `max_concurrency` to let one loaded instance run several requests at once (default 1).
 
@@ -84,7 +85,7 @@ Import heavy libraries (torch, transformers, your SDK) inside `load()` and `pred
 | `match` | Case-insensitive glob patterns for other IDs it serves, e.g. `"*fastvlm*"` or `["vega-*", "*/vega-*"]` |
 | `fallback` | Serve any ID for this task that no other class claims. Only the generic Hugging Face model does this. |
 
-Give a listed ID a `ModelCard` to describe it in the model browser on `/admin` and `/playground` (`GET /models/catalog`): a one-line description and tags to filter by. Plain strings and cards mix freely:
+Give a listed ID a `ModelCard` to describe it in the model browser on `/admin` (`GET /models/catalog`): a one-line description and tags to filter by. Plain strings and cards mix freely:
 
 ```python
 from models import BaseModel, ModelCard, register
@@ -156,6 +157,7 @@ models/
     ├── vision/     # Apple FastVLM (text + image)
     ├── decision/   # vegaml typed decisions
     ├── autogluon/  # Predictors trained by the AutoGluon jobs
+    ├── trained/    # Classifiers fine-tuned by the text-classifier job, served as trained:<job id>
     └── custom/     # CustomModel: the smallest example, no weights, defines its own task
 ```
 
@@ -194,7 +196,11 @@ native checkpoints go there too; `vision/fastvlm.py` is only for Apple's
 
 `EmbeddingModel` (`generic/embedding_model.py`) and `SpeechToTextModel`
 (`generic/speech_model.py`) do the same for `embedding` and `speech-to-text`:
-any Hub encoder (pooled as its sentence-transformers config says, mean
-otherwise, then L2-normalized), and anything Transformers' speech recognition
-pipeline loads (Whisper, wav2vec2). `models/media.py` decodes the audio with
+anything sentence-transformers loads (run as its repo declares, a plain
+encoder pooled by mean, then L2-normalized), and anything Transformers'
+speech recognition pipeline loads (Whisper, wav2vec2). `RerankModel`
+(`generic/rerank_model.py`) serves `rerank` with sentence-transformers'
+CrossEncoder: cross-encoders and causal-LM rerankers alike. The embedding
+and rerank models read a model server entry's `revision` and `max_length`
+(their `load_settings`). `models/media.py` decodes the audio with
 soundfile, or PCM WAV alone without it.

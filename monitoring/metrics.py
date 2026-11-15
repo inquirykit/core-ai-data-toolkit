@@ -59,17 +59,22 @@ class Metrics:
         return self.store.dropped if self.store is not None else 0
 
     def on_request(self, event: "RequestEvent") -> None:
-        """The model manager's sink (models/events.py): the request counted, and kept by the monitoring store."""
+        """The model manager's sink (models/events.py): the request counted, and kept by the monitoring store with its
+        inputs and outputs, unless its context skips those (an eval run's, a workflow's)."""
         self.record_request(
             model_id=event.model_id, task=event.task, status=event.status, duration_ms=event.duration_ms,
-            cold=event.cold, error=event.error, trace_id=event.calls[0].trace_id if event.calls else None,
-            prompt_tokens=event.prompt_tokens, completion_tokens=event.completion_tokens,
+            cold=event.cold, error=event.error, prompt_tokens=event.prompt_tokens,
+            completion_tokens=event.completion_tokens, tags=event.context.tags, session=event.context.session,
+            source=event.context.source, backend=event.backend, message=event.error_message,
+            calls=() if event.context.skip else [(c.trace_id, c.input, c.output) for c in event.calls],
         )
 
     def record_request(
         self, model_id: str, task: str, status: str, duration_ms: float, cold: bool, error: Optional[str] = None,
-        trace_id: Optional[str] = None, prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None,
+        prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None, **kept: Any,
     ) -> None:
+        """Count a request, and hand it to the store with what else it keeps of it (``kept``: tags, session,
+        backend, calls, message: MonitoringStore.record_request)."""
         seconds = duration_ms / 1000
         with self._lock:
             self.requests[(model_id, task, status)] = self.requests.get((model_id, task, status), 0) + 1
@@ -86,10 +91,9 @@ class Metrics:
             self.latency_sum[task] = self.latency_sum.get(task, 0.0) + seconds
             self.latency_count[task] = self.latency_count.get(task, 0) + 1
         if self.store is not None:
-            self.store.record_request(
-                model_id=model_id, task=task, status=status, duration_ms=duration_ms, cold=cold, error=error,
-                trace_id=trace_id, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-            )
+            self.store.record_request(model_id=model_id, task=task, status=status, duration_ms=duration_ms, cold=cold,
+                                      error=error, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                                      **kept)
 
     def record_event(
         self, kind: str, model_key: str, duration_ms: Optional[float] = None, detail: Optional[str] = None

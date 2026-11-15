@@ -18,12 +18,12 @@ anyio==4.15.1
     #   pydantic-graph
     #   starlette
     #   watchfiles
-arcadedb-embedded==26.10.1
-    # via ai-toolkit
 attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
+backports-tarfile==1.2.0 ; python_full_version < '3.12'
+    # via jaraco-context
 certifi==2026.7.22
     # via
     #   httpcore
@@ -39,6 +39,8 @@ click==8.5.0
     # via
     #   huggingface-hub
     #   uvicorn
+cloudpickle==3.1.2
+    # via joblib
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   tqdm
@@ -47,12 +49,15 @@ cryptography==50.0.2
     # via
     #   ai-toolkit
     #   rfc3161-client
+    #   secretstorage
 cuda-bindings==13.4.4 ; python_full_version < '3.15' and sys_platform == 'linux'
     # via torch
 cuda-pathfinder==1.8.3 ; python_full_version < '3.15' and sys_platform == 'linux'
     # via cuda-bindings
 cuda-toolkit==13.0.3.0 ; sys_platform == 'linux'
     # via torch
+duckdb==2.0.0
+    # via ai-toolkit
 fastapi==0.143.0
     # via ai-toolkit
 filelock==4.2.0
@@ -95,6 +100,7 @@ httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscrip
 huggingface-hub==2.2.0
     # via
     #   accelerate
+    #   sentence-transformers
     #   timm
     #   tokenizers
     #   transformers
@@ -104,18 +110,32 @@ idna==3.20
     #   httpx
     #   httpx2
     #   requests
+importlib-metadata==10.1.0 ; python_full_version < '3.12'
+    # via keyring
+jaraco-classes==3.4.0
+    # via keyring
+jaraco-context==6.1.2
+    # via keyring
+jaraco-functools==4.6.0
+    # via keyring
+jeepney==0.9.0 ; sys_platform == 'linux'
+    # via
+    #   keyring
+    #   secretstorage
 jinja2==3.1.6
     # via torch
 jiter==0.18.0
     # via openai
 jmespath==1.1.0
     # via ai-toolkit
-jpype1==1.7.1
-    # via arcadedb-embedded
+joblib==1.6.0
+    # via scikit-learn
 jsonschema==4.26.0
     # via ai-toolkit
 jsonschema-specifications==2025.9.1
     # via jsonschema
+keyring==25.7.0
+    # via ai-toolkit
 logfire-api==5.3.0
     # via
     #   pydantic-evals
@@ -126,8 +146,14 @@ markupsafe==3.0.4
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
+more-itertools==11.2.1
+    # via
+    #   jaraco-classes
+    #   jaraco-functools
 mpmath==1.3.0
     # via sympy
+narwhals==2.28.0
+    # via scikit-learn
 networkx==3.6.1 ; python_full_version < '3.12'
     # via torch
 networkx==3.7 ; python_full_version >= '3.12'
@@ -135,12 +161,18 @@ networkx==3.7 ; python_full_version >= '3.12'
 numpy==2.4.6 ; python_full_version < '3.12'
     # via
     #   accelerate
+    #   scikit-learn
+    #   scipy
+    #   sentence-transformers
     #   soundfile
     #   torchvision
     #   transformers
 numpy==2.5.4 ; python_full_version >= '3.12'
     # via
     #   accelerate
+    #   scikit-learn
+    #   scipy
+    #   sentence-transformers
     #   soundfile
     #   torchvision
     #   transformers
@@ -187,6 +219,8 @@ nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux
     # via cuda-toolkit
 openai==3.37.0
     # via pydantic-ai-slim
+opendal==0.47.12
+    # via ai-toolkit
 opentelemetry-api==1.45.1
     # via
     #   fastapi
@@ -195,7 +229,6 @@ packaging==26.3
     # via
     #   accelerate
     #   huggingface-hub
-    #   jpype1
     #   transformers
 pillow==13.0.0
     # via
@@ -234,6 +267,8 @@ python-dotenv==1.2.4
     # via uvicorn
 python-multipart==0.0.32
     # via ai-toolkit
+pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
+    # via keyring
 pyyaml==6.0.3
     # via
     #   accelerate
@@ -269,6 +304,20 @@ safetensors==0.8.0
     #   accelerate
     #   timm
     #   transformers
+scikit-learn==1.9.1
+    # via sentence-transformers
+scipy==1.17.1 ; python_full_version < '3.12'
+    # via
+    #   scikit-learn
+    #   sentence-transformers
+scipy==1.18.1 ; python_full_version >= '3.12'
+    # via
+    #   scikit-learn
+    #   sentence-transformers
+secretstorage==3.5.0 ; sys_platform == 'linux'
+    # via keyring
+sentence-transformers==6.2.0
+    # via ai-toolkit
 sentencepiece==0.2.2
     # via ai-toolkit
 setuptools==84.0.0
@@ -285,6 +334,8 @@ sympy==1.14.0
     # via torch
 tenacity==9.2.1
     # via pydantic-ai-slim
+threadpoolctl==3.8.0
+    # via scikit-learn
 tiktoken==0.14.0
     # via pydantic-ai-slim
 timm==1.0.30
@@ -292,11 +343,13 @@ timm==1.0.30
 tokenizers==0.23.3
     # via
     #   ai-toolkit
+    #   sentence-transformers
     #   transformers
 torch==2.14.1
     # via
     #   accelerate
     #   ai-toolkit
+    #   sentence-transformers
     #   timm
     #   torchvision
 torchvision==0.29.1
@@ -304,9 +357,12 @@ torchvision==0.29.1
 tqdm==4.70.1
     # via
     #   huggingface-hub
+    #   sentence-transformers
     #   transformers
 transformers==5.20.1
-    # via ai-toolkit
+    # via
+    #   ai-toolkit
+    #   sentence-transformers
 triton==3.8.0 ; python_full_version < '3.15' and sys_platform == 'linux'
     # via torch
 truststore==0.10.5 ; sys_platform != 'emscripten'
@@ -326,6 +382,7 @@ typing-extensions==4.16.0
     #   pydantic
     #   pydantic-core
     #   referencing
+    #   sentence-transformers
     #   soundfile
     #   starlette
     #   torch
@@ -338,6 +395,8 @@ typing-inspection==0.4.4
     #   pydantic-graph
 urllib3==2.8.0
     # via requests
+uv==0.13.8
+    # via ai-toolkit
 uvicorn==0.54.0
     # via ai-toolkit
 uvloop==0.23.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
@@ -346,3 +405,5 @@ watchfiles==1.3.0
     # via uvicorn
 websockets==17.2
     # via uvicorn
+zipp==4.1.2 ; python_full_version < '3.12'
+    # via importlib-metadata

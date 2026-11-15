@@ -10,6 +10,9 @@ import {
   questionAnsweringInput,
   rankedScores,
   similarityMatrix,
+  tabularFields,
+  tabularInput,
+  tabularValues,
   speechInput,
   textGenerationInput,
   visionInput,
@@ -162,5 +165,33 @@ describe("output maths", () => {
     expect(cosine([1, 1], [2, 2])).toBeCloseTo(1);
     expect(cosine([0, 0], [1, 1])).toBe(0);
     expect(similarityMatrix([[1, 0], [0, 1]])).toEqual([[1, 0], [0, 1]]);
+  });
+});
+
+describe("tabular prediction", () => {
+  const fields = tabularFields({ age: "int", income: "float", city: "object" });
+
+  it("types each field by the column it was trained on", () => {
+    expect(fields).toEqual([{ name: "age", kind: "number" }, { name: "income", kind: "number" }, { name: "city", kind: "text" }]);
+  });
+
+  it("sends a true/false column as a boolean, which is all AutoGluon reads right", () => {
+    const vip = tabularFields({ vip: "bool" });
+    expect(vip).toEqual([{ name: "vip", kind: "bool" }]);
+    expect(tabularInput(vip, tabularValues({ vip: true }), false).input).toEqual({ rows: [{ vip: true }], probabilities: false });
+    expect(tabularInput(vip, { vip: "False" }, false).input).toEqual({ rows: [{ vip: false }], probabilities: false });
+    expect(tabularInput(vip, { vip: "yes" }, false).problem).toBe("vip is true or false.");
+  });
+
+  it("sends one row, numbers as numbers and empty fields as missing", () => {
+    expect(tabularInput(fields, { age: " 42 ", income: "", city: "oslo" }, true)).toEqual({
+      input: { rows: [{ age: 42, income: null, city: "oslo" }], probabilities: true },
+      problem: "",
+    });
+    expect(tabularInput(fields, { age: "forty" }, false)).toEqual({ input: null, problem: "age is a number." });
+  });
+
+  it("fills the fields from a training row", () => {
+    expect(tabularValues({ age: 70, income: null, city: "oslo" })).toEqual({ age: "70", income: "", city: "oslo" });
   });
 });

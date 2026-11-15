@@ -18,7 +18,7 @@ LAYERS = [
     {"db"},
     {"tasks"},
     {"models"},
-    {"jobs", "evals", "evidence", "enrichers", "monitoring", "playground"},
+    {"jobs", "evals", "evidence", "enrichers", "monitoring", "playground", "buckets", "views", "workflows", "access"},
     {"api"},
 ]
 LAYER = {package: level for level, packages in enumerate(LAYERS) for package in packages}
@@ -26,6 +26,15 @@ LAYER = {package: level for level, packages in enumerate(LAYERS) for package in 
 WEB = {"fastapi", "starlette"}
 # Who reads the settings; the rest are given theirs by api/app.py's create_app().
 READ_CONFIG = {"api", "core", "models"}
+# What the packages above may import of the lower packages that have insides: these modules, not the others, so each
+# can rearrange its insides without them following. A package's own files import what they like; core/ is a set of
+# small modules, each its own.
+PUBLIC = {
+    "db": {"db", "db.tables", "db.graph", "db.specs"},
+    "tasks": {"tasks.runner", "tasks.schedule", "tasks.webhooks"},
+    "models": {"models", "models.contracts", "models.events", "models.capture", "models.chat", "models.registry",
+               "models.servers", "models.toolcalls"},
+}
 
 
 def _imports(path: Path) -> Iterator[Tuple[str, int]]:
@@ -36,6 +45,29 @@ def _imports(path: Path) -> Iterator[Tuple[str, int]]:
                 yield alias.name, node.lineno
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             yield node.module, node.lineno
+
+
+def _is_module(dotted: str) -> bool:
+    path = ROOT.joinpath(*dotted.split("."))
+    return path.with_suffix(".py").is_file() or (path / "__init__.py").is_file()
+
+
+def _reaches(path: Path) -> Iterator[Tuple[str, int]]:
+    """Each absolute import in the file as the module it reaches: ``from db import tables`` reaches db.tables."""
+    for node in ast.walk(ast.parse(path.read_text(), str(path))):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name, node.lineno
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for alias in node.names:
+                inner = f"{node.module}.{alias.name}"
+                yield (inner if _is_module(inner) else node.module), node.lineno
+
+
+def _private(package: str, module: str) -> bool:
+    """Whether ``package`` importing ``module`` reaches past another package's public modules."""
+    top = module.split(".")[0]
+    return top in PUBLIC and top != package and module not in PUBLIC[top]
 
 
 def _breaks(package: str, module: str) -> bool:
@@ -67,6 +99,42 @@ def test_packages_import_only_lower_layers():
         for module, line in _imports(path) if _breaks(package, module)
     ]
     assert wrong == [], "imports that break the layering (AGENTS.md, Layers):\n" + "\n".join(wrong)
+
+
+def test_packages_reach_lower_ones_through_their_public_modules():
+    """The packages above import db/, tasks/ and models/ by the modules in PUBLIC; a name they need of another module
+    there is imported into a public one (db/tables.py, tasks/runner.py, models/servers/__init__.py say which)."""
+    wrong = [
+        f"{_where(path, line)}: {package} imports {module}"
+        for package, path in _files()
+        for module, line in _reaches(path) if _private(package, module)
+    ]
+    assert wrong == [], "imports past a package's public modules (tests/test_layers.py, PUBLIC):\n" + "\n".join(wrong)
+
+
+@pytest.mark.parametrize("source, package, private", [
+    ("from db.schema import NAME", "evals", ["db.schema"]),
+    ("from db import engine", "views", ["db.engine"]),
+    ("from db import Database\nfrom db.tables import TableStore", "evals", []),
+    ("from tasks.store import public", "api", ["tasks.store"]),
+    ("from models.servers import ModelEntry", "api", []),
+    ("from .store import X\nfrom db.schema import NAME", "db", []),                 # its own insides
+])
+def test_the_check_finds_what_reaches_past_the_public_modules(tmp_path, source, package, private):
+    path = tmp_path / "x.py"
+    path.write_text(source)
+    assert [module for module, _ in _reaches(path) if _private(package, module)] == private
+
+
+def test_models_import_only_core():
+    """models/ sits above db/ and tasks/ in LAYERS but imports neither: a model and a request need nothing of the
+    database or the queue (AGENTS.md's layer table), so tasks/ stays free to never know the models."""
+    wrong = [
+        f"{_where(path, line)}: {module}"
+        for package, path in _files() if package == "models"
+        for module, line in _imports(path) if module.split(".")[0] in set(LAYER) - {"core", "models"}
+    ]
+    assert wrong == [], "models/ importing more than core/:\n" + "\n".join(wrong)
 
 
 def test_only_the_api_imports_the_web_framework():

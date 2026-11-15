@@ -12,10 +12,9 @@ from core.config import Config
 
 
 def _lock_holder(path: str):
-    """The PID of the process that has the database open, if lsof can tell."""
+    """The PID of the process that has the database file open, if lsof can tell."""
     try:
-        found = subprocess.run(["lsof", "-t", os.path.join(path, "database.lck")],
-                               capture_output=True, text=True, timeout=10).stdout.split()
+        found = subprocess.run(["lsof", "-t", path], capture_output=True, text=True, timeout=10).stdout.split()
     except (OSError, subprocess.SubprocessError):
         return None
     return found[0] if found else None
@@ -42,29 +41,20 @@ def _warn_running(path: str) -> None:
 
 
 if __name__ == "__main__":
-    # Settings the service cannot run with, before any worker starts and fails on its own.
-    if Config.fatal():
-        for reason in Config.fatal():
-            print(f"\n!!  {reason}\n", file=sys.stderr)
-        sys.exit(1)
     # Before anything starts: a second copy would only fail once its startup reached the database.
-    if Config.ARCADEDB_PATH:
-        from db.engine import open_elsewhere
+    from db.engine import open_elsewhere
 
-        if open_elsewhere(Config.ARCADEDB_PATH):
-            _warn_running(Config.ARCADEDB_PATH)
-            sys.exit(1)
-    # One setup code for every worker (and reloader child), which inherit the
-    # environment; see api.app.
+    if open_elsewhere(str(Config.DATABASE_PATH)):
+        _warn_running(str(Config.DATABASE_PATH))
+        sys.exit(1)
+    # The same setup code for the reloader's child, which inherits the environment; see api.app.
     if Config.needs_setup():
         os.environ.setdefault("SETUP_CODE", secrets.token_urlsafe(12))
-    # Each worker process has its own model cache, so WORKERS > 1 multiplies
-    # memory use. The reloader is for development only (RELOAD=true).
+    # One process: it alone opens the database (the reloader, RELOAD=true, is for development only).
     uvicorn.run(
         "api.app:app",
         host=Config.HOST,
         port=Config.PORT,
         reload=Config.RELOAD,
-        workers=1 if Config.RELOAD else Config.WORKERS,
         log_level=Config.LOG_LEVEL.lower(),
     )

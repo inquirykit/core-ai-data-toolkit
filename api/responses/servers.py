@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 
 from pydantic import ConfigDict
 
-from models.servers.entries import ModelEntry, Provider
+from models.servers import ModelEntry, Provider
 from .common import OPEN, Out
 
 
@@ -21,6 +21,8 @@ class ProviderInfo(Provider):
     origin: Origin
     # The models with a backend on it
     used_by: List[str]
+    # Whether it has an API key; the key itself is never answered
+    key_set: bool
     # The file's version, when a saved one replaces it
     file_provider: Optional[Provider]
 
@@ -49,9 +51,8 @@ class ModelServers(Out):
     # MODEL_SERVERS_FILE, and whether it exists
     file: str
     file_exists: bool
-    # MODEL_SERVERS_SAVED_FILE; None: nothing can be saved from /admin
-    saved_file: Optional[str]
-    editable: bool
+    # Where /admin saves its entries, in DATA_DIR
+    saved_file: str
     # MODEL_SERVERS_ALLOW_COMMANDS: /admin may add cmd and env
     commands_allowed: bool
     tasks: List[str]

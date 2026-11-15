@@ -2,33 +2,97 @@ import type { Schemas } from "../../shared/api";
 import { parseHash } from "../../shared/browser";
 import { parseJsonObject } from "../../shared/json";
 
-// What the Data section (DataSection.tsx, Data*.tsx) needs that is not drawing: where
-// the hash points, the columns of a page of rows, the /db list query, and
-// reading a row typed as JSON.
+// What the Data section's pages share that is not drawing: where the hash points,
+// the groups the sidebar lists a workspace's contents in, the columns of a page of
+// rows, the /db list query, reading a row typed as JSON, and quoting SQL. Each
+// area's own is in its folder: tables/vectors.ts, graph/edges.ts (and the graph
+// view's graph.ts), views/views.ts, query/queries.ts, buckets/buckets.ts.
 
 /** A row of a /db table: a JSON object with a string id. */
 export type Row = Schemas["Row"];
 
-export const FIELD_TYPES = ["string", "integer", "number", "boolean", "object", "any"] as const;
 export type FieldType = Schemas["FieldInfo"]["type"];
-/** The types an index can cover. */
-export const INDEXABLE: FieldType[] = ["string", "integer", "number", "boolean"];
+/** Every field type, in the order the schema editor offers them: keyed by the API's, so tsc fails on one missing. */
+const FIELD_TYPE_ORDER: Record<FieldType, null> = { string: null, integer: null, number: null, boolean: null, object: null, any: null, ref: null, vector: null };
+export const FIELD_TYPES = Object.keys(FIELD_TYPE_ORDER) as FieldType[];
+/** What the pages call a type, when not its name in the API: a ref field is a "table ref". */
+const FIELD_TYPE_LABEL: Partial<Record<FieldType, string>> = { ref: "table ref" };
+export const fieldTypeLabel = (t: FieldType): string => FIELD_TYPE_LABEL[t] ?? t;
+/** The types an index can cover (db/schema.py's INDEXABLE; tests/test_vocabularies.py ties the two). */
+export const INDEXABLE: FieldType[] = ["string", "integer", "number", "boolean", "ref"];
 
-/** A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``. */
+type OnDelete = NonNullable<FieldInfo["on_delete"]>;
+/**
+ * What deleting a row a table ref names does to the rows of ``table`` naming it by ``field``, said as the choice in
+ * the schema editor: keyed by the API's, so tsc fails on one missing.
+ */
+const ON_DELETE_TEXT: Record<OnDelete, (table: string, field: string, list: boolean) => string> = {
+  restrict: (table) => `Refuse it while rows of ${table} name it`,
+  unset: (table, field, list) => (list ? `Keep the rows of ${table}, it taken out of their ${field}` : `Keep the rows of ${table}, their ${field} emptied`),
+  cascade: (table) => `Delete the rows of ${table} naming it too`,
+};
+export const ON_DELETE = Object.keys(ON_DELETE_TEXT) as OnDelete[];
+export const onDeleteText = (v: OnDelete, table: string, field: string, list: boolean): string => ON_DELETE_TEXT[v](table, field, list);
+
+/**
+ * A declared field: rows hold ``type`` there (a list of it when ``list``), or leave it out unless ``required``. A
+ * vector field has its options too: ``dimensions``, ``similarity``, ``quantization``, and ``model`` with ``from`` and
+ * the prompts put before the texts it embeds (``query_prompt``, ``document_prompt``).
+ */
 export type FieldInfo = Schemas["FieldInfo"];
 
+/** How a search compares a vector field's vectors: keyed by the API's, so tsc fails on one missing. */
+const SIMILARITY_ORDER: Record<NonNullable<FieldInfo["similarity"]>, null> = { COSINE: null, DOT_PRODUCT: null, EUCLIDEAN: null };
+export const SIMILARITIES = Object.keys(SIMILARITY_ORDER) as NonNullable<FieldInfo["similarity"]>[];
+/** The options only a vector field has. */
+export const VECTOR_OPTIONS = ["dimensions", "similarity", "quantization", "model", "from", "query_prompt", "document_prompt"] as const;
+/** The vector options whose "" is a value (no prompt) once the field is saved. */
+export const PROMPTS = ["query_prompt", "document_prompt"] as const;
+
+/**
+ * A field as PUT _schema takes it: a vector field's options only when set (no dimensions with a model: the server
+ * takes the model's; no model, no from and no prompts). A prompt left empty on a vector field not ``saved`` yet is
+ * left out, so the server takes the model's own; on a saved one, "" is its value: no prompt.
+ */
+export function fieldAsSent(f: FieldInfo, saved: boolean): FieldInfo {
+  const out: FieldInfo = { ...f };
+  const value = (option: (typeof VECTOR_OPTIONS)[number]) => saved && (PROMPTS as readonly string[]).includes(option) && out[option] === "";
+  for (const option of VECTOR_OPTIONS) if ((out[option] ?? "") === "" && !value(option)) delete out[option];
+  if (!out.model) for (const option of ["from", ...PROMPTS] as const) delete out[option];
+  return out;
+}
+/** The most numbers a vector holds (db/schema.py's MAX_DIMENSIONS; tests/test_vocabularies.py ties the two). */
+export const MAX_DIMENSIONS = 4096;
+
+/** The table's vector field, if it has one (one at most). */
+export const vectorField = (fields: FieldInfo[]): FieldInfo | undefined => fields.find((f) => f.type === "vector");
+
+/** A table as GET /db lists it: its name, its kind, what keeps it, a bucket's remote. */
+export type TableEntry = Schemas["TableEntry"];
+/** A table as GET /db/{workspace} describes it: its entry with its row count, size and schema. */
 export type TableInfo = Schemas["TableInfo"];
 
-/** An edge type of a namespace: edges of it join rows of the namespace's graph tables. */
+/** An edge type of a workspace: edges of it join rows of the workspace's graph tables. */
+export type EdgeTypeEntry = Schemas["EdgeTypeEntry"];
 export type EdgeTypeInfo = Schemas["EdgeTypeInfo"];
 
 export type ObservedField = Schemas["ObservedField"];
 
-/** GET /db/{ns}/{table}/_schema */
+/** GET /db/{ws}/{table}/_schema */
 export type SchemaInfo = Schemas["SchemaInfo"];
 
-/** "string", "list of integer, indexed", "number, required, unique", "string, full-text" */
+/** "string", "list of integer, indexed", "number, required, unique", "string, full-text", "vector of 384, COSINE, embedded from text by m" */
 export function describeField(f: FieldInfo): string {
+  if (f.type === "vector") {
+    const options = [`vector of ${f.dimensions ?? "?"}`, f.similarity ?? "COSINE", f.required && "required"];
+    return [...options, f.model && `embedded from ${f.from} by ${f.model}`].filter(Boolean).join(", ");
+  }
+  if (f.type === "ref") {
+    const kind = f.list ? `table ref to several rows of ${f.to}` : `table ref to ${f.to}`;
+    return [kind, f.required && "required", f.unique && "unique", f.on_delete && f.on_delete !== "restrict" && `on delete ${f.on_delete}`]
+      .filter(Boolean)
+      .join(", ");
+  }
   const flags = [f.required && "required", f.unique ? "unique" : f.indexed && "indexed", f.fulltext && "full-text"].filter(Boolean);
   return [f.list ? `list of ${f.type}` : f.type, ...flags].join(", ");
 }
@@ -48,47 +112,81 @@ export function inferField(o: ObservedField): FieldInfo {
   return { name: o.name, type: OBSERVED_TYPES[only] ?? "any", list, required: false, indexed: false, unique: false, fulltext: false };
 }
 
-/** GET /db/{ns}; GET /db lists these with ``created``. */
-export type Namespace = Schemas["Namespace"];
+/** A workspace as GET /db lists it (with ``?all=true`` the service's own too, ``managed`` set): its tables and edge types by name. */
+export type WorkspaceEntry = Schemas["WorkspaceEntry"];
+/** GET /db/{workspace}: a workspace with its tables' and edge types' counts, sizes and schemas. */
+export type Workspace = Schemas["Workspace"];
 
 /** What a table's page shows: its rows (a graph table's rows) or its schema. */
 export type TableView = "rows" | "schema";
 const TABLE_VIEWS: TableView[] = ["schema"];
 
 export interface DataLocation {
-  namespace?: string;
+  workspace?: string;
   table?: string;
   /** A table's view other than its rows ("#/data/app/people/schema"); none for its rows */
   view?: TableView;
+  /** On a table's rows, the row opened in its editor (``?_row=c1``): where a link to a row points */
+  row?: string;
+  /**
+   * On a table's rows, the field and the value its rows are filtered by (``?customer=c1``, as GET /db/{ws}/{table}
+   * takes it; no field starts with "_"): where a link to the rows naming a row points
+   */
+  filter?: [string, string];
   /** An edge type's page, its edges ("#/data/app/_edges/knows"; no table is called _edges) */
   edge?: string;
-  /** The namespace's SQL query ("#/data/app/_query"; no table is called _query) */
+  /** The workspace's SQL query ("#/data/app/_query"; no table is called _query) */
   query?: boolean;
   /** The table the SQL query starts with a query of, run at once (``?t=``) */
   queryTable?: string;
-  /** The namespace's Graph query, Cypher drawn ("#/data/app/_graph"; no table is called _graph) */
+  /** The workspace's Graph query, SQL whose edge rows are drawn ("#/data/app/_graph"; no table is called _graph) */
   graph?: boolean;
+  /** The workspace's diagram: its tables, their table refs and its relationships ("#/data/app/_diagram") */
+  diagram?: boolean;
   /** The graph table the Graph query starts with a query of, run at once (``?t=``) */
   graphTable?: string;
   /** The edge type the Graph query starts with a query of, run at once (``?e=``) */
   graphEdge?: string;
   /** The row the Graph query's sample starts at (``?n=table/id``), loaded with its neighbors if need be, and selected */
   graphNode?: string;
+  /** A view's page ("#/data/app/_views/sales"; NEW_ENTRY for a new one's editor): its result, and its editor */
+  viewName?: string;
+  /** A dashboard's page ("#/data/app/_dashboards/main"; NEW_ENTRY for a new one's editor) */
+  dashboard?: string;
+  /**
+   * The params' values on a view's or dashboard's page, as text, each its own key ("?year=2025&region=north"), so a
+   * link opens it with the same values; views/views.ts reads them by the params' types.
+   */
+  values?: Record<string, string>;
 }
 
-/** The namespace and table "#/data/app/todo" points at; "#/data/app/todo/schema" for its schema, "#/data/app/_edges/knows" for an edge type. */
+/** What a view's or dashboard's location names for a new one: no name starts with "_". */
+export const NEW_ENTRY = "_new";
+
+/**
+ * The workspace and table "#/data/app/todo" points at; "#/data/app/todo/schema" for its schema, "#/data/app/_edges/knows"
+ * for an edge type, "#/data/app/_views/sales?year=2025" for a view with its params' values (_dashboards for a dashboard).
+ */
 export function locationFromHash(hash: string): DataLocation {
   const { parts, params } = parseHash(hash);
-  const [section, namespace, table, view] = parts;
+  const [section, workspace, table, view] = parts;
   if (section !== "data") return {};
-  const loc: DataLocation = { namespace, table: undefined };
-  if (namespace && table === "_edges") {
+  const loc: DataLocation = { workspace, table: undefined };
+  if (workspace && table === "_edges") {
     if (view) loc.edge = view;
-  } else if (namespace && table === "_query") {
+  } else if (workspace && table === "_query") {
     loc.query = true;
     const t = params.get("t");
     if (t) loc.queryTable = t;
-  } else if (namespace && table === "_graph") {
+  } else if (workspace && (table === "_views" || table === "_dashboards") && view) {
+    if (table === "_views") loc.viewName = view;
+    else loc.dashboard = view;
+    loc.values = Object.fromEntries(params.entries());
+  } else if (workspace && (table === "_views" || table === "_dashboards")) {
+    // The list of them is the workspace's page.
+  } else if (workspace && table === "_diagram") {
+    loc.diagram = true;
+  } else if (workspace && table === "_graph") {
     loc.graph = true;
     const t = params.get("t");
     const e = params.get("e");
@@ -96,8 +194,13 @@ export function locationFromHash(hash: string): DataLocation {
     if (t) loc.graphTable = t;
     if (e) loc.graphEdge = e;
     if (n) loc.graphNode = n;
-  } else if (namespace) {
+  } else if (workspace) {
     loc.table = table;
+    // Only a table's rows take these: "#/data/app/people/graph?n=..." is an old view's, fallen back to its rows.
+    const row = params.get("_row");
+    const filter = [...params.entries()].find(([k]) => !k.startsWith("_"));
+    if (table && view === undefined && row) loc.row = row;
+    if (table && view === undefined && filter) loc.filter = filter;
   }
   if (loc.table && TABLE_VIEWS.includes(view as TableView)) loc.view = view as TableView;
   return loc;
@@ -105,9 +208,15 @@ export function locationFromHash(hash: string): DataLocation {
 
 export function dataHash(loc: DataLocation): string {
   const parts = ["#/data"];
-  if (loc.namespace) {
-    parts.push(encodeURIComponent(loc.namespace));
+  if (loc.workspace) {
+    parts.push(encodeURIComponent(loc.workspace));
     if (loc.edge) return [...parts, "_edges", encodeURIComponent(loc.edge)].join("/");
+    if (loc.viewName || loc.dashboard) {
+      const name = loc.viewName ?? loc.dashboard!;
+      const query = new URLSearchParams(loc.values ?? {}).toString();
+      return [...parts, loc.viewName ? "_views" : "_dashboards", encodeURIComponent(name)].join("/") + (query ? `?${query}` : "");
+    }
+    if (loc.diagram) return [...parts, "_diagram"].join("/");
     if (loc.query) {
       parts.push("_query");
       return parts.join("/") + (loc.queryTable ? `?t=${encodeURIComponent(loc.queryTable)}` : "");
@@ -123,58 +232,111 @@ export function dataHash(loc: DataLocation): string {
     }
     if (loc.table) {
       parts.push(encodeURIComponent(loc.table));
-      if (loc.view && loc.view !== "rows") parts.push(loc.view);
+      if (loc.view && loc.view !== "rows") return [...parts, loc.view].join("/");
+      const params = new URLSearchParams();
+      if (loc.filter) params.set(...loc.filter);
+      if (loc.row) params.set("_row", loc.row);
+      const query = params.toString();
+      return parts.join("/") + (query ? `?${query}` : "");
     }
   }
   return parts.join("/");
 }
 
 // ------------------------------------------------------------------ sidebar
-/** A namespace with the tables and edge types the sidebar lists under it. */
+/** A workspace with the tables and edge types the sidebar lists under it. */
 export interface TreeEntry {
-  namespace: Namespace;
-  tables: TableInfo[];
-  edges: EdgeTypeInfo[];
+  workspace: WorkspaceEntry;
+  tables: TableEntry[];
+  edges: EdgeTypeEntry[];
 }
 
+/** The workspace that always exists: it cannot be deleted. */
+export const DEFAULT_WORKSPACE = "default";
+
+/** Whether the service keeps it (evals, tasks...): then it is not a workspace, and is read-only here. */
+export const isOwn = (workspace: Pick<WorkspaceEntry, "managed">): boolean => Boolean(workspace.managed);
+
 /**
- * What the sidebar shows for a search, ignoring case: a namespace whose name matches with every table and
- * edge type, otherwise only its tables and edge types whose names match, and none of it when nothing does.
- * "app/peo" (or "app.peo") matches the namespace and the table apart. An empty search shows everything.
+ * What keeps the table, when the service does: its whole workspace (``managed``, evals or tasks) or the table
+ * alone (``kept``, a kept table of a workspace). Then the table is read-only here.
  */
-export function searchTree(namespaces: Namespace[], search: string): TreeEntry[] {
+export const keeperOf = (workspace: Pick<WorkspaceEntry, "managed">, table?: Pick<TableEntry, "kept">): string | null =>
+  workspace.managed ?? table?.kept ?? null;
+
+/**
+ * What the sidebar shows for a search, ignoring case: a workspace whose name or label matches with every table
+ * and edge type, otherwise only its tables and edge types whose names match, and none of it when nothing does.
+ * "app/peo" (or "app.peo") matches the workspace and the table apart. An empty search shows everything.
+ */
+export function searchTree(workspaces: WorkspaceEntry[], search: string): TreeEntry[] {
   const q = search.trim().toLowerCase();
   const has = (name: string, part: string) => name.toLowerCase().includes(part);
+  const named = (workspace: WorkspaceEntry, part: string) => has(workspace.name, part) || has(workspace.label ?? "", part);
   const cut = q.search(/[/.]/);
-  const matching = (namespace: Namespace, part: string): TreeEntry => ({
-    namespace,
-    tables: namespace.tables.filter((t) => has(t.name, part)),
-    edges: namespace.edges.filter((e) => has(e.name, part)),
+  const matching = (workspace: WorkspaceEntry, part: string): TreeEntry => ({
+    workspace,
+    tables: workspace.tables.filter((t) => has(t.name, part)),
+    edges: workspace.edges.filter((e) => has(e.name, part)),
   });
-  return namespaces.flatMap((namespace) => {
+  return workspaces.flatMap((workspace) => {
     if (cut >= 0) {
       const part = q.slice(cut + 1);
-      const entry = matching(namespace, part);
-      return has(namespace.name, q.slice(0, cut)) && (entry.tables.length || entry.edges.length || !part) ? [entry] : [];
+      const entry = matching(workspace, part);
+      return named(workspace, q.slice(0, cut)) && (entry.tables.length || entry.edges.length || !part) ? [entry] : [];
     }
-    if (has(namespace.name, q)) return [{ namespace, tables: namespace.tables, edges: namespace.edges }];
-    const entry = matching(namespace, q);
+    if (named(workspace, q)) return [{ workspace, tables: workspace.tables, edges: workspace.edges }];
+    const entry = matching(workspace, q);
     return entry.tables.length || entry.edges.length ? [entry] : [];
   });
 }
 
+/** The groups the sidebar lists a workspace's contents in, in this order. */
+export type GroupKey = "tables" | "graph" | "vectors" | "buckets";
+const GROUP_LABELS: Record<GroupKey, string> = { tables: "Tables", graph: "Graph", vectors: "Vectors", buckets: "Buckets" };
+
+/** A group of a workspace's contents: its tables, or for Graph its relationships (edge types). */
+export interface ContentGroup<T extends TableEntry = TableEntry, E extends EdgeTypeEntry = EdgeTypeEntry> {
+  key: GroupKey;
+  label: string;
+  tables: T[];
+  edges: E[];
+}
+
+/**
+ * The group a table is listed in: a bucket (a table of files, ``bucket``) in Buckets, one with a ``vector``
+ * field in Vectors, any other in Tables, graph tables too (Graph lists the relationships that join them).
+ */
+export function groupOfTable(table: Pick<TableEntry, "bucket" | "vector">): Exclude<GroupKey, "graph"> {
+  if (table.bucket) return "buckets";
+  if (table.vector) return "vectors";
+  return "tables";
+}
+
+/**
+ * A workspace's contents, or the part of them a search shows (searchTree's), in their groups: Tables, Graph
+ * (the relationships), Vectors and Buckets, each only when it has entries. With ``graphQuery`` the Graph group
+ * also holds the Graph query entry, so it shows without relationships.
+ */
+export function groupsOf<T extends TableEntry, E extends EdgeTypeEntry>(of: { tables: T[]; edges: E[] }, graphQuery = false): ContentGroup<T, E>[] {
+  const tablesOf = (key: GroupKey) => of.tables.filter((t) => groupOfTable(t) === key);
+  return (Object.keys(GROUP_LABELS) as GroupKey[])
+    .map((key) => ({ key, label: GROUP_LABELS[key], tables: key === "graph" ? [] : tablesOf(key), edges: key === "graph" ? of.edges : [] }))
+    .filter((g) => g.tables.length > 0 || g.edges.length > 0 || (g.key === "graph" && graphQuery));
+}
+
 /** How a pinned table is kept: "app/people". */
-export const pinKey = (namespace: string, table: string): string => `${namespace}/${table}`;
+export const pinKey = (workspace: string, table: string): string => `${workspace}/${table}`;
 
 /** The pinned tables in ``tree`` (searchTree's), in the order they were pinned; pins of tables gone or not shown are skipped. */
-export function pinnedTables(tree: TreeEntry[], pins: string[]): { namespace: Namespace; table: TableInfo }[] {
-  const shown = new Map(tree.flatMap(({ namespace, tables }) => tables.map((table) => [pinKey(namespace.name, table.name), { namespace, table }] as const)));
+export function pinnedTables(tree: TreeEntry[], pins: string[]): { workspace: WorkspaceEntry; table: TableEntry }[] {
+  const shown = new Map(tree.flatMap(({ workspace, tables }) => tables.map((table) => [pinKey(workspace.name, table.name), { workspace, table }] as const)));
   return pins.flatMap((pin) => shown.get(pin) ?? []);
 }
 
 /**
  * Every field of the rows: id first, then plain values, then lists and
- * objects (wide, so last), each A to Z. ArcadeDB keeps no field order.
+ * objects (wide, so last), each A to Z: a row's fields come in no set order.
  */
 export function columnsOf(rows: Row[]): string[] {
   const nested = new Map<string, boolean>();
@@ -197,6 +359,13 @@ export function cellKind(value: unknown): CellKind {
   if (Array.isArray(value)) return "list";
   const t = typeof value;
   return t === "boolean" || t === "number" || t === "string" ? t : "object";
+}
+
+/** The row without the field ``name`` (a vector field, whose hundreds of numbers no grid shows). */
+export function without<T extends Record<string, unknown>>(row: T, name: string | undefined): T {
+  if (name === undefined || !(name in row)) return row;
+  const { [name]: _left, ...rest } = row;
+  return rest as T;
 }
 
 /** A one-line preview of any JSON value, cut to ``max`` characters. */
@@ -225,7 +394,7 @@ export interface ListQuery {
   cursor?: string;
 }
 
-/** The query of GET /db/{ns}/{table}/_count: each filter as ``field=value``, a field filtered twice under its key twice. */
+/** The query of GET /db/{ws}/{table}/_count: each filter as ``field=value``, a field filtered twice under its key twice. */
 export function filterQuery(filters: ListQuery["filters"]): Record<string, string[]> {
   const query = new Map<string, string[]>();
   for (const [field, value] of filters) query.set(field, [...(query.get(field) ?? []), value]);
@@ -235,14 +404,14 @@ export function filterQuery(filters: ListQuery["filters"]): Record<string, strin
 /** The API's own parameters of the list, and a filter under any other key (the schema cannot name those). */
 type RowsQuery = { _search?: string; _sort?: string; _limit?: number; _cursor?: string; [field: string]: string[] | string | number | undefined };
 
-/** The query of GET /db/{ns}/{table}/_count: the filters, and the search when there is one. */
+/** The query of GET /db/{ws}/{table}/_count: the filters, and the search when there is one. */
 export function countQuery(q: Pick<ListQuery, "filters" | "search">): RowsQuery {
   const query: RowsQuery = filterQuery(q.filters);
   if (q.search?.trim()) query._search = q.search.trim();
   return query;
 }
 
-/** The query of GET /db/{ns}/{table}: the filters and the search, then the sort and the page. */
+/** The query of GET /db/{ws}/{table}: the filters and the search, then the sort and the page. */
 export function listQuery(q: ListQuery): RowsQuery {
   const query: RowsQuery = countQuery(q);
   if (q.sort) query._sort = `${q.sort.desc ? "-" : ""}${q.sort.field}`;
@@ -264,162 +433,15 @@ export function parseRow(text: string): { row: Record<string, unknown> } | { err
   return { row };
 }
 
-// ------------------------------------------------------------------ queries
-export type QueryLanguage = "sql" | "cypher";
-export const QUERY_LIMITS = ["100", "500", "1000"] as const;
+// ---------------------------------------------------------------------- sql
+// What the pages that send SQL to POST /db/{ws}/_query share: the query page
+// (query/), a graph table's and an edge type's pages (graph/edges.ts) and the
+// views (views/views.ts).
 
-/** A row of a query's result: any JSON object (a whole row carries its ``table``, an edge its ``type``). */
+/** A row of a query's result: any JSON object. */
 export type QueryRow = Record<string, unknown>;
 
-export interface QuerySnippet {
-  title: string;
-  language: QueryLanguage;
-  text: string;
-  params?: Record<string, unknown>;
-}
-
-/**
- * Example queries for the namespace, written with its own table and edge
- * type names: the first graph table (or the first table) and the first edge
- * type stand in, placeholders when it has none.
- */
-export function querySnippets(language: QueryLanguage, tables: TableInfo[], edges: EdgeTypeInfo[]): QuerySnippet[] {
-  const table = tables[0]?.name ?? "table";
-  const graph = tables.find((t) => t.graph)?.name ?? table;
-  const edge = edges[0]?.name ?? "edge_type";
-  if (language === "cypher") {
-    return [
-      { title: "A table's rows and their relationships", language, text: tableQuery(graph, true).text },
-      { title: "A pattern across a relationship", language, text: `MATCH (a:${graph})-[e:${edge}]->(b)\nRETURN a, e, b LIMIT 100` },
-      {
-        title: "Paths one to three relationships long",
-        language,
-        text: `MATCH path = (a:${graph})-[:${edge}*1..3]->(b)\nWHERE a.id = $id\nRETURN path LIMIT 100`,
-        params: { id: "" },
-      },
-      { title: "Rows counted per value", language, text: `MATCH (n:${graph})\nRETURN n.kind AS kind, count(*) AS total\nORDER BY total DESC` },
-      { title: "Relationships counted by type", language, text: `MATCH (a:${graph})-[e]-(b)\nRETURN type(e) AS type, count(DISTINCT e) AS n` },
-    ];
-  }
-  return [
-    { title: "Rows of a table", language, text: `SELECT FROM ${table} LIMIT 100` },
-    { title: "Filter and sort", language, text: `SELECT FROM ${table}\nWHERE id >= :after\nORDER BY id LIMIT 100`, params: { after: "" } },
-    { title: "Rows counted per value", language, text: `SELECT kind, count(*) AS n FROM ${table}\nGROUP BY kind ORDER BY n DESC` },
-    { title: "A row's neighbors", language, text: `SELECT expand(both('${edge}')) FROM ${graph}\nWHERE id = :id`, params: { id: "" } },
-    { title: "Relationships with their ends", language, text: `SELECT *, outV().id AS from_id, inV().id AS to_id FROM ${edge} LIMIT 100` },
-    {
-      title: "Rows within two steps",
-      language,
-      text: `SELECT *, $depth AS depth FROM (\n  TRAVERSE out('${edge}') FROM (SELECT FROM ${graph} WHERE id = :id) MAXDEPTH 2\n) WHERE $depth > 0`,
-      params: { id: "" },
-    },
-    {
-      title: "Shortest path between two rows",
-      language,
-      text: `SELECT expand(shortestPath($a, $b))\nLET $a = (SELECT FROM ${graph} WHERE id = :a), $b = (SELECT FROM ${graph} WHERE id = :b)`,
-      params: { a: "", b: "" },
-    },
-    {
-      title: "A pattern (MATCH)",
-      language,
-      text: `MATCH {type: ${graph}, as: a, where: (id = :id)}.out('${edge}'){as: b}\nRETURN a.id AS a, b.id AS b`,
-      params: { id: "" },
-    },
-  ];
-}
-
-/** The query a table's page opens its query with: its rows in SQL, a graph table's rows and their edges in Cypher. */
-export function tableQuery(table: string, graph = false): { language: QueryLanguage; text: string } {
-  return graph
-    ? { language: "cypher", text: `MATCH (n:${table})\nOPTIONAL MATCH (n)-[e]-(m)\nRETURN n, e, m LIMIT 100` }
-    : { language: "sql", text: `SELECT FROM ${table} LIMIT 100` };
-}
-
-/** The Cypher an edge type's page opens the Graph query with: its edges with the nodes at both ends. */
-export const edgeTypeQuery = (type: string): string => `MATCH (a)-[e:${type}]->(b)\nRETURN a, e, b LIMIT 100`;
-
-/** Every key of the result rows in the order first seen, ``id`` first when there is one. */
-export function queryColumns(rows: QueryRow[]): string[] {
-  const seen = new Set<string>();
-  for (const row of rows) for (const key of Object.keys(row)) seen.add(key);
-  const columns = [...seen];
-  return columns.includes("id") ? ["id", ...columns.filter((c) => c !== "id")] : columns;
-}
-
-/** The parameters box as an object; an error message when it is not a JSON object. */
-export function parseParams(text: string): { params: Record<string, unknown> } | { error: string } {
-  const parsed = parseJsonObject(text, { what: "Parameters", plural: true, hint: 'like {"id": "ann"}', emptyMeans: {} });
-  return parsed.ok ? { params: parsed.value } : { error: parsed.error };
-}
-
-/** The rows as CSV: lists and objects as JSON, null and missing values empty. */
-export function toCsv(rows: QueryRow[], columns = queryColumns(rows)): string {
-  const cell = (value: unknown) => {
-    if (value == null) return "";
-    const text = typeof value === "object" ? JSON.stringify(value) : String(value);
-    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-  return [columns.map(cell), ...rows.map((row) => columns.map((c) => cell(row[c])))].map((line) => line.join(",")).join("\n");
-}
-
-// ------------------------------------------------------- nodes and edges
-// A graph table's rows, and an edge type's edges, filter with a Cypher
-// condition, run through POST /db/{ns}/_query: ``n`` is the table's node; ``e``
-// is an edge of the type, ``a`` the node it leaves and ``b`` the one it reaches.
-
-/** A page of a graph table's rows or an edge type's edges: the condition after WHERE ("" for none), the sort, the page. */
-export interface CypherPage {
-  where: string;
-  sort: Sort | null;
-  limit: number;
-  skip: number;
-}
-
-/** "MATCH (n:people)": what a graph table's condition is written against. */
-export const nodesMatch = (table: string): string => `MATCH (n:${table})`;
-
-/** "MATCH (a)-[e:knows]->(b)": what an edge type's condition is written against. */
-export const edgesMatch = (type: string): string => `MATCH (a)-[e:${type}]->(b)`;
-
-const where = (condition: string) => (condition.trim() ? `\nWHERE ${condition.trim()}` : "");
-const property = (variable: string, field: string) => `${variable}.\`${field.replace(/`/g, "``")}\``;
-
-/** The Cypher of a page of the graph table's rows (``row``, the whole row), and of their count. */
-export function nodesCypher(table: string, page: CypherPage): { rows: string; count: string } {
-  const match = nodesMatch(table) + where(page.where);
-  const desc = page.sort?.desc ? " DESC" : "";
-  const order = page.sort && page.sort.field !== "id" ? `${property("n", page.sort.field)}${desc}, n.id` : `n.id${desc}`;
-  return {
-    rows: `${match}\nRETURN properties(n) AS row\nORDER BY ${order}\nSKIP ${page.skip} LIMIT ${page.limit}`,
-    count: `${match}\nRETURN count(n) AS count`,
-  };
-}
-
-/** An edge's column as Cypher: its ends are functions of it, the rest its properties. */
-function edgeColumn(column: string): string {
-  if (column === "from") return "startNode(e).id";
-  if (column === "to") return "endNode(e).id";
-  return property("e", column);
-}
-
-/** The Cypher of a page of the edge type's edges (``e``, as ``{type, from, to, ...}``), and of their count. */
-export function edgesCypher(type: string, page: CypherPage): { rows: string; count: string } {
-  const match = edgesMatch(type) + where(page.where);
-  const ends = "startNode(e).id, endNode(e).id";
-  const order = page.sort ? `${edgeColumn(page.sort.field)}${page.sort.desc ? " DESC" : ""}, ${ends}` : ends;
-  return {
-    rows: `${match}\nRETURN e\nORDER BY ${order}\nSKIP ${page.skip} LIMIT ${page.limit}`,
-    count: `${match}\nRETURN count(e) AS count`,
-  };
-}
-
-/** An edge type's columns: from and to (its type is the page's), then its properties A to Z. */
-export function edgeColumns(edges: QueryRow[]): string[] {
-  const ends = ["from", "to"];
-  const props = new Set<string>();
-  for (const edge of edges) for (const key of Object.keys(edge)) if (key !== "type" && !ends.includes(key)) props.add(key);
-  return [...ends, ...[...props].sort((a, b) => a.localeCompare(b))];
-}
-
-/** "people → companies": a pair of tables an edge type joins. */
-export const joinLabel = (join: { from: string; to: string }): string => `${join.from} → ${join.to}`;
+/** A name as SQL quotes it: "people", "default" (a word SQL keeps stays a name). */
+export const sqlName = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+/** A text as an SQL string: 'it''s'. */
+export const sqlText = (text: string): string => `'${text.replace(/'/g, "''")}'`;

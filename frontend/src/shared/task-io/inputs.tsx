@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useApi } from "../api";
 import { CodeEditor } from "../code-editor";
 import { Field, Segmented, SelectField } from "../components";
 import { fmtBytes } from "../format";
+import { AUTOGLUON_PREFIX } from "../model-browser/catalog";
 import { formSchema } from "../form-schema";
 import type { FormSchema } from "../schema-form";
 import { SchemaForm } from "../schema-form";
@@ -20,6 +22,9 @@ import {
   imageProblem,
   questionAnsweringInput,
   speechInput,
+  tabularFields,
+  tabularInput,
+  tabularValues,
   textGenerationInput,
   visionInput,
   zeroShotInput,
@@ -33,6 +38,8 @@ import { numberRange, property, type JSONSchema, type TaskLimits } from "./schem
 
 interface IOContext {
   task: string;
+  /** The model it is sent to */
+  modelId: string;
   /** The task's input schema; null for a task without a contract */
   schema: JSONSchema | null;
   limits: TaskLimits;
@@ -376,6 +383,67 @@ export function DecisionInput({ ctx, onChange }: InputProps) {
         </div>
       </FieldGroup>
     </>
+  );
+}
+
+/**
+ * One row for a tabular predictor: a field per column it was trained on (its job's report.json, jobs/autogluon/, names
+ * them), a number box or text by its type, which a training row fills in. A predictor without that list (trained before it was kept) gets the form of the task's schema.
+ */
+export function TabularInput({ ctx, onChange }: InputProps) {
+  const client = useApi();
+  const job = ctx.modelId.startsWith(AUTOGLUON_PREFIX) ? ctx.modelId.slice(AUTOGLUON_PREFIX.length) : "";
+  const report = client.useQuery("get", "/jobs/{id}/files/{path}", { params: { path: { id: job, path: "report.json" } } }, { enabled: Boolean(job), retry: false });
+  const read = report.data as { columns?: Record<string, string>; sample?: Record<string, unknown> | null } | undefined;
+  if (!job || report.isError || (read && !read.columns)) return <SchemaFormInput ctx={ctx} onChange={onChange} />;
+  if (!read) return <p className="text-sm text-muted-foreground">Loading the predictor's columns…</p>;
+  return <TabularFields columns={read.columns!} sample={read.sample ?? null} onChange={onChange} />;
+}
+
+function TabularFields(props: { columns: Record<string, string>; sample: Record<string, unknown> | null; onChange(built: Built): void }) {
+  const fields = useMemo(() => tabularFields(props.columns), [props.columns]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [probabilities, setProbabilities] = useState(true);
+  useEffect(() => props.onChange(tabularInput(fields, values, probabilities)), [fields, values, probabilities]);
+  return (
+    <FieldGroup
+      label="One row"
+      hint={
+        props.sample && (
+          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setValues(tabularValues(props.sample))}>
+            Fill from a training row
+          </Button>
+        )
+      }
+    >
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        {fields.map((f) => {
+          const set = (value: string) => setValues((v) => ({ ...v, [f.name]: value }));
+          const label = <span className="font-mono text-[13px]">{f.name}</span>;
+          return f.kind === "bool" ? (
+            <SelectField
+              key={f.name}
+              label={label}
+              hint="true or false"
+              value={values[f.name] ?? ""}
+              onChange={set}
+              none="missing"
+              options={[
+                { value: "true", label: "true" },
+                { value: "false", label: "false" },
+              ]}
+            />
+          ) : (
+            <Field key={f.name} label={label} hint={f.kind}>
+              <Input type={f.kind === "number" ? "number" : "text"} step="any" value={values[f.name] ?? ""} placeholder="missing" onChange={(e) => set(e.target.value)} />
+            </Field>
+          );
+        })}
+      </div>
+      <Check checked={probabilities} onChange={setProbabilities}>
+        Each class's probability (classification)
+      </Check>
+    </FieldGroup>
   );
 }
 

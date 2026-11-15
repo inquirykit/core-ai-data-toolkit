@@ -3,7 +3,7 @@
 // is how each tab looks, in the order they are shown. TABS is keyed by the server's categories, so one it adds
 // without a tab here fails the typecheck.
 import { AudioLines, Image, MessagesSquare, Puzzle, Scale, TrendingUp, Type, type LucideIcon } from "lucide-react";
-import type { ApiClient, Schemas } from "./api";
+import { useApi, type Schemas } from "./api";
 
 export type CategoryKey = Schemas["CatalogTask"]["category"];
 
@@ -23,7 +23,7 @@ const TABS: Record<CategoryKey, Omit<Category, "key">> = {
   audio: { label: "Audio", blurb: "Transcribe speech", icon: AudioLines },
   decision: { label: "Decision", blurb: "Weigh options against questions", icon: Scale },
   // The AutoGluon tasks need a trained predictor first; the playground does not offer them yet.
-  prediction: { label: "Prediction", blurb: "Tabular, multimodal and time-series predictors", icon: TrendingUp, disabled: true },
+  prediction: { label: "Prediction", blurb: "Tabular and time-series predictors", icon: TrendingUp, disabled: true },
   other: { label: "Other", blurb: "Custom tasks", icon: Puzzle },
 };
 
@@ -57,7 +57,8 @@ export function taskTitle(t: { task: string; label: string; group: string; group
  * Each task's title, from GET /tasks: a variant's after the task it varies (taskTitle), since a list of tasks shows
  * it on its own; the task's name until that answers, or for a task it does not list.
  */
-export function useTaskLabels(client: ApiClient): (task: string) => string {
+export function useTaskLabels(): (task: string) => string {
+  const client = useApi();
   // GET /tasks changes only with a restart: asked once per page (TryPanel shares the reply).
   const listed = client.useQuery("get", "/tasks", undefined, { staleTime: Infinity, select: (d) => d.tasks });
   return (task) => {

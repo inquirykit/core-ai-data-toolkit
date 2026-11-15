@@ -1,7 +1,7 @@
 """
 A stand-in OpenAI-compatible model server for tests/test_model_server.py.
 
-    python fake_model_server.py --port 1234 [--fail]
+    python fake_model_server.py --port 1234 [--fail] [--key K | --basic USER:PASS] [--toolkit [BACKEND]]
 
 It answers /v1/chat/completions with "echo: <last user text>" (streamed
 word by word when asked; a call of the first tool when given tools, and a
@@ -9,10 +9,14 @@ JSON object when given a response_format), /v1/embeddings, /v1/rerank and
 /v1/audio/transcriptions, and supports vLLM's /sleep and /wake_up and
 Ollama's unload (/api/generate with keep_alive 0). A chat's top_k shows in
 the reply. A user message "crash" makes it exit mid-request; --fail makes it
-exit at once.
+exit at once; --key K makes it answer 401 to a request without K as its bearer
+token, --basic USER:PASS to one without them as basic auth; --toolkit makes it answer as another toolkit does: its model list says it
+owns the models, and each reply says which of its backends answered (BACKEND,
+or none: a model of its own).
 """
 
 import argparse
+import base64
 import email
 import email.policy
 import json
@@ -21,6 +25,22 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATE = {"asleep": False, "requests": 0, "unloaded": []}
+# With --key or --basic, every request needs it: as a bearer token, or as basic auth.
+WANTED = {"auth": None}
+# With --toolkit, the backend its replies say answered (None: a model of its own); absent, it is no toolkit.
+TOOLKIT = {}
+TOOLKIT_PATHS = ("/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/rerank", "/v1/audio/transcriptions")
+
+
+def as_toolkit(path, body):
+    """``body`` as another toolkit would send it: a reply with its ``toolkit`` field, a model list it owns."""
+    if not TOOLKIT or not isinstance(body, dict):
+        return body
+    if path == "/v1/models":
+        return {**body, "data": [{**m, "owned_by": "ai-toolkit"} for m in body["data"]]}
+    if path in TOOLKIT_PATHS and ("choices" in body or "data" in body or "results" in body or "text" in body):
+        return {**body, "toolkit": {"processing_ms": 1.0, "cold_start": False, "backend": TOOLKIT["backend"]}}
+    return body
 
 
 def last_user_text(messages):
@@ -37,20 +57,30 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _json(self, status, body):
-        data = json.dumps(body).encode()
+        data = json.dumps(as_toolkit(self.path, body) if status == 200 else body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
+    def _refused(self):
+        if WANTED["auth"] is None or self.headers.get("Authorization") == WANTED["auth"]:
+            return False
+        self._json(401, {"error": "wrong key"})
+        return True
+
     def do_GET(self):
+        if self._refused():
+            return
         if self.path == "/v1/models":
             return self._json(200, {"data": [{"id": "fake"}], "pid": os.getpid(), **STATE})
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self._refused():
+            return
         if self.path == "/v1/audio/transcriptions":
             return self._transcribe(raw)
         body = json.loads(raw or b"{}")
@@ -116,8 +146,8 @@ class Handler(BaseHTTPRequestHandler):
             chunk = {"choices": [{"delta": {"content": word + " "}}]}
             self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
         if (body.get("stream_options") or {}).get("include_usage"):
-            # As vLLM does: a last chunk with no choices and the usage.
-            self.wfile.write(f"data: {json.dumps({'choices': [], 'usage': usage})}\n\n".encode())
+            # As vLLM does: a last chunk with no choices and the usage (and, from a toolkit, its toolkit field).
+            self.wfile.write(f"data: {json.dumps(as_toolkit(self.path, {'choices': [], 'usage': usage}))}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
 
     def _complete(self, body):
@@ -162,9 +192,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--fail", action="store_true")
+    parser.add_argument("--key")
+    parser.add_argument("--basic")
+    parser.add_argument("--toolkit", nargs="?", const="")
     args = parser.parse_args()
     if args.fail:
         sys.exit(7)
+    if args.key:
+        WANTED["auth"] = f"Bearer {args.key}"
+    if args.basic:
+        WANTED["auth"] = "Basic " + base64.b64encode(args.basic.encode()).decode()
+    if args.toolkit is not None:
+        TOOLKIT["backend"] = args.toolkit or None
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
 
 

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { ApiClient } from "../../shared/api";
+import { useApi } from "../../shared/api";
 import { errorText } from "../../shared/query";
 import { SelectInput } from "../../shared/components";
 import { fmtIso, plural } from "../../shared/format";
@@ -54,8 +54,9 @@ const SORT_OPTIONS: { value: SearchSort; label: string }[] = [
   { value: "oldest", label: "Oldest first" },
 ];
 /** A search's captures across the workspace's cases (GET /evidence/search), with the form that refines it. */
-export function SearchView(props: { client: ApiClient; workspace: string; search: EvidenceSearch; cases: EvidenceCase[] }) {
-  const { client, workspace, search } = props;
+export function SearchView(props: { workspace: string; search: EvidenceSearch; cases: EvidenceCase[] }) {
+  const client = useApi();
+  const { workspace, search } = props;
   const [form, setForm] = useState(search);
   // A new search (the hash changed) fills the form and starts at the first page.
   const [shown, setShown] = useState(search);

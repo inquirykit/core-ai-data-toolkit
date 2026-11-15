@@ -1,35 +1,44 @@
 // The Jobs section's list of recent jobs: status, progress and timing, to
-// cancel, delete or open the log of. StatusBadge, a job's status as a badge,
-// is shared with the schedules and the log.
+// cancel, delete or open the log of, and what a finished one made (its
+// result and files, JobsResult.tsx) under its row.
 
 import { useState } from "react";
-import { Play, ScrollText, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Play, ScrollText, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useAction } from "../../shared/action";
-import type { ApiClient } from "../../shared/api";
-import { ConfirmButton, StatusLabel, SubmitButton } from "../../shared/components";
-import { fmtAgo, fmtClock } from "../../shared/format";
+import { useApi } from "../../shared/api";
+import { ConfirmButton, StatusBadge, SubmitButton } from "../../shared/components";
+import { fmtAgo, fmtClock, fmtSeconds } from "../../shared/format";
 import { DataGrid, type GridColumn } from "../../shared/grid";
+import { isActive, progressValue } from "../../shared/tasks";
 import type { Job, JobType, Schedule } from "../../shared/types";
-import { fmtRetries, fmtSeconds, fmtUntil, isActive, jobDuration, jobStatus, progressValue, scheduleName, sortJobs } from "./jobs";
+import { fmtRetries, fmtUntil, jobDuration, JOBS_LIMIT, scheduleName, sortJobs } from "./jobs";
+import { EnvNotice, JobResult } from "./JobsResult";
 import { SubmitDialog } from "./JobsSubmit";
-import { LoadedCard } from "../layout";
+import { LoadedCard, Pager, type useCursorPages } from "../layout";
 
 export function JobsCard(props: {
-  client: ApiClient;
   jobs: Job[] | null;
+  /** The next page's cursor, when there is one */
+  next?: string;
   error: string;
+  /** The page shown: the newest, or an older one */
+  pages: ReturnType<typeof useCursorPages>;
+  loading: boolean;
   schedules: Schedule[];
   types: JobType[] | null;
   typesError: string;
   onChange(): Promise<unknown>;
   onOpenLog(jobId: string): void;
 }) {
-  const { client, jobs } = props;
+  const client = useApi();
+  const { jobs, pages } = props;
   const [submitting, setSubmitting] = useState(false);
+  // The finished job whose result shows under its row.
+  const [opened, setOpened] = useState<string | null>(null);
 
   const cancel = useAction(
     async (j: Job) => {
@@ -58,7 +67,21 @@ export function JobsCard(props: {
       className: "pl-4",
       render: (j) => (
         <>
-          <span className="font-mono text-[13px] font-medium">{j.job}</span>
+          {j.status === "succeeded" ? (
+            // A finished job opens what it made under its row.
+            <button
+              type="button"
+              className="-ml-1 inline-flex items-center gap-0.5 rounded font-mono text-[13px] font-medium hover:underline"
+              aria-expanded={opened === j.id}
+              title={opened === j.id ? "Hide its result" : "Show its result and files"}
+              onClick={() => setOpened(opened === j.id ? null : j.id)}
+            >
+              {opened === j.id ? <ChevronDown className="size-3.5" aria-hidden="true" /> : <ChevronRight className="size-3.5" aria-hidden="true" />}
+              {j.job}
+            </button>
+          ) : (
+            <span className="font-mono text-[13px] font-medium">{j.job}</span>
+          )}
           {j.priority !== "normal" && (
             <Badge variant={j.priority === "high" ? "secondary" : "outline"} className="ml-2 align-middle text-[11px]">
               {j.priority} priority
@@ -138,7 +161,10 @@ export function JobsCard(props: {
     <>
       <LoadedCard
         title="Jobs"
-        description={(list) => (active ? `${list.length} most recent · ${active} queued or running` : `${list.length} most recent`)}
+        description={(list) => {
+          const shown = pages.hasPrevious ? `${list.length} older` : `${list.length} most recent`;
+          return active ? `${shown} · ${active} queued or running` : shown;
+        }}
         data={jobs}
         error={props.error}
         onRefresh={props.onChange}
@@ -148,25 +174,40 @@ export function JobsCard(props: {
             Submit job
           </Button>
         }
-        isEmpty={() => rows.length === 0}
+        top={<EnvNotice types={props.types} onQueued={props.onChange} />}
+        isEmpty={() => rows.length === 0 && !pages.hasPrevious}
         empty="No jobs yet. Submit one, or let a schedule above start it."
+        after={
+          jobs &&
+          (pages.hasPrevious || props.next) && (
+            <Pager
+              start={pages.index * JOBS_LIMIT}
+              shown={jobs.length}
+              count={null}
+              hasPrevious={pages.hasPrevious}
+              hasNext={Boolean(props.next)}
+              loading={props.loading}
+              onPrevious={pages.previous}
+              onNext={() => pages.next(props.next)}
+            />
+          )
+        }
       >
         {() => (
           <div className="overflow-x-auto rounded-lg border">
-            <DataGrid columns={columns} rows={rows} rowKey={(j) => j.id} headerClassName="bg-muted/50" empty="No jobs yet" />
+            <DataGrid
+              columns={columns}
+              rows={rows}
+              rowKey={(j) => j.id}
+              headerClassName="bg-muted/50"
+              empty="No older jobs"
+              detail={(j) => (opened === j.id && j.status === "succeeded" ? <JobResult job={j} /> : null)}
+            />
           </div>
         )}
       </LoadedCard>
-      {submitting && <SubmitDialog client={client} types={props.types} typesError={props.typesError} onClose={() => setSubmitting(false)} onSubmitted={props.onChange} />}
+      {submitting && <SubmitDialog types={props.types} typesError={props.typesError} onClose={() => setSubmitting(false)} onSubmitted={props.onChange} />}
     </>
-  );
-}
-
-export function StatusBadge({ status }: { status: string }) {
-  return (
-    <Badge variant="outline">
-      <StatusLabel status={jobStatus(status)} live={status === "running"} className="gap-1.5" />
-    </Badge>
   );
 }
 

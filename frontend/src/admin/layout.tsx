@@ -182,13 +182,13 @@ export const PAGE_SIZES: [string, string][] = [
 ];
 
 /**
- * Where a list paged by cursors stands: the cursor of this page (undefined: the first), how many pages
- * come before it, and the moves between them. A change of ``resetKey`` (a new search, new filters)
+ * Where a list paged by cursors stands: the cursor of this page (the page before's ``next``; undefined: the first),
+ * how many pages come before it, and the moves between them. A change of ``resetKey`` (a new search, new filters)
  * goes back to the first page while rendering, as React recommends over an effect.
  */
-export function useCursorPages<C = string>(resetKey: unknown) {
+export function useCursorPages(resetKey: unknown) {
   // The cursors of the pages before this one, and this one's.
-  const [cursors, setCursors] = useState<(C | undefined)[]>([undefined]);
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [key, setKey] = useState(resetKey);
   if (!Object.is(key, resetKey)) {
     setKey(resetKey);
@@ -200,7 +200,7 @@ export function useCursorPages<C = string>(resetKey: unknown) {
     hasPrevious: cursors.length > 1,
     first: () => setCursors([undefined]),
     previous: () => setCursors((c) => c.slice(0, -1)),
-    next: (cursor: C | undefined) => setCursors((c) => [...c, cursor]),
+    next: (cursor: string | undefined) => setCursors((c) => [...c, cursor]),
   };
 }
 

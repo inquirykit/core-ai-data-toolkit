@@ -1,6 +1,6 @@
 """
 Predictors trained by the autogluon-* jobs (jobs/autogluon/), served as
-model ID "autogluon:<job id>".
+model ID "autogluon:<job id>" (models/trained.py finds them).
 
 AutoGluon cannot be installed next to the service's own models (see
 requirements-autogluon.txt), so a loaded predictor is a process in the
@@ -9,12 +9,11 @@ over its stdin and stdout. To the cache it is a model like any other: loaded
 on first use, counted by its size on disk, evicted when idle, and dropped if
 the process dies.
 
-It also defines the three tasks such predictors serve.
+It also defines the two tasks such predictors serve.
 """
 
 import asyncio
 import json
-import re
 import signal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -24,16 +23,21 @@ from pydantic import Field
 from core import procs
 from core.config import Config
 from core import PROJECT_ROOT
-from models import BaseModel, register
+from core.errors import Refused, Unavailable
+from models import BaseModel, ModelCard, register, trained
+from models.base import TryNextBackend
 from models.contracts import TaskInput, TaskOutput, define_task
 
+# The model ID the AutoGluon jobs write in their result (jobs/autogluon/_common.py; tests/test_trained_models.py ties
+# the two).
 MODEL_ID_PREFIX = "autogluon:"
 ENV = "autogluon"
 MAX_ROWS = 10_000
 MAX_HISTORY_ROWS = 1_000_000
 # What a predictor process holds beyond its files: Python, pandas, torch (measured: 60 to 230 MB).
 PROCESS_OVERHEAD_BYTES = 256 * 1024 * 1024
-_JOB_ID = re.compile(r"^[0-9a-f]{8,32}$")
+# The predictor's own folder in its job's.
+PREDICTOR_DIR = "predictor"
 
 Rows = Field(..., min_length=1, max_length=MAX_ROWS, description="One object per row, keyed by column name")
 
@@ -49,10 +53,6 @@ class PredictionOutput(TaskOutput):
     probabilities: Optional[List[Dict[str, Optional[float]]]] = Field(
         None, description="Per row, every class's probability, if asked for"
     )
-
-
-class MultimodalPredictionInput(TabularPredictionInput):
-    """Image columns hold image paths inside IMAGE_DIR."""
 
 
 class ForecastInput(TaskInput):
@@ -74,43 +74,18 @@ class ForecastOutput(TaskOutput):
 define_task("tabular-prediction", TabularPredictionInput, PredictionOutput,
             "Predict a column of a table with a predictor trained by the autogluon-tabular job",
             category="prediction", label="Tabular prediction")
-define_task("multimodal-prediction", MultimodalPredictionInput, PredictionOutput,
-            "Predict from text, image and tabular columns with a predictor trained by the autogluon-multimodal job",
-            category="prediction", label="Multimodal prediction")
 define_task("timeseries-forecast", ForecastInput, ForecastOutput,
             "Forecast series with a predictor trained by the autogluon-timeseries job",
             category="prediction", label="Time-series forecast")
 
 
 # ------------------------------------------------------------------- model
-def workdir_for(model_id: str) -> Optional[Path]:
-    """The job directory of ``autogluon:<job id>``, or None if the ID is not one."""
-    if not Config.JOBS_DIR or not model_id.startswith(MODEL_ID_PREFIX):
-        return None
-    job_id = model_id[len(MODEL_ID_PREFIX):]
-    if not _JOB_ID.match(job_id):
-        return None
-    return Path(Config.JOBS_DIR).resolve() / job_id
-
-
-def predictor_info(model_id: str) -> Optional[Dict[str, Any]]:
-    """What the training job wrote about the predictor, or None if there is no trained predictor."""
-    workdir = workdir_for(model_id)
-    if workdir is None:
-        return None
-    try:
-        return json.loads((workdir / "predictor.json").read_text())
-    except (OSError, ValueError):
-        return None
-
-
 def _size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-@register(task="tabular-prediction", match="autogluon:*")
-@register(task="multimodal-prediction", match="autogluon:*")
-@register(task="timeseries-forecast", match="autogluon:*")
+@register(task="tabular-prediction", match=f"{MODEL_ID_PREFIX}*")
+@register(task="timeseries-forecast", match=f"{MODEL_ID_PREFIX}*")
 class AutoGluonPredictor(BaseModel):
     """A trained AutoGluon predictor, answered by a process in the autogluon environment."""
 
@@ -124,58 +99,78 @@ class AutoGluonPredictor(BaseModel):
         return None  # nothing from the Hub
 
     @classmethod
+    def listed(cls, task: str) -> List[ModelCard]:
+        return [ModelCard(t.model_id, t.name) for t in trained.listed(MODEL_ID_PREFIX, task)]
+
+    @classmethod
     def operator_chose(cls, model_id: str) -> bool:
-        return predictor_info(model_id) is not None  # a job here trained it, and only an admin starts jobs
+        return trained.find(model_id, MODEL_ID_PREFIX) is not None  # a job here trained it; only an admin starts jobs
+
+    # Set when an answer may still be on its way to no one (see ``_kill``).
+    out_of_step = False
 
     @property
     def alive(self) -> bool:
         process = getattr(self, "process", None)
-        return process is None or process.returncode is None
+        return not self.out_of_step and (process is None or process.returncode is None)
 
     async def estimate_bytes(self) -> Optional[int]:
-        workdir = workdir_for(self.model_id)
-        if workdir is None or not workdir.is_dir():
+        found = await asyncio.to_thread(trained.find, self.model_id, MODEL_ID_PREFIX)
+        if found is None:
             return None
-        return PROCESS_OVERHEAD_BYTES + await asyncio.to_thread(_size, workdir / "predictor")
+        return PROCESS_OVERHEAD_BYTES + await asyncio.to_thread(_size, found.workdir / PREDICTOR_DIR)
 
-    def python(self) -> Path:
-        return Config.JOB_ENVS_DIR / ENV / "bin" / "python"
 
     async def load(self) -> None:
-        info = predictor_info(self.model_id)
-        if info is None:
-            raise ValueError(f"{self.model_id}: no trained predictor; an autogluon-* job's result gives the model ID")
-        if info["task"] != self.task:
-            raise ValueError(f"{self.model_id} is a {info['task']} predictor, not {self.task}")
-        python = self.python()
-        if not python.exists():
-            raise RuntimeError(f"The {ENV} environment is not set up: run scripts/setup_job_env.sh {ENV}")
-        self.info = info
+        found = await asyncio.to_thread(trained.find, self.model_id, MODEL_ID_PREFIX)
+        if found is None:
+            raise Refused(f"{self.model_id}: no trained predictor; an autogluon-* job's result gives the model ID")
+        if found.task != self.task:
+            raise Refused(f"{self.model_id} is a {found.task} predictor, not {self.task}")
+        python = procs.env_python(Config.JOB_ENVS_DIR, ENV)
+        if python is None:
+            raise Unavailable(f"The {ENV} environment is not set up: set it up from /admin (the setup-env job), or run "
+                              f"scripts/setup_job_env.sh {ENV}")
         # Its stderr (AutoGluon's log) goes to this service's log.
         self.process = procs.track(await asyncio.create_subprocess_exec(
-            str(python), "-m", self.serve_module, str(workdir_for(self.model_id)),
+            str(python), "-m", self.serve_module, str(found.workdir),
             cwd=str(PROJECT_ROOT), env=procs.python_env(Config.JOB_DEVICE == "cpu"),
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             start_new_session=True, limit=256 * 1024 * 1024,
         ))
-        ready = await self._read(self.startup_timeout, "loading")
+        try:
+            ready = await self._read(self.startup_timeout, "loading")
+        except BaseException:
+            # Cancelled (the request it loads for went away) or failed: no process is left running for nobody.
+            self._kill()
+            raise
         if not ready.get("ready"):
             raise RuntimeError(f"{self.model_id}: unexpected first message {ready!r}")
 
     async def predict(self, request: Any) -> Any:
+        if self.out_of_step or self.process.returncode is not None:
+            # Stopped while this request waited its turn (the one before it was cancelled), or crashed: the manager
+            # drops it and serves this request with a new one.
+            raise TryNextBackend(f"{self.model_id}: its process has stopped; starting another")
         payload = request.model_dump(mode="json")
-        if self.task == "multimodal-prediction":
-            payload["rows"] = self._images_inside_image_dir(payload["rows"])
-        self.process.stdin.write(json.dumps(payload).encode() + b"\n")
-        await self.process.stdin.drain()
-        reply = await self._read(self.request_timeout, "predicting")
+        try:
+            self.process.stdin.write(json.dumps(payload).encode() + b"\n")
+            await self.process.stdin.drain()
+            reply = await self._read(self.request_timeout, "predicting")
+        except BaseException:
+            # Cancelled (a client gone, an eval run stopped) or failed between the request and its answer.
+            self._kill()
+            raise
         if "error" in reply:
-            raise (ValueError if reply.get("client") else RuntimeError)(reply["error"])
+            raise (Refused if reply.get("client") else RuntimeError)(reply["error"])
         return reply["result"]
 
     async def unload(self) -> None:
         process = getattr(self, "process", None)
-        if process is None or process.returncode is not None:
+        if process is None:
+            return
+        if process.returncode is not None:
+            procs.untrack(process)
             return
         process.stdin.close()
         await procs.stop(process, 10)
@@ -184,27 +179,21 @@ class AutoGluonPredictor(BaseModel):
         try:
             line = await asyncio.wait_for(self.process.stdout.readline(), timeout)
         except asyncio.TimeoutError:
-            # Its answer would come late and out of step with the next request.
-            procs.signal_group(self.process.pid, signal.SIGKILL)
+            self._kill()
             raise RuntimeError(f"{self.model_id}: no answer after {timeout:.0f}s {doing}") from None
         if not line:
             await self.process.wait()
+            procs.untrack(self.process)
             raise RuntimeError(
                 f"{self.model_id}: predictor process exited with code {self.process.returncode} while {doing} "
                 "(its output is in this service's log)"
             )
         return json.loads(line)
 
-    def _images_inside_image_dir(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Image paths resolved inside IMAGE_DIR, the only place requests may point to."""
-        base = Config.IMAGE_DIR
-        for row in rows:
-            for column in self.info.get("image_columns", []):
-                value = row.get(column)
-                if not value:
-                    continue
-                path = (base / str(value)).resolve()
-                if not path.is_relative_to(base) or not path.is_file():
-                    raise ValueError(f"{column}: {value!r} must be an existing file inside IMAGE_DIR")
-                row[column] = str(path)
-        return rows
+    def _kill(self) -> None:
+        """End the process now. An answer it still owes would reach the next caller as theirs; the cache sees it is
+        not alive and drops it, and the next request starts another."""
+        self.out_of_step = True
+        if self.process.returncode is None:
+            procs.signal_group(self.process.pid, signal.SIGKILL)
+        procs.untrack(self.process)

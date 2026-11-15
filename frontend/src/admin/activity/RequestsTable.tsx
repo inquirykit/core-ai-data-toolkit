@@ -17,11 +17,10 @@ export const STATUS_STYLE: Record<string, Status> = {
 };
 
 /**
- * The requests of Activity & logs. A row opens its input and output
- * (onOpen with its trace id); rows found by searching the traces also show
- * the first words of the request.
+ * The requests of Activity & logs, each with the first words of its input and output while they are kept. A row
+ * opens them (onOpen with its trace id).
  */
-export function RecentRequests({ requests, withPreview, onOpen }: { requests: RequestItem[]; withPreview: boolean; onOpen(traceId: string): void }) {
+export function RecentRequests({ requests, filtered, onOpen }: { requests: RequestItem[]; filtered: boolean; onOpen(traceId: string): void }) {
   const columns: GridColumn<RequestItem>[] = [
     { key: "time", label: "Time", className: "text-muted-foreground tabular-nums", title: (r) => new Date(r.ts * 1000).toLocaleString(), render: (r) => fmtTime(r.ts) },
     {
@@ -65,14 +64,12 @@ export function RecentRequests({ requests, withPreview, onOpen }: { requests: Re
       ),
     },
   ];
-  if (withPreview) {
-    columns.push({
-      key: "request",
-      label: "Request",
-      className: "max-w-md whitespace-normal",
-      render: (r) => <span className="line-clamp-2 text-sm [overflow-wrap:anywhere]">{r.preview || <span className="text-muted-foreground">(no text)</span>}</span>,
-    });
-  }
+  columns.push({
+    key: "request",
+    label: "Request",
+    className: "max-w-md whitespace-normal",
+    render: (r) => <span className="line-clamp-2 text-sm [overflow-wrap:anywhere]">{r.preview == null ? <span className="text-muted-foreground">not kept</span> : r.preview || <span className="text-muted-foreground">(no text)</span>}</span>,
+  });
   // A row opens its trace by click or Enter; one without a trace says why not.
   const rowProps = (r: RequestItem) => {
     const open = r.trace_id ? () => onOpen(r.trace_id!) : undefined;
@@ -81,8 +78,8 @@ export function RecentRequests({ requests, withPreview, onOpen }: { requests: Re
       tabIndex: open ? 0 : undefined,
       onClick: open,
       onKeyDown: open && ((e: KeyboardEvent) => e.key === "Enter" && open()),
-      title: open ? "Input and output" : "Recorded before tracing: no input or output",
+      title: open ? "Input and output" : "Its input and output were not kept (traces off, gone, or an eval run's or workflow's request)",
     };
   };
-  return <DataGrid columns={columns} rows={requests} rowKey={(r) => r.key} rowProps={rowProps} empty={withPreview ? "No requests match" : "No requests yet"} />;
+  return <DataGrid columns={columns} rows={requests} rowKey={(r) => r.key} rowProps={rowProps} empty={filtered ? "No requests match" : "No requests yet"} />;
 }

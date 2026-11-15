@@ -6,7 +6,7 @@
     GET  /enrichers/{name}
     PUT  /enrichers/{name}          create or replace one (admin)
     DELETE /enrichers/{name}        remove it, or a built-in's saved changes (admin)
-    PUT  /enrichers/{name}/secret   {value}: save its API key to the .env file (admin)
+    PUT  /enrichers/{name}/secret   {value}: save its API key, encrypted (admin)
     POST /enrichers/{name}/test     {value, type?}: run it now, without the cache (admin)
     DELETE /enrichers/cache         forget cached results (admin)
 
@@ -14,21 +14,21 @@ Looking up needs the client key; changing enrichers and their keys the admin
 key. The dashboard's Enrichers section is a client of these routes.
 """
 
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.config import Config
 from enrichers import EnricherSpec, EnrichService, EntityType
 from enrichers.spec import NAME
-from core.errors import Conflict, NotFound, Refused, ServiceError
+from core.errors import NotFound, Refused
 from . import audit, deps
 from . import responses
-from .setup_routes import write_settings
+from .settings import SecretRequest, check_secret_name, save_secret
 
 router = APIRouter(tags=["enrichers"], dependencies=deps.CLIENT)
+# This module's routes that only the admin's key opens.
+admin_router = APIRouter(tags=["enrichers"], dependencies=deps.ADMIN)
 
 MAX_VALUE_CHARS = 2048
 
@@ -49,14 +49,8 @@ class TestRequest(BaseModel):
     type: Optional[EntityType] = None
 
 
-class SecretRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    value: str = Field("", max_length=4096, description="The key; empty clears it")
-
-
-def _entry(service: EnrichService, name: str):
-    entry = service.store.get(name)
+async def _entry(service: EnrichService, name: str):
+    entry = await service.store.get(name)
     if entry is None:
         raise NotFound(f"No enricher named {name!r}")
     return entry
@@ -66,7 +60,7 @@ def _entry(service: EnrichService, name: str):
 async def enrich(service: deps.Enrichers, body: EnrichRequest) -> Dict[str, Any]:
     """Run every enricher that takes the value's type and merge what they found."""
     if body.enrichers is not None:
-        known = service.store.all()
+        known = await service.store.all()
         for name in body.enrichers:
             if name not in known:
                 raise NotFound(f"No enricher named {name!r}")
@@ -77,13 +71,13 @@ async def enrich(service: deps.Enrichers, body: EnrichRequest) -> Dict[str, Any]
 async def list_enrichers(service: deps.Enrichers) -> Dict[str, Any]:
     """Every enricher: its definition, where it came from, and whether it can run now."""
     return {
-        "enrichers": [service.describe(e) for e in service.store.all().values()],
+        "enrichers": [service.describe(e) for e in (await service.store.all()).values()],
         "terms_allowed": service.terms_allowed,
         "types": [t.value for t in EntityType],
     }
 
 
-@router.delete("/enrichers/cache", dependencies=deps.ADMIN, status_code=204, response_class=Response)
+@admin_router.delete("/enrichers/cache", status_code=204, response_class=Response)
 async def forget_cache(service: deps.Enrichers, enricher: Optional[str] = None):
     """Drop cached results, all of them or one enricher's."""
     await service.cache.forget(enricher)
@@ -92,61 +86,60 @@ async def forget_cache(service: deps.Enrichers, enricher: Optional[str] = None):
 @router.get("/enrichers/{name}", **responses.answering(responses.EnricherInfo))
 async def get_enricher(service: deps.Enrichers, name: str) -> Dict[str, Any]:
     """One enricher, as GET /enrichers lists it."""
-    return service.describe(_entry(service, name))
+    return service.describe(await _entry(service, name))
 
 
-@router.put("/enrichers/{name}", **responses.answering(responses.EnricherInfo), dependencies=deps.ADMIN)
+@admin_router.put("/enrichers/{name}", **responses.answering(responses.EnricherInfo))
 async def put_enricher(service: deps.Enrichers, name: str, spec: EnricherSpec) -> Dict[str, Any]:
-    """Create or replace an enricher. A built-in's name keeps the built-in, changed."""
+    """Create or replace an enricher. A built-in's name keeps the built-in, changed. 400 for a ``secret`` that is one of
+    the service's settings, a provider's key or a variable its child processes get."""
     if not NAME.match(name):
         raise Refused("Names are lower case letters, digits and _")
     if spec.name != name:
         raise Refused(f"The body names {spec.name!r}, the path {name!r}")
-    try:
-        entry = service.store.save(spec)
-    except OSError as e:
-        raise ServiceError(f"Could not write the enricher file: {e.strerror or e}", status=500)
+    if spec.secret:
+        check_secret_name(spec.secret)
+    entry = await service.store.save(spec)
     # The definition changed, so its cached results no longer describe it.
     await service.cache.forget(name)
     return service.describe(entry)
 
 
-@router.delete("/enrichers/{name}", dependencies=deps.ADMIN, status_code=204, response_class=Response)
+@admin_router.delete("/enrichers/{name}", status_code=204, response_class=Response)
 async def delete_enricher(service: deps.Enrichers, name: str):
     """Remove an enricher, or the saved changes of a built-in one (which comes back as shipped)."""
-    entry = _entry(service, name)
+    entry = await _entry(service, name)
     if entry.builtin and not entry.overridden:
         raise Refused("A built-in enricher cannot be deleted; disable it instead")
-    service.store.delete(name)
+    await service.store.delete(name)
     await service.cache.forget(name)
 
 
-@router.put("/enrichers/{name}/secret", **responses.answering(responses.SecretSaved), dependencies=deps.ADMIN)
-async def put_secret(service: deps.Enrichers, name: str, body: SecretRequest) -> Dict[str, Any]:
-    """Save the enricher's API key to the .env file; it takes effect at once."""
-    entry = _entry(service, name)
+@admin_router.put("/enrichers/{name}/secret", **responses.answering(responses.SecretSaved))
+async def put_secret(service: deps.Enrichers, keys: deps.Keys, name: str, body: SecretRequest) -> Dict[str, Any]:
+    """Save the enricher's API key, encrypted; it takes effect at once. 400 when the enricher names a setting of
+    the service, a provider's key or a variable its child processes get, 503 without a master key
+    (SECRETS_MASTER_KEY)."""
+    entry = await _entry(service, name)
     variable = entry.spec.secret
     if not variable:
         raise Refused(f"{name} names no secret")
+    # Checked again here: a built-in's may name one, or it was saved before the check.
+    check_secret_name(variable)
     value = body.value.strip()
-    if Config.set_by_environment(variable) and value != os.environ.get(variable):
-        raise Conflict(f"{variable} is set in the server's environment, which wins over the .env file"
-        )
-    await write_settings({variable: value})
-    # Now a file setting, like the keys the setup wizard writes.
-    Config.apply({variable: value})
+    await save_secret(keys, variable, value)
     return {"secret": variable, "secret_set": bool(value)}
 
 
-@router.post("/enrichers/{name}/test", **responses.answering(responses.EnricherTest), dependencies=deps.ADMIN)
+@admin_router.post("/enrichers/{name}/test", **responses.answering(responses.EnricherTest))
 @audit.reads
 async def test_enricher(service: deps.Enrichers, name: str, body: TestRequest) -> Dict[str, Any]:
     """Run the enricher on a value now: no cache, even when disabled. Shows the request it sent, its key masked."""
-    entry = _entry(service, name)
+    entry = await _entry(service, name)
     type_, value = service.resolve_value(body.value, body.type)
     if type_ not in entry.spec.inputs:
         raise Refused(f"{name} takes {', '.join(t.value for t in entry.spec.inputs)}, and {value!r} is {type_.value}",
         )
-    sent = service.masked_request(entry.spec, type_, value) if entry.spec.kind == "http" else None
+    sent = service.masked_request(entry.spec, type_, value)
     result = await service.run_one(entry, type_, value, force=True)
     return {"value": value, "type": type_.value, "result": result, "request": sent}

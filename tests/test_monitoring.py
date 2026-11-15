@@ -8,14 +8,13 @@ import pytest
 
 from models.manager import ModelManager
 from monitoring import LogBuffer, MonitoringStore, summarize
-from monitoring.store import ACCURACY, HOUR, HOURS_KEPT_DAYS, REQUEST, latency_bucket, of_request, percentile
-from db.engine import MIGRATIONS
+from monitoring.store import ACCURACY, HOUR, HOURS_KEPT_DAYS, REQUEST, latency_bucket, percentile
 from tests.fakes import FakeModel, registered
 
 
 @pytest.fixture
-def store(arcade):
-    s = MonitoringStore(arcade)
+def store(own_db):
+    s = MonitoringStore(own_db)
     yield s
     s.close()
 
@@ -68,8 +67,8 @@ def test_reads_filter_by_time_status_and_model(store):
     assert [r["model_id"] for r in asyncio.run(store.recent_requests(status="error"))] == ["vega-4b"]
     assert [r["model_id"] for r in asyncio.run(store.recent_requests(model="GPT"))] == ["gpt2"]
     assert [r["model_id"] for r in asyncio.run(store.recent_requests(model="decision"))] == ["vega-4b"]
-    # A filter's text is matched as written: ArcadeDB's wildcards in it match only themselves.
-    assert asyncio.run(store.recent_requests(model="gp?2")) == [] and asyncio.run(store.recent_requests(model="g%2")) == []
+    # A filter's text is matched as written: LIKE's wildcards in it match only themselves.
+    assert asyncio.run(store.recent_requests(model="gp_2")) == [] and asyncio.run(store.recent_requests(model="g%2")) == []
     assert len(asyncio.run(store.recent_requests(since=now - 60, until=now + 1))) == 2
     assert asyncio.run(store.recent_requests(until=now - 60)) == []
     assert asyncio.run(store.recent_requests(since=now + 60)) == []
@@ -103,12 +102,14 @@ def test_log_buffer_keeps_the_newest_lines():
     log.removeHandler(buffer)
 
 
-def test_nothing_but_metadata_is_stored(store):
-    store.record_request("m", "t", "ok", 1, cold=False)
+def test_a_requests_row_holds_its_metadata_and_its_traces_its_inputs(store):
+    store.record_request("m", "t", "ok", 1, cold=False, tags=["a"], calls=[("t1", {"text": "hi"}, {"text": "yo"})])
     store.flush()
-    rows = store._rows(store._db(), f"SELECT FROM {REQUEST}")
+    rows = store._rows(store._db(), f"SELECT * FROM {REQUEST}")
     assert set(rows[0]) == {"id", "ts", "model_id", "task", "status", "duration_ms", "cold", "error", "trace_id",
-                            "prompt_tokens", "completion_tokens"}
+                            "prompt_tokens", "completion_tokens", "tags", "session", "backend", "source"}
+    trace = asyncio.run(store.trace("t1"))
+    assert trace["input"] == {"text": "hi"} and trace["output"] == {"text": "yo"} and trace["tags"] == ["a"]
 
 
 def test_token_counts_are_summed(store):
@@ -122,13 +123,10 @@ def test_token_counts_are_summed(store):
     by_key = {m["model_key"]: m for m in summary["models"]}
     assert by_key["m:text-generation"]["completion_tokens"] == 25
     assert by_key["c:text-classification"]["prompt_tokens"] == 0
-    # Rows from before the columns existed (plain dicts here) summarize too.
-    old = {"ts": now, "model_id": "m", "task": "t", "status": "ok", "duration_ms": 1, "cold": 0}
-    assert summarize([of_request(old)], now - 1, now + 1)["totals"]["prompt_tokens"] == 0
 
 
 def hours(store):
-    return {(r["model_id"], r["ok"], r["error"]): r for r in store._select(f"SELECT FROM {HOUR}")}
+    return {(r["model_id"], r["ok"], r["error"]): r for r in store._select(f"SELECT * FROM {HOUR}")}
 
 
 def test_each_batch_adds_up_in_the_hourly_summary(store):
@@ -159,6 +157,20 @@ def test_a_long_range_is_summed_up_from_whole_hours(store):
     assert week["bucket_s"] == 3 * 3600 and week["totals"]["requests"] == 4
 
 
+def test_a_range_counts_its_requests_by_where_they_came_from_short_or_long(store):
+    for source in ("api", "api", "workflow", None):
+        store.record_request("m", "t", "ok", 10, cold=False, source=source)
+    store.record_request("m", "t", "error", 10, cold=False, source="eval")
+    store.flush()
+    store.record_request("m", "t", "ok", 10, cold=False, source="workflow")
+    store.flush()
+    now = time.time()
+    expected = {"api": 2, "workflow": 2, "eval": 1, "other": 1}
+    # From the requests (an hour) and from the hourly summary (a day), alike.
+    assert asyncio.run(store.summary(now - 3600, now + 1))["totals"]["sources"] == expected
+    assert asyncio.run(store.summary(now - 86400, now + 1))["totals"]["sources"] == expected
+
+
 def test_a_range_older_than_the_request_history_reads_its_hours(store):
     db = store._db()
     hour = (time.time() - 30 * 86400) // 3600 * 3600
@@ -172,21 +184,6 @@ def test_a_range_older_than_the_request_history_reads_its_hours(store):
     assert asyncio.run(store.summary(hour - 7200, hour - 3600))["totals"]["requests"] == 0
 
 
-def test_requests_from_before_the_hourly_summary_are_summed_up_once(arcade):
-    first = MonitoringStore(arcade)
-    db = first._db()
-    now = time.time()
-    rows = [{"id": i, "ts": now - i * 86400, "model_id": "m", "task": "t", "status": "ok", "duration_ms": 1.0,
-             "cold": False} for i in range(3)]
-    first._commit(db, lambda: [first._insert(db, REQUEST, row) for row in rows])
-    first._command(f"DELETE FROM {MIGRATIONS} WHERE id = 'monitoring-hourly-summary'")
-    again = MonitoringStore(arcade)
-    assert sorted(r["ok"] for r in again._select(f"SELECT FROM {HOUR}")) == [1, 1, 1]
-    assert asyncio.run(again.summary(now - 3 * 86400, now + 1))["totals"]["requests"] == 3
-    first.close()
-    again.close()
-
-
 def test_hours_are_kept_longer_than_requests(store):
     db = store._db()
     now = time.time()
@@ -195,11 +192,11 @@ def test_hours_are_kept_longer_than_requests(store):
         store._commit(db, lambda: store._insert(db, HOUR, {"hour": hour, "model_id": f"{days}d", "task": "t", "ok": 1,
                                                            "latency": "{}"}))
     asyncio.run(store.prune())
-    assert [r["model_id"] for r in store._select(f"SELECT FROM {HOUR}")] == ["30d"]
+    assert [r["model_id"] for r in store._select(f"SELECT * FROM {HOUR}")] == ["30d"]
 
 
-def test_old_rows_are_pruned(arcade):
-    store = MonitoringStore(arcade, retention_days=1)
+def test_old_rows_are_pruned(own_db):
+    store = MonitoringStore(own_db, retention_days=1)
     db = store._db()
     old = {"id": 1, "ts": time.time() - 2 * 86400, "model_id": "old", "task": "t", "status": "ok", "duration_ms": 1.0,
            "cold": False}
@@ -218,8 +215,8 @@ def test_a_closed_store_starts_writing_again(store):
     assert len(asyncio.run(store.recent_requests())) == 1
 
 
-def test_a_full_queue_drops_instead_of_blocking(arcade):
-    store = MonitoringStore(arcade, max_queue=1)
+def test_a_full_queue_drops_instead_of_blocking(own_db):
+    store = MonitoringStore(own_db, max_queue=1)
     store.close()  # nobody drains the queue now
     store.writer._ensure = lambda: None
     store.record_request("a", "t", "ok", 1, cold=False)
@@ -275,3 +272,64 @@ def test_manager_and_cache_report_requests_and_model_events():
         ("load", "b:fail", "Failing"),
         ("unload", "b:fail", "manual"),
     ]
+
+
+def test_an_input_that_cannot_be_stored_costs_only_its_own_trace(store):
+    """A lone surrogate (a client's bad JSON escape) or an output nested past reason: the text is kept as well as it can
+    be, and nothing else in the batch is lost."""
+    store.record_request("m", "t", "client_error", 1, cold=False, calls=[("bad", {"text": "bad \ud800 text"}, None)],
+                         message="ValueError: \udfff")
+    deep = {"x": None}
+    for _ in range(5000):
+        deep = {"x": deep}
+    store.record_request("m", "t", "ok", 1, cold=False, calls=[("deep", {"text": "deep"}, deep)])
+    store.record_request("m", "t", "ok", 1, cold=False, calls=[("fine", {"text": "fine"}, {"text": "yes"})])
+    store.flush()
+    rows = asyncio.run(store.recent_requests(10))
+    assert len(rows) == 3
+    assert "bad" in asyncio.run(store.trace("bad"))["input"]["text"]
+    assert asyncio.run(store.trace("fine"))["output"] == {"text": "yes"}
+
+
+def test_a_search_names_the_input_that_matched(store):
+    """A batch request found by a word of its second input opens that input."""
+    store.record_request("m", "t", "ok", 1, cold=False, calls=[("first", {"text": "alpha"}, {"text": "a"}),
+                                                                ("second", {"text": "zebraword"}, {"text": "z"})])
+    store.flush()
+    found = asyncio.run(store.recent_requests(10, q="zebraword"))
+    assert [(r["trace_id"], "zebraword" in r["preview"]) for r in found] == [("second", True)]
+    assert asyncio.run(store.recent_requests(10))[0]["trace_id"] == "first"
+
+
+def test_a_row_the_database_refuses_costs_only_itself_in_any_queued_store(own_db):
+    """The audit log's writer too: a batch the database refuses goes again a row at a time."""
+    from monitoring import AuditLog
+
+    log = AuditLog(own_db, 30)
+    for status in (200, 2 ** 40, 204):  # the middle one does not fit its INTEGER column
+        log.writer.put(("tk_audit", {"id": log._next_id(), "ts": time.time(), "method": "POST", "route": "/x",
+                                     "path": "/x", "status": status, "duration_ms": 1.0, "actor": "admin"}))
+    log.flush()
+    assert sorted(r["status"] for r in asyncio.run(log.entries())) == [200, 204]
+
+
+def test_a_range_of_requests_is_tallied_by_the_database_as_python_would(store, own_db):
+    # summary() tallies in SQL, a row per model, task and point; the hourly summary tallies each request in Python
+    # (of_request). Both must count the same.
+    import random
+
+    from monitoring.store import of_request
+
+    rng = random.Random(7)
+    for _ in range(3000):
+        store.record_request(rng.choice(["a", "b", "c"]), rng.choice(["t1", "t2"]),
+                             rng.choice(["ok", "ok", "ok", "client_error", "error"]), rng.choice([0.0, 0.5, 3, 47.25, 900]) * rng.random(),
+                             cold=rng.random() < 0.1, prompt_tokens=rng.choice([None, 5]), completion_tokens=rng.choice([None, 9]),
+                             source=rng.choice([None, "api", "admin", "eval"]))
+    store.flush()
+    db = own_db.open()
+    db.execute(f"UPDATE {REQUEST} SET ts = ts - hash(id) % 3600")  # spread over the last hour
+    rows = db.rows(f"SELECT * FROM {REQUEST}")
+    since, until = min(r["ts"] for r in rows) - 1, max(r["ts"] for r in rows) + 1
+    for buckets in (1, 7, 60):
+        assert asyncio.run(store.summary(since, until, buckets)) == summarize(map(of_request, rows), since, until, buckets)

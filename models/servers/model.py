@@ -10,20 +10,21 @@ import shutil
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from .. import memory
 from ..base import BaseModel, TryNextBackend
 from ..cache import CapacityError
 from . import processes
-from .entries import Backend, ServerSpec, with_provider
-from .openai_client import OpenAIClient
+from .entries import Backend, ServerSpec, provider_key, with_provider, without_credentials
+from .openai_client import OpenAIClient, bearer
 from .processes import _sleeping
 from .registry import _failed, _providers, _specs
 
 logger = logging.getLogger(__name__)
 
-# Seconds a url backend has to answer when probed.
-PROBE_TIMEOUT = 2.0
+# Seconds a url backend has to answer when probed: a hosted service's model list is long and comes over the internet.
+PROBE_TIMEOUT = 5.0
 # Seconds a backend that failed to start is skipped for, when the model has another.
 FAILED_COOLDOWN = 60.0
 
@@ -43,6 +44,8 @@ class Probe:
     kind: str
     state: str
     detail: str
+    # The server is another toolkit (its model list says so)
+    peer: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -68,6 +71,15 @@ def _listed(response: Any) -> Optional[List[str]]:
     return [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
 
 
+def _from_toolkit(response: Any) -> bool:
+    """Whether a /v1/models answer is another toolkit's: it says it owns every model it lists."""
+    try:
+        data = response.json().get("data")
+    except Exception:
+        return False
+    return isinstance(data, list) and bool(data) and all(isinstance(m, dict) and m.get("owned_by") == "ai-toolkit" for m in data)
+
+
 def _lists(listed: List[str], name: str) -> bool:
     # Ollama lists "qwen3:latest" for "qwen3".
     return name in listed or (":" not in name and f"{name}:latest" in listed)
@@ -77,21 +89,26 @@ async def _probe_url(backend: Backend, name: str, probe: Probe) -> Probe:
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=PROBE_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=PROBE_TIMEOUT, auth=bearer(backend.provider)) as client:
             response = await client.get(backend.url + backend.health_path)
     except httpx.ConnectError:
-        probe.detail = f"nothing answers at {backend.url}"
+        probe.detail = f"nothing answers at {without_credentials(backend.url)}"
         return probe
     except httpx.TimeoutException:
-        probe.detail = f"{backend.url} did not answer within {PROBE_TIMEOUT:.0f} s"
+        probe.detail = f"{without_credentials(backend.url)} did not answer within {PROBE_TIMEOUT:.0f} s"
         return probe
     except httpx.HTTPError as e:
-        probe.detail = f"{backend.url}: {type(e).__name__}"
+        probe.detail = f"{without_credentials(backend.url)}: {type(e).__name__}"
+        return probe
+    if response.status_code in (401, 403) and backend.provider:
+        probe.detail = (f"{backend.provider} refused its API key" if provider_key(backend.provider)
+                        else f"{backend.provider} wants an API key: add it to the provider")
         return probe
     if response.status_code != 200:
         probe.detail = f"{backend.health_path} answered {response.status_code}"
         return probe
     listed = _listed(response)
+    probe.peer = _from_toolkit(response)
     if listed is None:
         probe.state, probe.detail = "ok", "answers"
     elif _lists(listed, name):
@@ -123,8 +140,11 @@ def _probe_hub(spec: ServerSpec, backend: Backend, probe: Probe) -> Probe:
     except registry.UnsupportedModel as e:
         probe.detail = str(e)
         return probe
+    unread = [name for name in backend.load_settings() if name not in cls.load_settings]
     if cls is ServerModel:
         probe.detail = f"{backend.hub} is a model server entry itself, not a model to run here"
+    elif unread:
+        probe.detail = f"{cls.__name__}, which runs {backend.hub}, does not read {', '.join(unread)}"
     else:
         probe.state, probe.detail = "ok", f"{backend.hub} runs in this process ({cls.__name__})"
     return probe
@@ -195,6 +215,33 @@ class ServerModel(BaseModel):
         return self.choice.inner.max_concurrency if self.choice.inner else self.choice.backend.max_concurrency
 
     @property
+    def batches(self) -> bool:
+        """An in-process backend's model batches as it would alone; a server batches for itself."""
+        return self.choice is not None and self.choice.inner is not None and self.choice.inner.batches
+
+    @property
+    def batch_size(self) -> int:
+        """The requests the Batcher gathers into one call: the in-process model's own number."""
+        return getattr(self.choice.inner, "batch_size", 32) if self.choice and self.choice.inner else 1
+
+    async def predict_batch(self, requests: List[Any]) -> List[Any]:
+        """The in-process model's batch; a server's requests one by one, as before batching (POST /inference/batch)."""
+        if self.choice.inner is not None:
+            return await self.choice.inner.run_batch(requests)
+        return [await self.predict(request) for request in requests]
+
+    @classmethod
+    def prompts(cls, model_id: str, revision: Optional[str] = None) -> Dict[str, str]:
+        """The prompts of the model the entry's first hub backend runs, at its revision; none without one."""
+        from .. import registry
+
+        spec = _specs.get(model_id)
+        backend = next((b for b in spec.backends if b.hub), None) if spec else None
+        cls = registry.resolve(backend.hub, spec.task) if backend else None
+        # An entry's hub model is never another entry (see _probe_hub), so neither are its prompts.
+        return {} if cls in (None, ServerModel) else cls.prompts(backend.hub, backend.revision)
+
+    @property
     def alive(self) -> bool:
         if self._gone:
             return False
@@ -230,13 +277,16 @@ class ServerModel(BaseModel):
         if backend.hub:
             from .. import registry
 
-            inner = registry.resolve(backend.hub, self.task)(backend.hub, self.task, self.device, self.options)
+            options = {**self.options, **backend.load_settings()}
+            inner = registry.resolve(backend.hub, self.task)(backend.hub, self.task, self.device, options)
             self.kind = "in-process"
         elif probes[index].state == "unlisted":
             logger.warning("%s: %s %s; using it, as no other backend can serve it",
                            self.model_id, probes[index].label, probes[index].detail)
         self.choice = Choice(index, backend, inner)
-        self.backend = f"{backend.label()}: {backend.hub or backend.upstream_model or self.model_id}"
+        self.backend = self._first_hop = f"{backend.label()}: {backend.hub or backend.upstream_model or self.model_id}"
+        self.peer = probes[index].peer
+        self.upstream = None if backend.cmd or backend.hub else backend.provider or urlsplit(backend.url).netloc.rpartition("@")[2]
         return self.choice
 
     async def estimate_bytes(self) -> Optional[int]:
@@ -277,7 +327,8 @@ class ServerModel(BaseModel):
             base_url = backend.url
         # Set before the readiness wait, so a failed start still stops it (see unload()).
         self.process = process
-        self.client = OpenAIClient(base_url, self._upstream, backend.extra, backend.request_timeout)
+        self.client = OpenAIClient(base_url, self._upstream, backend.extra, backend.request_timeout,
+                                   auth=bearer(backend.provider))
         if backend.cmd:
             # A server elsewhere already answered its probe.
             await processes.wait_ready(self.model_id, self.client.http, backend, process)
@@ -311,17 +362,24 @@ class ServerModel(BaseModel):
 
         try:
             if self.task == "embedding":
-                return await self.client.embed(request)
-            if self.task == "rerank":
-                return await self.client.rerank(request)
-            if self.task == "speech-to-text":
-                return await self.client.transcribe(request)
-            return await self.client.chat(request, on_text)
+                result = await self.client.embed(request)
+            elif self.task == "rerank":
+                result = await self.client.rerank(request)
+            elif self.task == "speech-to-text":
+                result = await self.client.transcribe(request)
+            else:
+                result = await self.client.chat(request, on_text)
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             # Nothing reached the server: it went away (Ollama quit, say). The cache drops this
             # instance and the manager retries the request once, on the backend chosen next.
             self._gone = True
             raise TryNextBackend(f"{self.model_id}: {self.choice.backend.label()} stopped answering ({e})") from e
+        # Another toolkit says which of its backends answered: ours goes on to it (none: a model of its own).
+        hop = self.client.toolkit
+        if hop is not None:
+            self.peer = True
+            self.backend = f"{self._first_hop} → {hop.get('backend') or 'in-process'}"
+        return result
 
     @property
     def _upstream(self) -> str:

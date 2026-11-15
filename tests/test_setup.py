@@ -112,3 +112,13 @@ def test_a_configured_key_means_no_setup(client, fresh, monkeypatch):
     monkeypatch.setattr(Config, "API_KEY", "already-configured")
     assert client.get("/admin/setup/status").json() == {"needed": False}
     assert setup(client).status_code == 409
+
+
+def test_the_setup_code_is_on_the_console_never_in_admin_logs(client, fresh, caplog, monkeypatch):
+    # /admin/logs needs no key before setup, so the code must not be read there.
+    monkeypatch.setattr(Config, "SETUP_CODE", "code-for-the-console-only")
+    with caplog.at_level("WARNING"):
+        app_module.create_app()
+    assert "code-for-the-console-only" in caplog.text
+    lines = client.get("/admin/logs", params={"limit": 2000}).json()["lines"]
+    assert lines and not any("code-for-the-console-only" in line["message"] for line in lines)

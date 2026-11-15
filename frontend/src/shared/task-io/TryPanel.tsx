@@ -3,7 +3,7 @@ import { CircleAlert, Loader2, Play } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AuthError, type ApiClient, type InferenceResponse } from "../api";
+import { useApi, AuthError, type InferenceResponse } from "../api";
 import { CodeBlock, Disclosure } from "../components";
 import { message } from "../errors";
 import { fmtMs } from "../format";
@@ -29,6 +29,7 @@ const IO: Record<string, TaskIO> = {
   embedding: { Input: inputs.EmbeddingInput, Output: outputs.EmbeddingOutput },
   "speech-to-text": { Input: inputs.SpeechInput, Output: outputs.TranscriptOutput },
   decision: { Input: inputs.DecisionInput, Output: outputs.DecisionOutput },
+  "tabular-prediction": { Input: inputs.TabularInput, Output: outputs.PredictionOutput },
 };
 
 function ioFor(task: string, hasContract: boolean): TaskIO {
@@ -44,8 +45,9 @@ const RAW_LIMIT = 20000;
  * input (checked against its contract and limits before sending), and its
  * result drawn for reading, with the raw response a click away.
  */
-export function TryPanel(props: { client: ApiClient; modelId: string; task: string; loaded: boolean; onRan?(): void }) {
-  const { client, modelId, task } = props;
+export function TryPanel(props: { modelId: string; task: string; loaded: boolean; onRan?(): void }) {
+  const client = useApi();
+  const { modelId, task } = props;
   // GET /tasks changes only with a restart: asked once per page, every panel sharing the reply.
   const contracts = client.useQuery("get", "/tasks", undefined, { staleTime: Infinity, select: (d): TasksResponse => d });
   const [built, setBuilt] = useState<Built>({ input: null, problem: "" });
@@ -96,7 +98,7 @@ export function TryPanel(props: { client: ApiClient; modelId: string; task: stri
       {/* noValidate: the input's own checks (built.problem) decide, with a message; the browser's would block silently. */}
       <form className="grid gap-4" onSubmit={run} noValidate>
         {/* Keyed, so another model or task starts from a fresh form. */}
-        <io.Input key={`${task}\n${modelId}`} ctx={{ task, schema: info?.input ?? null, limits: tasks.limits }} onChange={setBuilt} />
+        <io.Input key={`${task}\n${modelId}`} ctx={{ task, modelId, schema: info?.input ?? null, limits: tasks.limits }} onChange={setBuilt} />
         <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
           <Button type="submit" disabled={running || Boolean(built.problem)}>
             {running ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}

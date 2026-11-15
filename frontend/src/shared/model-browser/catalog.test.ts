@@ -3,6 +3,8 @@ import {
   defaultTask,
   filterModels,
   memoryBar,
+  modelFromParams,
+  modelHref,
   matchesPattern,
   otherIdProblem,
   planSummary,
@@ -148,5 +150,14 @@ describe("defaultTask", () => {
     expect(defaultTask([t("custom", 0), t("embedding", 2)])).toBe("embedding");
     expect(defaultTask([t("custom", 0)])).toBe("custom");
     expect(defaultTask([])).toBe("");
+  });
+});
+
+describe("a link to a model's details", () => {
+  it("names the model and its task, and is read back", () => {
+    const href = modelHref("trained:ab12cd34", "text-classification");
+    expect(href).toBe("#/models?model=trained%3Aab12cd34&task=text-classification");
+    expect(modelFromParams(new URLSearchParams(href.split("?")[1]))).toEqual({ id: "trained:ab12cd34", task: "text-classification" });
+    expect(modelFromParams(new URLSearchParams("model=x"))).toBeUndefined();
   });
 });

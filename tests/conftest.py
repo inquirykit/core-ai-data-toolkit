@@ -1,3 +1,4 @@
+import base64
 import os
 import sys
 import tempfile
@@ -17,25 +18,22 @@ os.environ.pop("SETUP_CODE", None)
 os.environ.setdefault("IMAGE_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "images"))
 # No model servers from a developer's file, and no Hub lookups for size estimates.
 os.environ["MODEL_SERVERS_FILE"] = os.path.join(_TMP, "model_servers.toml")
-os.environ["MODEL_SERVERS_SAVED_FILE"] = os.path.join(_TMP, "model_servers.json")
 os.environ["MODEL_SERVERS_ALLOW_COMMANDS"] = "false"
 os.environ["HF_HUB_OFFLINE"] = "1"
 # The app evicts an idle model at once, as the route tests expect; tests/test_scheduling.py sets keep and turn itself.
 os.environ["MODEL_KEEP_S"] = "0"
 os.environ["MODEL_TURN_S"] = "0"
-# A throwaway ArcadeDB database for /collections.
-os.environ["ARCADEDB_PATH"] = os.path.join(_TMP, "arcadedb")
-# Throwaway job table, job files and inputs; no job environments.
-os.environ["JOBS_DIR"] = os.path.join(_TMP, "jobs")
-os.environ["JOB_DATA_DIR"] = os.path.join(_TMP, "datasets")
+# A throwaway DATA_DIR for everything the service keeps: the database, job and bucket files, model servers saved
+# from /admin, evidence captures and their key, the saved keys.
+os.environ["DATA_DIR"] = os.path.join(_TMP, "data")
+# No job environments, no time stamping authority, every enricher's terms.
 os.environ["JOB_ENVS_DIR"] = os.path.join(_TMP, "envs")
-# Throwaway enricher files and result cache; no API keys from the developer's environment.
-os.environ["ENRICHERS_DIR"] = os.path.join(_TMP, "enrichers")
-os.environ["ENRICHER_TERMS"] = "open,attribution,non_commercial,paid"
-# Throwaway evidence captures and signing key; no time stamping authority.
-os.environ["EVIDENCE_DIR"] = os.path.join(_TMP, "evidence")
-os.environ["EVIDENCE_KEY_FILE"] = os.path.join(_TMP, "evidence", "keys", "ed25519.pem")
 os.environ["EVIDENCE_TSA_URL"] = ""
+os.environ["ENRICHER_TERMS"] = "open,attribution,non_commercial,paid"
+# The saved keys are opened by this master key: nothing reaches the developer's credential store.
+os.environ["SECRETS_MASTER_KEY"] = base64.urlsafe_b64encode(b"test-master-key-only-for-tests!!").decode()
+os.environ.pop("SECRETS_MASTER_KEY_FILE", None)
+os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
 
 
 import pytest
@@ -55,18 +53,17 @@ def built_pages(tmp_path, monkeypatch):
     """Stand-ins for the pages frontend/ builds, so tests need no Node build."""
     from api import pages
 
-    for name, title in [("admin", "Admin"), ("setup", "Setup"), ("playground", "Playground")]:
+    for name, title in [("admin", "Admin"), ("setup", "Setup")]:
         (tmp_path / f"{name}.html").write_text(f"<!doctype html><title>AI &amp; Data Toolkit · {title}</title><div id=root></div>")
     monkeypatch.setattr(pages, "STATIC_DIR", tmp_path)
     return tmp_path
 
 
 @pytest.fixture
-def arcade(tmp_path):
-    """A throwaway ArcadeDB database of its own, for stores built outside the app."""
+def own_db(tmp_path):
+    """A throwaway database of its own, for stores built outside the app."""
     from db import Database
 
-    database = Database(str(tmp_path / "arcadedb"))
-    database.start_jvm()  # pytest runs tests on the main thread
+    database = Database(str(tmp_path / "toolkit.duckdb"))
     yield database
     database.close()

@@ -74,6 +74,9 @@ export function fmtDuration(s: number): string {
   return `${(s / 86400).toFixed(1)} d`;
 }
 
+/** Seconds as "12 s" under a minute, else fmtDuration ("3 min", "1.5 h"). */
+export const fmtSeconds = (s: number): string => (s < 60 ? `${Math.round(s)} s` : fmtDuration(s));
+
 /** A status's label and colour from ``statuses``; one this build does not know is shown as it is, in ``fallback``. */
 export function statusOf(statuses: Record<string, Status>, key: string, fallback = "var(--axis)"): Status {
   return statuses[key] ?? { label: key, color: fallback };

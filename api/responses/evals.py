@@ -1,46 +1,11 @@
-"""/admin/traces, /admin/datasets, /admin/runs: traces, datasets, runs, scores, the judge."""
+"""/admin/datasets, /admin/runs: datasets, runs, scores, the judge."""
 
 from typing import Any, Dict, List, Literal, Optional
 
 
 from evals.scoring import METRICS
+from .tasks import TaskStatus
 from .common import Json, Out
-
-
-class TraceSummary(Out):
-    id: str
-    ts: float
-    model_id: str
-    task: str
-    status: str
-    duration_ms: float
-    cold: bool
-    error: Optional[str]
-    tags: List[str]
-    session: Optional[str]
-    # Which backend of a model server answered, e.g. "ollama: qwen3.5:4b" (absent for other models)
-    backend: Optional[str] = None
-    input_chars: int
-    output_chars: int
-    # The first words of the input and output
-    preview: str
-
-
-class Trace(TraceSummary):
-    input: Json
-    output: Optional[Json]
-
-
-class TraceCapture(Out):
-    enabled: bool
-    retention_days: float
-    max_chars: int
-    dropped: int
-
-
-class Traces(Out):
-    traces: List[TraceSummary]
-    capture: TraceCapture
 
 
 class Dataset(Out):
@@ -48,6 +13,8 @@ class Dataset(Out):
     name: str
     description: str
     created: float
+    # The choices a reference is picked from when labeling; empty: typed
+    labels: List[str]
     examples: int
     runs: int
 
@@ -71,12 +38,21 @@ class DatasetExample(Out):
     source_output: Optional[Json]
 
 
+class ExampleToLabel(DatasetExample):
+    # What the chosen run answered for it, else what the traced model did
+    suggestion: Optional[Json]
+
+
+class ExamplesToLabel(Out):
+    examples: List[ExampleToLabel]
+    # The examples without a reference
+    left: int
+
+
 class DatasetExamples(Out):
     examples: List[DatasetExample]
     total: int
-
-
-RunStatus = Literal["queued", "running", "done", "failed", "cancelled", "interrupted"]
+    next: Optional[str] = None
 
 
 class RunActivity(Out):
@@ -93,7 +69,8 @@ class Run(Out):
     model_id: str
     task: Optional[str]
     params: Json
-    status: RunStatus
+    # Its newest task's
+    status: TaskStatus
     created: float
     started: Optional[float]
     finished: Optional[float]
@@ -106,6 +83,7 @@ class Run(Out):
 
 class Runs(Out):
     runs: List[Run]
+    next: Optional[str] = None
 
 
 class DatasetDetail(Dataset):
@@ -151,15 +129,38 @@ class MetricSummary(Out):
     wins: Optional[int] = None
     ties: Optional[int] = None
     losses: Optional[int] = None
+    # Set for a metric where less is better (word error rate)
+    lower_is_better: Optional[bool] = None
+
+
+class LabelScores(Out):
+    label: str
+    precision: float
+    recall: float
+    f1: float
+    # The items whose reference is this label
+    support: int
+
+
+class ClassificationReport(Out):
+    """A run whose outputs are labels, over its items with a reference."""
+    count: int
+    accuracy: float
+    macro_f1: float
+    labels: List[LabelScores]
+    # A row per reference label, a column per predicted one, in labels' order; none past 50 labels
+    confusion: Optional[List[List[int]]]
 
 
 class RunDetail(Run):
     items: List[RunItem]
     summary: Dict[str, MetricSummary]
+    classification: Optional[ClassificationReport] = None
 
 
 class RunSummary(Run):
     summary: Dict[str, MetricSummary]
+    classification: Optional[ClassificationReport] = None
 
 
 class Scored(Out):
@@ -176,6 +177,15 @@ class JudgeStarted(Out):
 
 class ExamplesAdded(Out):
     added: int
+
+
+class TrainingFile(Out):
+    """POST /admin/datasets/{id}/training-file: what it wrote."""
+    # Inside DATA_DIR/datasets: the job's train_file
+    path: str
+    rows: int
+    # Each label and how many examples it has
+    labels: Dict[str, int]
 
 
 class CompareSide(Out):
@@ -212,8 +222,6 @@ class MetricInfo(Out):
 
 class JudgeDefaults(Out):
     model: str
-    base_url: str
-    has_api_key: bool
     rubric: str
 
 

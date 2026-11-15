@@ -1,10 +1,8 @@
 """
 Cache of enricher results, one row per (enricher, type, value): a /db table
-in the ``enrichers`` namespace (db/tables.py), which the admin's Data
-section shows read-only. MemoryCache keeps the rows in this process instead,
-for a service without a database (ARCADEDB_PATH empty) and for tests. Their
-methods are async: ResultCache's run on the database's thread pool
-(db/engine.py).
+in the ``enrichers`` workspace (db/tables.py), which the admin's Data
+section shows read-only. Its methods are async and run on the database's
+thread pool (db/engine.py).
 
 A result is served from here until its enricher's TTL has passed, so a value
 looked up twice costs one request against the source's quota. Rows hold the
@@ -16,19 +14,18 @@ it to the toolkit's own clients only. Expired rows go when ``prune`` runs
 import hashlib
 import json
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from db import Database, DocumentStore, on_pool
 from db.tables import TableSchema, TableStore, schema_of, table_type
 
-NAMESPACE = "enrichers"
+WORKSPACE = "enrichers"
 TABLES: Dict[str, TableSchema] = {
-    # raw is the source's reply as JSON text: as a map, ArcadeDB would read a top-level "@type" (JSON-LD) as one
-    # of its type names, and refuse an integer of 2^63 or more.
+    # raw is the source's reply as JSON text, kept as it came (an integer of 2^63 or more too).
     "results": schema_of("enricher:string+", "type:string", "value:string", "status:string", "http_status:integer",
                          "outputs:object", "raw:string", "observed_at:number", "expires_at:number+"),
 }
-RESULT = table_type(NAMESPACE, "results")
+RESULT = table_type(WORKSPACE, "results")
 
 
 def _id(enricher: str, type_: str, value: str) -> str:
@@ -57,7 +54,7 @@ def _result(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 class ResultCache(DocumentStore):
-    NAMESPACE = NAMESPACE
+    WORKSPACE = WORKSPACE
     OWNER = "the enrichers' result cache: it fills itself"
     TABLES = TABLES
 
@@ -66,19 +63,20 @@ class ResultCache(DocumentStore):
 
     @on_pool
     def get(self, enricher: str, type_: str, value: str) -> Optional[Dict[str, Any]]:
-        return _result(self._one(f"SELECT FROM {RESULT} WHERE id = :id", {"id": _id(enricher, type_, value)}))
+        return _result(self._one(f"SELECT * FROM {RESULT} WHERE id = $id", {"id": _id(enricher, type_, value)}))
 
     @on_pool
     def put(self, enricher: str, type_: str, value: str, result: Dict[str, Any], ttl_s: int) -> None:
         row = _row(enricher, type_, value, result, ttl_s)
-        self._command(f"UPDATE {RESULT} CONTENT :row UPSERT WHERE id = :id", {"row": row, "id": row["id"]})
+        db = self._db()
+        self._commit(db, lambda: self._t.write_row(db, WORKSPACE, "results", row))
 
     @on_pool
     def forget(self, enricher: Optional[str] = None) -> int:
         """Drop every cached result, or one enricher's. Returns how many."""
         if enricher is None:
             return self._command(f"DELETE FROM {RESULT}")
-        return self._command(f"DELETE FROM {RESULT} WHERE enricher = :enricher", {"enricher": enricher})
+        return self._command(f"DELETE FROM {RESULT} WHERE enricher = $enricher", {"enricher": enricher})
 
     @on_pool
     def prune(self) -> int:
@@ -87,33 +85,3 @@ class ResultCache(DocumentStore):
 
     def close(self) -> None:
         """Nothing to close: the database is shared (api/app.py closes it)."""
-
-
-class MemoryCache:
-    """The same cache in a dict, for a service without a database."""
-
-    def __init__(self) -> None:
-        # Read and written on the event loop only, never across an await: no lock.
-        self._rows: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
-
-    async def get(self, enricher: str, type_: str, value: str) -> Optional[Dict[str, Any]]:
-        return _result(self._rows.get((enricher, type_, value)))
-
-    async def put(self, enricher: str, type_: str, value: str, result: Dict[str, Any], ttl_s: int) -> None:
-        self._rows[(enricher, type_, value)] = _row(enricher, type_, value, result, ttl_s)
-
-    async def forget(self, enricher: Optional[str] = None) -> int:
-        keys = [k for k in self._rows if enricher is None or k[0] == enricher]
-        for k in keys:
-            del self._rows[k]
-        return len(keys)
-
-    async def prune(self) -> int:
-        now = time.time()
-        expired = [k for k, row in self._rows.items() if row["expires_at"] <= now]
-        for k in expired:
-            del self._rows[k]
-        return len(expired)
-
-    def close(self) -> None:
-        pass

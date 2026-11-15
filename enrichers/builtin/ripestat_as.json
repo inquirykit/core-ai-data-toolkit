@@ -1,6 +1,5 @@
 {
   "name": "ripestat_as",
-  "kind": "http",
   "description": "Holder and announcement status of an AS number (RIPEstat, keyless)",
   "docs": "https://stat.ripe.net/docs/02.data-api/as-overview.html",
   "inputs": [

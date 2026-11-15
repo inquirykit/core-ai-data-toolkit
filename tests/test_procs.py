@@ -83,28 +83,17 @@ def test_python_env_puts_the_project_on_the_path():
     assert procs.python_env(False).get("CUDA_VISIBLE_DEVICES") == os.environ.get("CUDA_VISIBLE_DEVICES")
 
 
-def test_hidden_names_stay_out_of_children(monkeypatch):
-    monkeypatch.setenv("TK_TEST_SECRET", "s3cret")
-    monkeypatch.setenv("TK_TEST_PLAIN", "fine")
-    monkeypatch.setattr(procs, "hidden", set())
-    procs.hide("TK_TEST_SECRET", "")
+def test_a_child_gets_what_a_program_needs_and_never_a_key(monkeypatch):
+    """Whatever a secret is named, a child does not get it: only what is listed as a program's needs passes."""
+    for name, value in (("TK_TEST_SECRET", "s3cret"), ("API_KEY", "k"), ("PROVIDER_CLOUD_API_KEY", "sk"),
+                        ("R2_SECRET_ACCESS_KEY", "r2"), ("NVIDIA_API_KEY", "nv"), ("OLLAMA_API_KEY", "ol"),
+                        ("HTTPS_PROXY", "http://proxy:3128"), ("HF_HOME", "/hf"), ("HF_TOKEN", "hf_x"),
+                        ("POLARS_MAX_THREADS", "2"), ("LC_ALL", "C"), ("CUDA_VISIBLE_DEVICES", "0")):
+        monkeypatch.setenv(name, value)
     env = procs.python_env(False, JOB_ID="j1")
-    assert "TK_TEST_SECRET" not in env and env["TK_TEST_PLAIN"] == "fine" and env["JOB_ID"] == "j1"
-    assert procs.child_env(X="1")["X"] == "1" and "TK_TEST_SECRET" not in procs.child_env()
-
-
-def test_a_source_is_asked_before_each_child_and_its_names_stay_hidden(monkeypatch):
-    monkeypatch.setenv("TK_TEST_FIRST", "one")
-    monkeypatch.setenv("TK_TEST_LATER", "two")
-    monkeypatch.setattr(procs, "hidden", set())
-    monkeypatch.setattr(procs, "_sources", [])
-    named = {"TK_TEST_FIRST"}
-    procs.hide_from(lambda: set(named))
-    assert "TK_TEST_FIRST" not in procs.child_env() and procs.child_env()["TK_TEST_LATER"] == "two"
-    # Named while the service runs: hidden from the next child on.
-    named.add("TK_TEST_LATER")
-    assert "TK_TEST_LATER" not in procs.child_env()
-    # No longer named, but its value is still in the environment: still hidden.
-    named.clear()
-    env = procs.python_env(False)
-    assert "TK_TEST_FIRST" not in env and "TK_TEST_LATER" not in env
+    assert not {"TK_TEST_SECRET", "API_KEY", "PROVIDER_CLOUD_API_KEY", "R2_SECRET_ACCESS_KEY", "NVIDIA_API_KEY",
+                "OLLAMA_API_KEY"} & set(env)
+    assert env["HF_TOKEN"] == "hf_x" and env["POLARS_MAX_THREADS"] == "2"
+    assert env["HTTPS_PROXY"] == "http://proxy:3128" and env["HF_HOME"] == "/hf" and env["LC_ALL"] == "C"
+    assert env["CUDA_VISIBLE_DEVICES"] == "0" and env["PATH"] == os.environ["PATH"] and env["JOB_ID"] == "j1"
+    assert procs.child_env(TK_GIVEN="1")["TK_GIVEN"] == "1"

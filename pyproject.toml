@@ -5,7 +5,7 @@
 # conflict with these.
 [project]
 name = "ai-toolkit"
-version = "0.2alpha23"
+version = "0.5alpha28"
 description = "A self-hosted service for small AI models and the data work around them"
 license = "MIT"
 requires-python = ">=3.11"
@@ -24,19 +24,28 @@ dependencies = [
     "soundfile>=0.13",
     "tokenizers>=0.15.0",
     "sentencepiece>=0.1.99",
+    # Embedding and rerank models load through it: whatever pooling, layers, prompts or scoring head the model's
+    # Hub repo declares, cross-encoders and causal-LM rerankers alike
+    "sentence-transformers>=6.2.0",
     # FastVLM's Hub code (trust_remote_code) imports timm
     "timm>=1.0.30",
-    # /collections: embedded ArcadeDB with vector search (bundles its own Java runtime)
-    "arcadedb-embedded==26.10.1",
+    # /db and everything the service stores: embedded DuckDB, with its full-text extension (fts, downloaded once)
+    "duckdb==2.0.0",
     "jsonschema>=4.26.0",
     # /enrich: calling the enrichers' HTTP APIs, and mapping their JSON replies (JMESPath)
     "httpx>=0.25",
     "jmespath>=1.0.1",
     "cryptography>=50.0.2",
+    # The master key of the API keys typed into /admin: the OS's credential store, on any platform (core/keystore.py)
+    "keyring>=25.6.0",
     "rfc8785>=0.1.4",
     "rfc3161-client>=1.0.9",
     "pydantic-evals>=2.61.0",
     "pydantic-ai-slim[openai,retries]>=2.61.0",
+    # A bucket's remote (S3, R2, B2, GCS, Azure, a folder...): its files are copied there (buckets/remotes.py)
+    "opendal==0.47.12",
+    # Installs the job environments (scripts/setup_job_env.sh, run by the setup-env job): every install has it
+    "uv>=0.9.0",
 ]
 
 [project.optional-dependencies]

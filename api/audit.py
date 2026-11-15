@@ -56,10 +56,11 @@ def record(log: Optional[AuditLog], request: Request, status: int, started: floa
     if log is None or route is None or not audited(route, request.method):
         return
     query = request.url.query
+    who = deps.caller(request)
     log.record(
         ts=started, method=request.method, route=route.path, path=request.url.path + (f"?{query}" if query else ""),
         status=status, duration_ms=(time.time() - started) * 1000,
-        actor=deps.key_used(request.headers.get("authorization"), request.headers.get("x-api-key")),
+        actor=who.level, key_id=who.key,
         ip=request.client.host if request.client else None, forwarded=request.headers.get("x-forwarded-for"),
         agent=request.headers.get("user-agent"),
     )

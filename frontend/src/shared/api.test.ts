@@ -6,12 +6,12 @@ import type { Job } from "./types";
 describe("fillPath", () => {
   it("fills the path's parameters, encoded", () => {
     expect(fillPath("/jobs/{id}/cancel", { id: "a b" })).toBe("/jobs/a%20b/cancel");
-    expect(fillPath("/db/{namespace}/{table}", { namespace: "n", table: "t?x" })).toBe("/db/n/t%3Fx");
+    expect(fillPath("/db/{workspace}/{table}", { workspace: "n", table: "t?x" })).toBe("/db/n/t%3Fx");
   });
 
   it("keeps a model ID's slash, but not a dot segment", () => {
-    expect(fillPath("/hub/local/{repo_id}", { repo_id: "Qwen/Qwen2.5-0.5B" })).toBe("/hub/local/Qwen/Qwen2.5-0.5B");
-    expect(fillPath("/hub/local/{repo_id}", { repo_id: "../admin" })).toBe("/hub/local/%2E%2E/admin");
+    expect(fillPath("/models/{model_id}/{task}", { model_id: "Qwen/Qwen2.5-0.5B", task: "chat" })).toBe("/models/Qwen/Qwen2.5-0.5B/chat");
+    expect(fillPath("/models/{model_id}/{task}", { model_id: "../admin", task: "chat" })).toBe("/models/%2E%2E/admin/chat");
   });
 
   it("refuses a missing parameter", () => {
@@ -84,6 +84,17 @@ describe("createClient", () => {
   it("refuses a web page where a reply should be", async () => {
     const { client } = fake([reply(200, "<!doctype html><html></html>", "text/html")]);
     await expect(client.get("/admin/setup/status")).rejects.toThrow("got a web page");
+  });
+
+  it("hands over a file whose type is a web page: a bucket's .html is a download, not a stray page", async () => {
+    const page = "<!doctype html><script>alert(1)</script>";
+    const headers = { "Content-Type": "text/html; charset=utf-8", "Content-Disposition": 'attachment; filename="page.html"' };
+    const { client } = fake([new Response(page, { status: 200, headers }), reply(200, page, "text/html; charset=utf-8")]);
+    const path = { workspace: "default", bucket: "scans", file_id: "f".repeat(32) };
+    const response = await client.raw("get", "/db/{workspace}/{bucket}/_files/{file_id}", { params: { path } });
+    expect(await response.text()).toBe(page);
+    // The same page without the attachment is what a proxy's fallback sends: still refused.
+    await expect(client.raw("get", "/db/{workspace}/{bucket}/_files/{file_id}", { params: { path } })).rejects.toThrow("got a web page");
   });
 
   it("throws AuthError on 401, after telling the page whether a key was sent", async () => {

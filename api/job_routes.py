@@ -6,7 +6,7 @@ background (see jobs/runner.py). Poll GET /jobs/{id}, or follow
 GET /jobs/{id}/events (server-sent events: status changes and log text).
 A job's outputs are files in its directory (GET /jobs/{id}/files).
 
-Input files go in JOB_DATA_DIR, uploaded with POST /jobs/data; job params
+Input files go in DATA_DIR/datasets, uploaded with POST /jobs/data; job params
 name them by their path there.
 
 Every endpoint needs the admin key: a job can run for hours on every core.
@@ -15,42 +15,26 @@ Every endpoint needs the admin key: a job can run for hours on every core.
 import asyncio
 import codecs
 import json
-import os
-import re
-import tempfile
-from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Path as PathParam, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
-from core.config import Config
 from jobs import registry
 from jobs.runner import JobRunner
-from tasks.store import FINISHED, RETRY_DELAY_S, public
-from tasks.runner import MAX_RETRIES, MAX_RETRY_DELAY_S
-from core.errors import NotFound, Refused, TooLarge
-from . import audit, deps
+from tasks.runner import FINISHED, Retries, public
+from tasks.schedule import ScheduleSpec
+from core.errors import NotFound
+from . import deps
 from . import responses
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=deps.ADMIN)
 
 JobId = PathParam(..., pattern=r"^[0-9a-f]{8,32}$")
-# Uploaded file names: no folders, no hidden files.
-_FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$")
-MAX_LISTED_FILES = 2000
 EVENTS_POLL_S = 0.5
-
-
-class Retries(BaseModel):
-    """What happens to a job that fails or runs too long (tasks/runner.py)."""
-
-    retries: int = Field(0, ge=0, le=MAX_RETRIES, description="Times a job that fails (a timeout too) is queued again")
-    retry_delay_s: float = Field(RETRY_DELAY_S, ge=1, le=MAX_RETRY_DELAY_S,
-                                 description="Seconds before the first retry; doubled before each next one, up to an hour")
-    timeout_s: Optional[float] = Field(None, ge=1, description="Seconds a run may take; past them it is stopped and fails. "
-                                                               "Unset: no limit")
+# What an upload reads of its body at a time.
+UPLOAD_CHUNK = 1024 * 1024
 
 
 class SubmitJob(Retries):
@@ -62,28 +46,6 @@ class SubmitJob(Retries):
     priority: responses.Priority = Field("normal", description="Queued jobs start the most urgent first, then the oldest")
 
 
-class ScheduleBody(Retries):
-    """A schedule: a job and its params, run on a cron expression or every ``interval_s`` seconds, and the retries
-    and timeout of the jobs it submits."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field("", max_length=120, description="Shown in the dashboard; the job's name when empty")
-    job: str = Field(..., min_length=1, max_length=128)
-    params: Dict[str, Any] = Field(default_factory=dict)
-    cron: Optional[str] = Field(None, max_length=120, description="minute hour day-of-month month day-of-week, local time")
-    interval_s: Optional[float] = Field(None, ge=1, description="Seconds between runs (at least 60), instead of cron")
-    enabled: bool = True
-    webhook_url: Optional[str] = Field(None, max_length=2000)
-    priority: responses.Priority = Field("normal", description="The priority of the jobs it submits")
-
-
-class WebhookTest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    url: str = Field(..., min_length=1, max_length=2000)
-
-
 async def _existing_job(runner: deps.Jobs, id: str = JobId) -> JobRunner:
     """The runner, once job ``id`` is known to exist (404 otherwise)."""
     await runner.get(id)
@@ -93,84 +55,58 @@ async def _existing_job(runner: deps.Jobs, id: str = JobId) -> JobRunner:
 ExistingJob = Annotated[JobRunner, Depends(_existing_job)]
 
 
-def _inside(base: Path, relative: str) -> Path:
-    path = (base / relative).resolve()
-    if not path.is_relative_to(base.resolve()):
-        raise Refused("Path must stay inside the directory")
-    return path
-
-
-def _listing(base: Path) -> List[Dict[str, Any]]:
-    if not base.is_dir():
-        return []
-    files = []
-    for path in sorted(base.rglob("*")):
-        if path.is_file():
-            files.append({"path": path.relative_to(base).as_posix(), "bytes": path.stat().st_size})
-            if len(files) >= MAX_LISTED_FILES:
-                break
-    return files
-
-
 # ------------------------------------------------------------------- types
 @router.get("/types", **responses.answering(responses.JobTypes))
 async def job_types(runner: deps.Jobs):
-    """Every job: its environment (and whether that is set up), and the JSON Schema of its params and result."""
+    """Every job: its environment (whether it is set up, and from its requirements file as it is now), and the JSON
+    Schema of its params and result."""
     return {
-        "jobs": [{**job.describe(), "env_ready": runner.env_ready(job.env)} for job in registry.all_types()],
+        "jobs": [{**job.describe(), "env_ready": runner.env_ready(job.env), "env_current": runner.env_current(job.env)}
+                 for job in registry.all_types()],
         "limits": {
             "max_running_jobs": runner.max_running,
             "num_cpus": runner.num_cpus,
             "device": runner.device,
-            "max_upload_bytes": Config.JOB_MAX_UPLOAD_BYTES,
+            "max_upload_bytes": runner.data.max_bytes,
         },
     }
 
 
 # -------------------------------------------------------------- input data
-# These use no runner, but take it for its 503: with the jobs off, the files are no use.
-@router.get("/data")
+@router.get("/data", **responses.answering(responses.Files))
 async def list_data(runner: deps.Jobs):
-    """The files in JOB_DATA_DIR, which job params name by these paths."""
-    return {"files": await asyncio.to_thread(_listing, Config.JOB_DATA_DIR)}
+    """The files in DATA_DIR/datasets, which job params name by these paths."""
+    return {"files": await runner.data.list()}
 
 
-@router.post("/data", status_code=201)
+@router.get("/data/{path:path}/summary", **responses.answering(responses.FileSummary))
+async def summarize_data(runner: deps.Jobs, path: str):
+    """A CSV, TSV, Parquet or JSON Lines file's row count, each column's type, min, max, approximate distinct count,
+    mean and share missing, and its first 20 rows: what choosing a column to train on needs. 400 for a file that cannot
+    be read as a table."""
+    return await runner.data.summary(path)
+
+
+@router.post("/data", status_code=201, **responses.answering(responses.FileEntry))
 async def upload_data(runner: deps.Jobs, file: UploadFile = File(...)):
-    """Upload a file (CSV, Parquet, ...) to JOB_DATA_DIR under its own name; a file of that name is replaced."""
-    name = file.filename or ""
-    if not _FILE_NAME.match(name):
-        raise Refused("File name: letters, digits, '.', '_' and '-' only")
-    base = Config.JOB_DATA_DIR
-    base.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=base, prefix=".upload-")
-    size = 0
-    try:
-        with os.fdopen(fd, "wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > Config.JOB_MAX_UPLOAD_BYTES:
-                    raise TooLarge("File is larger than JOB_MAX_UPLOAD_BYTES")
-                out.write(chunk)
-        os.replace(tmp, base / name)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-    return {"path": name, "bytes": size}
+    """Upload a file (CSV, Parquet, ...) to DATA_DIR/datasets under its own name; a file of that name is replaced."""
+
+    async def chunks():
+        while chunk := await file.read(UPLOAD_CHUNK):
+            yield chunk
+
+    return await runner.data.save(file.filename or "", chunks())
 
 
-@router.delete("/data/{path:path}")
+@router.delete("/data/{path:path}", **responses.answering(responses.Deleted))
 async def delete_data(runner: deps.Jobs, path: str):
-    """Delete an input file from JOB_DATA_DIR."""
-    target = _inside(Config.JOB_DATA_DIR, path)
-    if not target.is_file():
-        raise NotFound("File not found")
-    target.unlink()
+    """Delete an input file from DATA_DIR/datasets."""
+    await runner.data.delete(path)
     return {"deleted": path}
 
 
 # -------------------------------------------------------------------- jobs
-@router.post("", **responses.answering(responses.Job), status_code=202)
+@router.post("", **responses.answering(responses.Task), status_code=202)
 async def submit_job(runner: deps.Jobs, body: SubmitJob):
     """Queue a job. 400 for an unknown job, params its schema rejects, or an environment not set up."""
     return public(await runner.submit(body.job, body.params, webhook_url=body.webhook_url, priority=body.priority,
@@ -182,8 +118,9 @@ ScheduleId = JobId  # the same form of id
 
 
 async def _existing_schedule(runner: deps.Jobs, id: str = ScheduleId) -> JobRunner:
-    """The runner, once schedule ``id`` is known to exist (404 otherwise)."""
-    await runner.scheduler.get(id)
+    """The runner, once schedule ``id`` is known to exist and to be a job's (404 otherwise: a workflow's trigger is
+    its workflow's)."""
+    await runner.scheduler.get(id, kind="job")
     return runner
 
 
@@ -192,26 +129,27 @@ ExistingSchedule = Annotated[JobRunner, Depends(_existing_schedule)]
 
 @router.get("/schedules", **responses.answering(responses.Schedules))
 async def list_schedules(runner: deps.Jobs):
-    """Every schedule with its next and last run (and the last job's status)."""
-    return {"schedules": await runner.scheduler.list()}
+    """Every job's schedule with its next and last run (and the last job's status)."""
+    return {"schedules": await runner.scheduler.list(kind="job")}
 
 
 @router.post("/schedules", **responses.answering(responses.Schedule), status_code=201)
-async def create_schedule(runner: deps.Jobs, body: ScheduleBody):
+async def create_schedule(runner: deps.Jobs, body: ScheduleSpec):
     """Add a schedule. 400 for an unknown job, params its schema rejects, or a cadence that is not cron / interval_s."""
-    return await runner.scheduler.create(body.model_dump())
+    return await runner.scheduler.create(body)
 
 
 @router.get("/schedules/{id}", **responses.answering(responses.Schedule))
 async def get_schedule(runner: deps.Jobs, id: str = ScheduleId):
-    """One schedule."""
-    return await runner.scheduler.get(id)
+    """One job's schedule."""
+    return await runner.scheduler.get(id, kind="job")
 
 
 @router.put("/schedules/{id}", **responses.answering(responses.Schedule))
-async def update_schedule(runner: ExistingSchedule, body: ScheduleBody, id: str = ScheduleId):
-    """Replace a schedule's fields; its next run is recomputed from now."""
-    return await runner.scheduler.update(id, body.model_dump())
+async def update_schedule(runner: ExistingSchedule, body: ScheduleSpec, id: str = ScheduleId):
+    """Replace a schedule's fields; its next run is recomputed from now when its cadence changed or it was switched
+    on or off, and stays as planned otherwise."""
+    return await runner.scheduler.update(id, body)
 
 
 @router.delete("/schedules/{id}", status_code=204, response_class=PlainTextResponse)
@@ -221,88 +159,65 @@ async def delete_schedule(runner: ExistingSchedule, id: str = ScheduleId):
     return PlainTextResponse(status_code=204)
 
 
-@router.post("/schedules/{id}/run", **responses.answering(responses.Job), status_code=202)
+@router.post("/schedules/{id}/run", **responses.answering(responses.Task), status_code=202)
 async def run_schedule(runner: ExistingSchedule, id: str = ScheduleId):
     """Submit the schedule's job now; the planned next run is unchanged."""
     return public(await runner.scheduler.run(id))
-
-
-# ---------------------------------------------------------------- webhooks
-@router.get("/webhooks", **responses.answering(responses.Webhooks))
-async def webhooks(hooks: deps.Webhooks):
-    """The configured webhook URLs (WEBHOOK_URLS), whether a signing secret is set, the event names, and the latest
-    deliveries with how each went (those still retried are queued, with the last try's error).
-
-    Eval runs post to them too, so these work with jobs off.
-    """
-    return {**hooks.describe(), "deliveries": await hooks.deliveries()}
-
-
-@router.post("/webhooks/test", **responses.answering(responses.WebhookTestResult))
-@audit.reads
-async def test_webhook(hooks: deps.Webhooks, body: WebhookTest):
-    """Send a ``test`` event to the URL now and report what it answered."""
-    if not body.url.startswith(("http://", "https://")):
-        raise Refused("url must start with http:// or https://")
-    return await hooks.test(body.url)
 
 
 @router.get("", **responses.answering(responses.Jobs))
 async def list_jobs(
     runner: deps.Jobs,
     limit: int = Query(50, ge=1, le=500),
-    status: Optional[responses.JobStatus] = None,
+    status: Optional[responses.TaskStatus] = None,
+    job: List[str] = Query([], max_length=50, description="Only these jobs (a name from GET /jobs/types), e.g. "
+                                                          "job=autogluon-tabular&job=autogluon-timeseries"),
+    ref: Optional[str] = Query(None, max_length=256, description="Only the jobs working on this: the value of the "
+                                                                "param a job names as its ref (autogluon-predict's "
+                                                                "predictor)"),
+    cursor: deps.Cursor = None,
 ):
-    """Jobs, newest first."""
-    return {"jobs": [public(row) for row in await runner.store.list(limit, status)]}
+    """Jobs, newest first, a page at a time. Jobs are kept until deleted, so the list only grows."""
+    rows, after = await runner.tasks.page(limit, cursor, kind="job", statuses=[status] if status else (), jobs=job,
+                                          ref=ref)
+    return responses.page("jobs", [public(row) for row in rows], after)
 
 
-@router.get("/{id}", **responses.answering(responses.Job))
+@router.get("/{id}", **responses.answering(responses.Task))
 async def get_job(runner: deps.Jobs, id: str = JobId):
     """The job: its status, progress, message, result and error."""
     return public(await runner.get(id))
 
 
-@router.post("/{id}/cancel", **responses.answering(responses.Job))
+@router.post("/{id}/cancel", **responses.answering(responses.Task))
 async def cancel_job(runner: ExistingJob, id: str = JobId):
     """Cancel a queued job, or stop a running one (its whole process group). A finished job is left as is."""
     return public(await runner.cancel(id))
 
 
 @router.delete("/{id}", **responses.answering(responses.Deleted))
-async def delete_job(runner: ExistingJob, id: str = JobId):
-    """Delete a finished job and its files (a trained predictor too)."""
-    await runner.delete(id)
+async def delete_job(runner: ExistingJob, manager: deps.Manager, id: str = JobId):
+    """Delete a finished job and its files. A model it trained goes too, and is unloaded if it was loaded."""
+    row = await runner.delete(id)
+    # After its files: a request arriving in between finds nothing to load again.
+    result = row.get("result") or {}
+    if isinstance(result, dict) and result.get("model_id") and result.get("task"):
+        try:
+            await manager.unload_model(result["model_id"], result["task"])
+        except NotFound:
+            pass  # not loaded
     return {"deleted": id}
 
 
 @router.get("/{id}/log", response_class=PlainTextResponse)
 async def job_log(runner: ExistingJob, id: str = JobId, tail: int = Query(200_000, ge=1, le=10_000_000)):
     """The end of the job's log (what it and its libraries printed): the last ``tail`` bytes."""
-    path = runner.workdir(id) / "job.log"
-
-    def read() -> str:
-        if not path.is_file():
-            return ""
-        with open(path, "rb") as f:
-            f.seek(max(0, path.stat().st_size - tail))
-            return f.read().decode("utf-8", errors="replace")
-
-    return await asyncio.to_thread(read)
+    return await runner.log_tail(id, tail)
 
 
 @router.get("/{id}/events")
 async def job_events(request: Request, runner: ExistingJob, id: str = JobId):
     """Server-sent events until the job ends: ``status`` (the job, on every change) and ``log`` (new log text)."""
-    path = runner.workdir(id) / "job.log"
-
-    def read_from(offset: int) -> tuple:
-        if not path.is_file():
-            return b"", offset
-        with open(path, "rb") as f:
-            f.seek(offset)
-            data = f.read(1024 * 1024)
-        return data, offset + len(data)
 
     def event(name: str, data: Any) -> str:
         return f"event: {name}\ndata: {json.dumps(data)}\n\n"
@@ -311,10 +226,10 @@ async def job_events(request: Request, runner: ExistingJob, id: str = JobId):
         offset, last = 0, None
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while True:
-            row = await runner.store.get(id)
+            row = await runner.tasks.lookup(id)
             if row is None:
                 return
-            data, offset = await asyncio.to_thread(read_from, offset)
+            data, offset = await runner.log_from(id, offset)
             if data:
                 yield event("log", {"text": decoder.decode(data)})
             state = (row["status"], row["progress"], row["message"])
@@ -332,16 +247,14 @@ async def job_events(request: Request, runner: ExistingJob, id: str = JobId):
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
-@router.get("/{id}/files")
+@router.get("/{id}/files", **responses.answering(responses.Files))
 async def job_files(runner: ExistingJob, id: str = JobId):
     """The files in the job's directory: params, log, result and its outputs."""
-    return {"files": await asyncio.to_thread(_listing, runner.workdir(id))}
+    return {"files": await runner.files(id)}
 
 
 @router.get("/{id}/files/{path:path}")
 async def job_file(runner: ExistingJob, path: str, id: str = JobId):
     """One file of the job's directory."""
-    target = _inside(runner.workdir(id), path)
-    if not target.is_file():
-        raise NotFound("File not found")
+    target = runner.file(id, path)
     return FileResponse(target, filename=target.name)

@@ -8,7 +8,9 @@ import {
   emptyEntry,
   entryForm,
   entryFromForm,
+  HOSTED_PROVIDER_PRESETS,
   locationFromHash,
+  PROVIDER_PRESETS,
   providerNameProblem,
   serversHash,
   shellJoin,
@@ -97,6 +99,21 @@ describe("the entry form", () => {
     ]);
     expect(validateEntry({ ...emptyEntry(), model_id: "m", backends: [] }, [])).toEqual(["Add at least one backend"]);
   });
+
+  it("keeps a hub backend's load settings, and only a hub backend's", () => {
+    const hub: ModelEntry = { task: "rerank", backends: [{ hub: "BAAI/bge-reranker-v2-m3", revision: "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e", max_length: 512 }] };
+    const form = entryForm(hub, "bge-rerank");
+    expect(validateEntry(form, [])).toEqual([]);
+    expect(entryFromForm(form)).toEqual(hub);
+    // Another kind drops them.
+    expect(backendFromForm({ ...form.backends[0], kind: "url", url: "http://gpu:8000" })).toEqual({ url: "http://gpu:8000" });
+    form.backends[0].revision = "-main";
+    form.backends[0].max_length = "0";
+    expect(validateEntry(form, [])).toEqual([
+      "Backend 1: the revision is a branch, tag or commit",
+      "Backend 1: Max length is a whole number from 1 to 1048576",
+    ]);
+  });
 });
 
 describe("the provider's name", () => {
@@ -105,6 +122,32 @@ describe("the provider's name", () => {
     expect(providerNameProblem("lm-studio_2")).toBe("");
     expect(providerNameProblem("LM Studio")).toMatch(/lower case/);
     expect(providerNameProblem("")).toMatch(/lower case/);
+  });
+});
+
+describe("the provider presets", () => {
+  it("each have a name the API takes, their own, and a base URL without /v1", () => {
+    const names = PROVIDER_PRESETS.map(([, name]) => name);
+    expect(names.map(providerNameProblem).filter(Boolean)).toEqual([]);
+    expect(new Set(names).size).toBe(names.length);
+    // The client adds /v1/... to the URL itself.
+    for (const [, , settings] of PROVIDER_PRESETS) expect(settings.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it("ask only Ollama to unload a model, the one server that understands it", () => {
+    expect(PROVIDER_PRESETS.filter(([, , s]) => s.on_evict === "unload").map(([, name]) => name)).toEqual(["ollama"]);
+  });
+});
+
+describe("the hosted provider presets", () => {
+  it("have names of their own and send their key over https, to a URL without /v1", () => {
+    const names = [...PROVIDER_PRESETS, ...HOSTED_PROVIDER_PRESETS].map(([, name]) => name);
+    expect(names.map(providerNameProblem).filter(Boolean)).toEqual([]);
+    expect(new Set(names).size).toBe(names.length);
+    for (const [, , settings] of HOSTED_PROVIDER_PRESETS) {
+      expect(settings.url).toMatch(/^https:\/\//);
+      expect(settings.url).not.toMatch(/\/v1\/?$/);
+    }
   });
 });
 

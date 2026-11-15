@@ -1,6 +1,5 @@
 {
   "name": "ripestat_abuse",
-  "kind": "http",
   "description": "Abuse contact addresses for an IP address, prefix or AS (RIPEstat, keyless)",
   "docs": "https://stat.ripe.net/docs/02.data-api/abuse-contact-finder.html",
   "inputs": [

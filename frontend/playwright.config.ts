@@ -16,7 +16,7 @@ export default defineConfig({
   use: { ...devices["Desktop Chrome"], baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure" },
   webServer: {
     command: "sh e2e/serve.sh",
-    // Public, so it answers before anyone signs in; the service starts ArcadeDB's JVM first.
+    // Public, so it answers before anyone signs in.
     url: `http://127.0.0.1:${port}/health`,
     timeout: 180_000,
     reuseExistingServer: false,

@@ -35,6 +35,7 @@ with the server-side time and whether the model had to be loaded first, and
 ``usage`` with the token counts when the model reports them.
 """
 
+import asyncio
 import base64
 import json
 import struct
@@ -223,7 +224,8 @@ async def list_models(manager: deps.Manager):
     OpenAI fields. Without ALLOWED_MODELS, models loaded on request but not
     in the catalog (any Hub ID) are included too.
     """
-    pairs = [(m, task) for task, ids in manager.get_available_models(Config.ALLOWED_MODELS).items() for m in ids]
+    available = await asyncio.to_thread(manager.get_available_models, Config.ALLOWED_MODELS)
+    pairs = [(m, task) for task, ids in available.items() for m in ids]
     if not Config.ALLOWED_MODELS:
         pairs += [(info["model_id"], info["task"]) for info in manager.get_cache_status()["model_details"].values()]
     data = []

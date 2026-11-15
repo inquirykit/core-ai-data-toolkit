@@ -4,19 +4,19 @@
 import { useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ApiClient } from "../../shared/api";
-import { CodeBlock, Notice } from "../../shared/components";
+import { useApi } from "../../shared/api";
+import { CodeBlock, Notice, StatusBadge } from "../../shared/components";
 import { errorText, poll, useReloadOn } from "../../shared/query";
 import type { Job } from "../../shared/types";
-import { isActive } from "./jobs";
-import { StatusBadge } from "./JobsTable";
+import { isActive } from "../../shared/tasks";
 
 /** A running job's log is fetched again this often while its dialog is open. */
 const LOG_POLL_MS = 2000;
 
 /** A job's log, fetched again every few seconds while it runs. ``job`` is the row from the list, when it is in it. */
-export function LogDialog(props: { client: ApiClient; id: string; job: Job | undefined; onClose(): void }) {
-  const { client, id } = props;
+export function LogDialog(props: { id: string; job: Job | undefined; onClose(): void }) {
+  const client = useApi();
+  const { id } = props;
   // The row fetched on its own, for a job older than the list shows (a schedule's last run).
   const fetched = client.useQuery("get", "/jobs/{id}", { params: { path: { id } } }, { enabled: !props.job });
   const pre = useRef<HTMLPreElement>(null);

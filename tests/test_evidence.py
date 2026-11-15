@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-pytest.importorskip("arcadedb_embedded")
 
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
@@ -18,7 +17,7 @@ from evidence.enrich import hosts_of  # noqa: E402
 from evidence import GENESIS_HASH, verify_uploads  # noqa: E402
 from core.errors import Refused  # noqa: E402
 from evidence.record import is_valid_artifact_name  # noqa: E402
-from evidence.store import CAPTURE  # noqa: E402
+from evidence.store import OWNER, TABLES  # noqa: E402
 from evidence.tsa import SHA256_OID, TsaError, build_request, inspect  # noqa: E402
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake image bytes " * 100
@@ -51,8 +50,6 @@ def client():
     key_file.write_bytes(FIXED_KEY.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     ))
-    # The JVM must start on the main thread (see Database.start_jvm).
-    app_module.app.state.database.start_jvm()
     real_enrichers = app_module.app.state.enrichers
     app_module.app.state.enrichers = FakeEnrich()
     try:
@@ -307,12 +304,12 @@ def test_verify_detects_tampering(client):
     assert report["issues"] and all(i["severity"] == "warning" and i["message"] == "no trusted timestamp" for i in report["issues"])
 
     store = client.portal.call(client.app.state.evidence.ledger, "default")
-    db = store._db()
-    row = store._rows(db, f"SELECT record_json FROM {CAPTURE} WHERE seq = 1")[0]
+    db, captures = store._db(), store._captures
+    row = store._rows(db, f"SELECT record_json FROM {captures} WHERE seq = 1")[0]
     original = row["record_json"]
     tampered = original.replace('"note":"a note"', '"note":"a different note"')
     assert tampered != original
-    store._commit(db, lambda: db.command("sql", f"UPDATE {CAPTURE} SET record_json = :j WHERE seq = 1", {"j": tampered}))
+    store._commit(db, lambda: db.execute(f"UPDATE {captures} SET record_json = $j WHERE seq = 1", {"j": tampered}))
     try:
         report = client.get("/evidence/verify").json()
         assert not report["ok"]
@@ -323,11 +320,11 @@ def test_verify_detects_tampering(client):
         # One broken record gives one set of errors, not a cascade: record 2 still chains to the claimed hash.
         assert not [i for i in report["issues"] if i["severity"] == "error" and i["seq"] != 1]
     finally:
-        store._commit(db, lambda: db.command("sql", f"UPDATE {CAPTURE} SET record_json = :j WHERE seq = 1", {"j": original}))
+        store._commit(db, lambda: db.execute(f"UPDATE {captures} SET record_json = $j WHERE seq = 1", {"j": original}))
     assert client.get("/evidence/verify").json()["ok"]
 
     # A modified artifact on disk is found too.
-    capture_id = store._rows(db, f"SELECT capture_id FROM {CAPTURE} WHERE seq = 1")[0]["capture_id"]
+    capture_id = store._rows(db, f"SELECT capture_id FROM {captures} WHERE seq = 1")[0]["capture_id"]
     path = Path(Config.EVIDENCE_DIR) / "captures" / capture_id / "artifacts" / "screenshot.png"
     os.chmod(path, 0o644)
     path.write_bytes(PNG + b"!")
@@ -400,6 +397,36 @@ def test_annotations_stay_apart_from_the_record(client):
     assert after["ok"] and after["records"] == before["records"] and after["headHash"] == before["headHash"]
 
 
+def test_two_changes_to_one_annotation_at_once_keep_both(client, monkeypatch):
+    """A call that changes the tags and one that changes the notes, at once, on a capture with no annotation yet:
+    the one that commits second runs again on what the first wrote, so neither change is lost."""
+    import threading
+
+    cid = upload(client, metadata()).json()["captureId"]
+    ledger = client.portal.call(client.app.state.evidence.ledger, "default")
+    inside, go, calls = threading.Event(), threading.Event(), []
+    write_row = ledger._t.write_row
+
+    def paused(db, workspace, table, row):
+        calls.append(table)
+        if len(calls) == 1:  # the tags' change, after it read the annotation: it waits for the notes' to commit
+            inside.set()
+            go.wait(5)
+        return write_row(db, workspace, table, row)
+
+    monkeypatch.setattr(ledger._t, "write_row", paused)
+    tagged = []
+    tagging = threading.Thread(target=lambda: tagged.append(client.portal.call(ledger.annotate, cid, ["urgent"], None)))
+    tagging.start()
+    assert inside.wait(5)
+    client.portal.call(ledger.annotate, cid, None, [{"text": "seen twice"}])
+    go.set()
+    tagging.join(10)
+    assert tagged and tagged[0]["tags"] == ["urgent"] and [n["text"] for n in tagged[0]["notes"]] == ["seen twice"]
+    annotations = {a["captureId"]: a for a in client.get("/evidence/cases/inbox/annotations").json()["annotations"]}
+    assert annotations[cid]["tags"] == ["urgent"] and [n["text"] for n in annotations[cid]["notes"]] == ["seen twice"]
+
+
 def test_todos_belong_to_the_case(client):
     case_id = client.post("/evidence/cases", json={"name": "Todo case"}).json()["case"]["id"]
     a = upload(client, metadata(case_id)).json()
@@ -457,133 +484,145 @@ def test_todos_belong_to_the_case(client):
     assert after["ok"] and after["records"] == before["records"] and after["headHash"] == before["headHash"]
 
 
-def test_off_when_no_directory(client, monkeypatch):
-    monkeypatch.setattr(client.app.state, "evidence", None)
-    r = client.get("/evidence/cases")
-    assert r.status_code == 503 and "EVIDENCE_DIR" in r.json()["error"]
-
-
 # ------------------------------------------------------------- workspaces
-WORKSPACE = "0199f3a1-7c2e-7d4b-9a1e-2f3c4d5e6f70"  # a UUIDv7
+def workspace(client, name, label=None):
+    """A workspace made as an admin makes one (POST /db); its first evidence write makes its ledger."""
+    r = client.post("/db", json={"name": name, "label": label})
+    assert r.status_code == 201, r.text
+    return name
 
 
 def test_a_workspace_has_its_own_ledger(client):
-    listed = client.get("/evidence/workspaces").json()["workspaces"]
-    assert listed[0] == {"id": "default", "name": "Default", "createdAt": listed[0]["createdAt"]}
-    made = client.post("/evidence/workspaces", json={"id": WORKSPACE, "name": "  Fraud ring  "})
-    assert made.status_code == 201, made.text
-    assert made.json()["workspace"]["name"] == "Fraud ring"
-    assert WORKSPACE in [w["id"] for w in client.get("/evidence/workspaces").json()["workspaces"]]
-    assert client.post("/evidence/workspaces", json={"id": WORKSPACE, "name": "again"}).status_code == 409
-
-    # Its own inbox, its own chain from the genesis hash, its own files.
-    assert [c["id"] for c in client.get(f"/evidence/cases?workspace={WORKSPACE}").json()["cases"]] == ["inbox"]
-    r = upload(client, metadata(), workspace=WORKSPACE)
+    ws = workspace(client, "fraud_ring", "Fraud ring")
+    # Its own inbox, its own chain from the genesis hash, its own files, all by its name.
+    assert [c["id"] for c in client.get(f"/evidence/cases?workspace={ws}").json()["cases"]] == ["inbox"]
+    r = upload(client, metadata(), workspace=ws)
     assert r.status_code == 200, r.text
     a = r.json()
     assert a["seq"] == 1
-    record = client.get(f"/evidence/captures/{a['captureId']}?workspace={WORKSPACE}").json()["record"]
-    assert record["schema"] == "evidence-capture/record/v3" and record["workspaceId"] == WORKSPACE
+    assert {t["name"] for t in client.get(f"/db/{ws}").json()["tables"]} == set(TABLES)
+    record = client.get(f"/evidence/captures/{a['captureId']}?workspace={ws}").json()["record"]
+    assert record["schema"] == "evidence-capture/record/v3" and record["workspaceId"] == ws
     assert record["prevRecordHash"] == GENESIS_HASH
-    directory = Path(Config.EVIDENCE_DIR) / "workspaces" / WORKSPACE / "captures" / a["captureId"]
+    directory = Path(Config.EVIDENCE_DIR) / "workspaces" / ws / "captures" / a["captureId"]
     assert sha((directory / "record.json").read_bytes()) == a["recordHash"]
-    artifact = client.get(f"/evidence/captures/{a['captureId']}/artifacts/screenshot.png?workspace={WORKSPACE}")
+    artifact = client.get(f"/evidence/captures/{a['captureId']}/artifacts/screenshot.png?workspace={ws}")
     assert artifact.status_code == 200 and artifact.content == PNG
 
     # A capture is found in its own workspace only.
     assert client.get(f"/evidence/captures/{a['captureId']}").status_code == 404
-    listed = client.get(f"/evidence/cases/inbox/captures?workspace={WORKSPACE}").json()["captures"]
+    listed = client.get(f"/evidence/cases/inbox/captures?workspace={ws}").json()["captures"]
     assert [c["captureId"] for c in listed] == [a["captureId"]]
     assert a["captureId"] not in [c["captureId"] for c in client.get("/evidence/cases/inbox/captures").json()["captures"]]
-    report = client.get(f"/evidence/verify?workspace={WORKSPACE}").json()
-    assert report["workspace"] == WORKSPACE and report["ok"] and report["records"] == 1
+    report = client.get(f"/evidence/verify?workspace={ws}").json()
+    assert report["workspace"] == ws and report["ok"] and report["records"] == 1
     assert report["headHash"] == a["recordHash"]
     assert client.get("/evidence/verify").json()["workspace"] == "default"
 
-    # Its namespace in /db is the service's: listed as such, read-only there, and its prefix reserved.
-    namespace = "evidence_" + WORKSPACE.replace("-", "_")
-    listing = {n["name"]: n for n in client.get("/db").json()["namespaces"]}
-    assert listing[namespace]["managed"] and {"cases", "captures"} <= {t["name"] for t in listing[namespace]["tables"]}
-    assert client.put(f"/db/{namespace}/cases/x", json={"name": "sneaky"}).status_code == 403
-    assert client.post("/db", json={"name": "evidence_mine"}).status_code == 409
+    # It is a workspace of /db, its ledger in kept tables there: read-only, and the workspace cannot be dropped
+    # while it holds them.
+    listing = {n["name"]: n for n in client.get("/db").json()["workspaces"]}
+    assert listing[ws]["label"] == "Fraud ring" and listing[ws]["managed"] is None
+    kept = {t["name"]: t["kept"] for t in listing[ws]["tables"]}
+    assert kept == dict.fromkeys(TABLES, OWNER)
+    assert client.put(f"/db/{ws}/evidence_cases/x", json={"name": "sneaky"}).status_code == 403
+    assert client.delete(f"/db/{ws}").status_code == 403
 
 
-def test_workspace_ids_and_names_are_checked(client):
-    for bad in ("Upper", "a--b", "-a", "a_b"):
-        r = client.post("/evidence/workspaces", json={"id": bad, "name": "x"})
-        assert r.status_code == 400, (bad, r.text)
-    for bad in ("x" * 37, 5):  # the body's own checks
-        assert client.post("/evidence/workspaces", json={"id": bad, "name": "x"}).status_code == 422, bad
-    assert client.post("/evidence/workspaces", json={"name": " "}).status_code == 422
-    made = client.post("/evidence/workspaces", json={"name": "Made up"}).json()["workspace"]
-    assert len(made["id"]) == 36 and made["name"] == "Made up"
-    assert client.get("/evidence/cases?workspace=nope").status_code == 404
-    assert client.get("/evidence/cases?workspace=Bad_Id").status_code == 400
+def test_a_workspace_is_named_by_its_name_alone(client):
+    # None of that name, what is no name, a name in another case than its own, one of the service's own.
+    for name in ("nope", "bad--id", "Fraud_Ring", "evals"):
+        assert client.get("/evidence/cases", params={"workspace": name}).status_code == 404, name
     assert upload(client, metadata(), workspace="nope").status_code == 404
 
 
-def test_workspaces_are_made_with_the_admin_key(client, monkeypatch):
+def test_a_client_key_writes_evidence_only_where_the_admin_opened_it(client, monkeypatch):
+    """A first evidence write makes a workspace one that cannot be dropped: in an admin's workspace a client key
+    makes none, and the workspace stays as it was; once the admin key wrote evidence in it, the client key writes
+    there too. The default workspace is anyone's."""
     monkeypatch.setattr(Config, "API_KEY", "client-key")
     monkeypatch.setattr(Config, "ADMIN_API_KEY", "admin-key")
-    as_client = {"X-API-Key": "client-key"}
-    assert client.post("/evidence/workspaces", json={"name": "x"}, headers=as_client).status_code == 401
-    assert client.get("/evidence/workspaces", headers=as_client).status_code == 200
+    admin, user = {"X-API-Key": "admin-key"}, {"X-API-Key": "client-key"}
+    assert client.post("/db", json={"name": "admins_data"}, headers=admin).status_code == 201
+    assert client.put("/db/admins_data/notes/n1", json={"text": "mine"}, headers=admin).status_code == 201
+    ws = {"workspace": "admins_data"}
+    refused = [
+        client.post("/evidence/cases", params=ws, json={"name": "x"}, headers=user),
+        upload(client, metadata(), headers=user, workspace="admins_data"),
+        client.put("/evidence/cases/inbox/todos", params=ws, json={"todos": [{"text": "x"}]}, headers=user),
+    ]
+    for r in refused:
+        assert r.status_code == 403 and "admin key" in r.json()["error"], r.text
+    # Reads answer as an empty ledger; nothing was made, and the admin drops the workspace as before.
+    assert [c["id"] for c in client.get("/evidence/cases", params=ws, headers=user).json()["cases"]] == ["inbox"]
+    assert [t["name"] for t in client.get("/db/admins_data", headers=admin).json()["tables"]] == ["notes"]
+    assert client.delete("/db/admins_data", headers=admin).status_code == 204
+
+    # The default workspace takes a client key's evidence, as the browser extension's.
+    assert client.post("/evidence/cases", json={"name": "from the extension"}, headers=user).status_code == 200
+
+    # Opened by the admin key: the client key writes there from then on.
+    assert client.post("/db", json={"name": "opened_by_admin"}, headers=admin).status_code == 201
+    ws = {"workspace": "opened_by_admin"}
+    case = client.post("/evidence/cases", params=ws, json={"name": "Case 1"}, headers=admin).json()["case"]
+    assert upload(client, metadata(case["id"]), headers=user, workspace="opened_by_admin").status_code == 200
+    r = client.put(f"/evidence/cases/{case['id']}/todos", params=ws, json={"todos": [{"text": "x"}]}, headers=user)
+    assert r.status_code == 200, r.text
+    assert client.post("/evidence/cases", params=ws, json={"name": "Case 2"}, headers=user).status_code == 200
+
+
+def test_any_workspace_holds_evidence_made_on_its_first_write(client):
+    """A workspace made through /db is named by its name; looking at its evidence makes nothing in it, so it can
+    still be dropped; its first write makes its ledger, after which it cannot be, and two first writes at once
+    make it once."""
+    import asyncio
+
+    assert client.post("/db", json={"name": "Looked_at", "label": "Looked at"}).status_code == 201
+    ws = {"workspace": "Looked_at"}
+    assert [c["id"] for c in client.get("/evidence/cases", params=ws).json()["cases"]] == ["inbox"]
+    assert client.get("/evidence/cases/inbox/captures", params=ws).json() == {"captures": []}
+    assert client.get("/evidence/cases/inbox/annotations", params=ws).json() == {"annotations": []}
+    assert client.get("/evidence/cases/inbox/todos", params=ws).json() == {"caseId": "inbox", "todos": [], "updatedAt": None}
+    assert client.get("/evidence/cases/nope/todos", params=ws).status_code == 404
+    assert client.get("/evidence/search", params={**ws, "q": "words"}).json() == {"captures": [], "count": 0, "next": None}
+    assert client.get("/evidence/search", params={**ws, "q": "-only"}).status_code == 400
+    assert client.get("/evidence/captures/nope", params=ws).status_code == 404
+    assert client.put("/evidence/captures/nope/annotations", params=ws, json={"tags": ["x"]}).status_code == 404
+    report = client.get("/evidence/verify", params=ws).json()
+    assert report["ok"] and report["records"] == 0 and report["workspace"] == "Looked_at"
+    assert client.get("/db/Looked_at").json()["tables"] == []
+    assert client.delete("/db/Looked_at").status_code == 204
+
+    assert client.post("/db", json={"name": "written"}).status_code == 201
+    ledger = client.portal.call(client.app.state.evidence.ledger, "written")
+
+    async def two_first_writes():
+        return await asyncio.gather(ledger.create_case("one"), ledger.set_todos("inbox", [{"text": "x", "done": False}]))
+
+    case, todos = client.portal.call(two_first_writes)
+    cases = client.get("/evidence/cases", params={"workspace": "written"}).json()["cases"]
+    assert sorted(c["id"] for c in cases) == sorted(["inbox", case["id"]]) and todos["todos"][0]["text"] == "x"
+    assert {t["name"] for t in client.get("/db/written").json()["tables"]} == set(TABLES)
+    assert client.delete("/db/written").status_code == 403
 
 
 def test_a_record_moved_to_another_workspace_is_found(client):
     """A record signed for one workspace, copied into another's ledger, still verifies by its signature: the
     workspace it names gives it away."""
-    source, target = (client.post("/evidence/workspaces", json={"name": n}).json()["workspace"]["id"] for n in "st")
+    source, target = (workspace(client, n) for n in ("moved_from", "moved_to"))
     a = upload(client, metadata(), workspace=source).json()
     from_ledger = client.portal.call(client.app.state.evidence.ledger, source)
     to_ledger = client.portal.call(client.app.state.evidence.ledger, target)
     row = from_ledger._get(a["captureId"])
     db = to_ledger._db()
-    to_ledger._commit(db, lambda: to_ledger._insert(db, to_ledger._captures, {"id": row["capture_id"], **row}))
+    to_ledger._make(db)  # its tables, made on its first write
+    to_ledger._commit(db, lambda: to_ledger._t.write_row(db, to_ledger.workspace, "evidence_captures",
+                                                         {"id": row["capture_id"], **row}))
     report = client.get(f"/evidence/verify?workspace={target}").json()
     errors = [i["message"] for i in report["issues"] if i["severity"] == "error"]
     assert "workspaceId inside record does not match its workspace" in errors
     assert "signature does not verify" not in errors
     assert client.get(f"/evidence/verify?workspace={source}").json()["ok"]
-
-
-def test_a_ledger_from_before_workspaces_carries_on(arcade, tmp_path):
-    """A database with v2 records (no workspaceId) and no workspaces: they are the default workspace's, which goes
-    on chaining from them."""
-    from evidence import CaptureFiles, EvidenceStore, Signer, VerifiedArtifact, verify_all
-    from evidence.record import build_record, canonical, now_iso, sha256_hex
-    from evidence.store import CASE, TABLES
-    from db.tables import TableStore
-
-    signer, files = Signer(tmp_path / "key.pem"), CaptureFiles(tmp_path / "ev")
-    artifacts = [VerifiedArtifact("a.txt", "text/plain", sha256_hex(b"a"), b"a")]
-    old = build_record(seq=1, capture_id="c-old", workspace_id="default", case_id="inbox", received_at=now_iso(),
-                       prev_hash=GENESIS_HASH, version="0.9", signing_key_sha256=signer.fingerprint,
-                       artifacts=artifacts, client={"caseId": "inbox"}, enrichment={"skipped": True})
-    del old["workspaceId"]
-    old["schema"] = "evidence-capture/record/v2"
-    data = canonical(old)
-    files.write_capture("c-old", data, signer.sign(data), artifacts)
-    tables = TableStore(arcade)
-    tables.manage("evidence", "the ledger, as an earlier version left it", TABLES)
-    tables.ensure_managed("evidence")
-    db = arcade.open()
-    with db.transaction():
-        db.command("sql", f"INSERT INTO {CASE} CONTENT :row", {"row": {"id": "inbox", "name": "Inbox", "created_at": now_iso()}})
-        db.command("sql", f"INSERT INTO {CAPTURE} CONTENT :row", {"row": {
-            "id": "c-old", "seq": 1, "capture_id": "c-old", "case_id": "inbox", "received_at": old["receivedAt"],
-            "record_json": data.decode(), "record_hash": sha256_hex(data), "signature": signer.sign(data).hex()}})
-
-    store = EvidenceStore(arcade, TableStore(arcade), files, signer, "1.0")
-    assert [w["id"] for w in store._list_workspaces()] == ["default"]
-    ledger = store._ledger("default")
-    assert verify_all(ledger)["ok"]
-    appended = ledger._append("inbox", {"caseId": "inbox"}, artifacts, {"skipped": True})
-    record = json.loads(appended["recordJson"])
-    assert appended["seq"] == 2 and record["prevRecordHash"] == sha256_hex(data)
-    assert record["schema"] == "evidence-capture/record/v3" and record["workspaceId"] == "default"
-    report = verify_all(ledger)
-    assert report["ok"] and report["records"] == 2 and report["workspace"] == "default"
 
 
 # ------------------------------------------------------------------ search
@@ -612,7 +651,7 @@ def test_the_words_of_a_page_are_its_visible_text():
     assert snippet("Needle first", ["needle"]) == "Needle first" and snippet("nothing", ["needle"]) is None
 
 
-SEARCH_WS = "search-ws"
+SEARCH_WS = "search_ws"
 
 
 def search(client, **params):
@@ -627,7 +666,7 @@ def found(client, **params):
 
 @pytest.fixture(scope="module")
 def searchable(client):
-    assert client.post("/evidence/workspaces", json={"id": SEARCH_WS, "name": "Search"}).status_code == 201
+    workspace(client, SEARCH_WS, "Search")
     case = client.post(f"/evidence/cases?workspace={SEARCH_WS}", json={"name": "Fraud"}).json()["case"]["id"]
     pages = [
         ("inbox", "Bank login", "https://phishing-site.example.com/login",
@@ -674,8 +713,7 @@ def test_without_words_the_captures_are_listed_by_case_tag_and_time(client, sear
 
 
 def test_pages_go_on_where_the_last_ended_though_captures_come_in_between(client):
-    ws = "paging-ws"
-    assert client.post("/evidence/workspaces", json={"id": ws, "name": "Paging"}).status_code == 201
+    ws = workspace(client, "paging_ws")
 
     def capture(title):
         data = f"<body><p>{title} wire page</p></body>".encode()
@@ -726,37 +764,3 @@ def test_annotations_are_searched_as_soon_as_they_change(client, searchable):
 def test_bad_searches_are_refused(client, searchable, params):
     r = client.get("/evidence/search", params={"workspace": SEARCH_WS, **params})
     assert r.status_code in (400, 422), r.text
-
-
-def test_captures_from_before_the_search_are_indexed_from_their_files(arcade, tmp_path):
-    from evidence import CaptureFiles, EvidenceStore, Signer, VerifiedArtifact
-    from evidence.record import build_record, canonical, now_iso, sha256_hex
-    from evidence.store import CASE, TABLES
-    from db.tables import table_type
-    from db.tables import TableStore
-
-    signer, files = Signer(tmp_path / "key.pem"), CaptureFiles(tmp_path / "ev")
-    page = b"<body><p>An old capture about invoices</p></body>"
-    artifacts = [VerifiedArtifact("dom.html", "text/html", sha256_hex(page), page)]
-    old = build_record(seq=1, capture_id="c-old", workspace_id="default", case_id="inbox", received_at=now_iso(),
-                       prev_hash=GENESIS_HASH, version="0.9", signing_key_sha256=signer.fingerprint,
-                       artifacts=artifacts, client={"caseId": "inbox", "page": {"title": "Old"}}, enrichment={})
-    data = canonical(old)
-    files.write_capture("c-old", data, signer.sign(data), artifacts)
-    tables = TableStore(arcade)
-    tables.manage("evidence", "the ledger, as an earlier version left it", {k: v for k, v in TABLES.items() if k != "search"})
-    tables.ensure_managed("evidence")
-    db = arcade.open()
-    with db.transaction():
-        db.command("sql", f"INSERT INTO {CASE} CONTENT :row", {"row": {"id": "inbox", "name": "Inbox", "created_at": now_iso()}})
-        db.command("sql", f"INSERT INTO {CAPTURE} CONTENT :row", {"row": {
-            "id": "c-old", "seq": 1, "capture_id": "c-old", "case_id": "inbox", "received_at": old["receivedAt"],
-            "record_json": data.decode(), "record_hash": sha256_hex(data), "signature": signer.sign(data).hex(),
-            "title": "Old"}})
-        db.command("sql", f"INSERT INTO {table_type('evidence', 'annotations')} CONTENT :row", {"row": {
-            "id": "c-old", "capture_id": "c-old", "case_id": "inbox", "tags": ["billing"], "notes": [], "updated_at": now_iso()}})
-
-    ledger = EvidenceStore(arcade, TableStore(arcade), files, signer, "1.0")._ledger("default")
-    result = ledger._find("invoices", limit=10)
-    assert [c["captureId"] for c in result["captures"]] == ["c-old"] and result["captures"][0]["tags"] == ["billing"]
-    assert ledger._find("billing", limit=10)["count"] == 1

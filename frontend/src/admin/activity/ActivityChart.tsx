@@ -115,7 +115,7 @@ export function ActivityChart(props: ActivityChartProps) {
     const span = range.until - range.since;
     const ctx = context ? { since: context.since, until: context.until } : range;
     const dim = props.loading ? 0.45 : 1;
-    const text = { color: c["muted-foreground"], fontSize: 11.5, fontFamily: "Inter Variable, sans-serif" };
+    const text = { color: c["muted-foreground"], fontSize: 11.5, fontFamily: c.font };
     const grid = (box: { top: number; height: number }, extra: object = {}) => ({ left: M.l, right: M.r, ...box, ...extra });
     const timeAxis = (gridIndex: number, extra: object = {}) => ({
       type: "time",
@@ -222,9 +222,9 @@ export function ActivityChart(props: ActivityChartProps) {
         outOfBrush: { colorAlpha: 1 },
       },
       graphic: [
-        { id: "req-title", type: "text", right: M.r, top: REQ.top + 2, style: { text: `Requests per interval${data ? ` · ${fmtBucketLength(bucketS)}` : ""}`, fill: c["muted-foreground"], fontSize: 11 } },
-        { id: "lat-title", type: "text", right: M.r, top: LAT.top - 16, style: { text: "Latency · p95 and p50", fill: c["muted-foreground"], fontSize: 11 } },
-        { id: "empty", type: "text", left: "center", top: REQ.top + REQ.height / 2 - 6, invisible: !empty, style: { text: "No requests in this range", fill: c["muted-foreground"], fontSize: 13 } },
+        { id: "req-title", type: "text", right: M.r, top: REQ.top + 2, style: { text: `Requests per interval${data ? ` · ${fmtBucketLength(bucketS)}` : ""}`, fill: c["muted-foreground"], fontSize: 11, fontFamily: c.font } },
+        { id: "lat-title", type: "text", right: M.r, top: LAT.top - 16, style: { text: "Latency · p95 and p50", fill: c["muted-foreground"], fontSize: 11, fontFamily: c.font } },
+        { id: "empty", type: "text", left: "center", top: REQ.top + REQ.height / 2 - 6, invisible: !empty, style: { text: "No requests in this range", fill: c["muted-foreground"], fontSize: 13, fontFamily: c.font } },
       ],
       series: [
         // Requests: OK, then failed stacked on top.
